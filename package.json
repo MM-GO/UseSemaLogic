@@ -1,5 +1,5 @@
 {
-	"name": "semalogic-obsidian-plugin",
+	"name": "UseSemaLogicInObsidian",
 	"version": "2.0.0",
 	"description": "Initial version for publishing as obsidian plugins",
 	"main": "main.js",
