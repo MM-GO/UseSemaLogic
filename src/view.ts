@@ -1,6 +1,6 @@
 import { DropdownComponent, ItemView, WorkspaceLeaf, ButtonComponent, RequestUrlParam, requestUrl } from "obsidian";
 import { slTexts, rulesettypesCommands, rstypes_Semalogic, rstypes_Picture, rstypes_ASP, rstypes_SemanticTree, DebugLevMap } from "./const"
-import { SemaLogicPluginComm, DebugLevel, SemaLogicPluginSettings } from "./main"
+import { SemaLogicPluginComm, DebugLevel, SemaLogicPluginSettings } from "../main"
 import { slconsolelog } from './utils'
 import { ViewUtils } from "./view_utils";
 

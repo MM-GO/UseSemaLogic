@@ -1,6 +1,6 @@
-import { DebugLevMap, rstypes_ASP, rstypes_Semalogic, rulesettypesCommands, semaLogicCommand } from "const"
-import { DebugLevel } from "main"
-import { slconsolelog } from "utils"
+import { DebugLevMap, rstypes_ASP, rstypes_Semalogic, rulesettypesCommands, semaLogicCommand } from "src/const"
+import { DebugLevel } from "../main"
+import { slconsolelog } from "src/utils"
 
 export interface parseCommand {
     outputformat: string,

@@ -16,7 +16,7 @@ export const API_Defaults = {
 	HttpUser: "User",
 	HttpPassword: "Password",
 	viewheader: "SemaLogicView",
-	AspUrl: "ASP-Service-URL.com",
+	AspUrl: "ASP-Service-URL.com/",
 	AspEndpoint: "/plans/count"
 
 }

@@ -1,8 +1,8 @@
 import { ItemView, WorkspaceLeaf, RequestUrlParam, requestUrl } from "obsidian";
 import { rulesettypesCommands, rstypes_ASP, DebugLevMap, semaLogicCommand } from "./const"
-import { SemaLogicPluginComm, DebugLevel, SemaLogicPluginSettings } from "./main"
+import { SemaLogicPluginComm, DebugLevel, SemaLogicPluginSettings } from "../main"
 import { getHostAspPort } from './utils'
-import { parseCommand } from "view_utils";
+import { parseCommand } from "src/view_utils";
 
 
 export const ASPViewType = 'TransferService';

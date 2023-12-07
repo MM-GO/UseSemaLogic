@@ -1,9 +1,9 @@
 import { MarkdownRenderChild, MarkdownView } from 'obsidian';
 import { requestUrl, RequestUrlParam, RequestUrlResponse } from 'obsidian';
-import { DebugLevel, SemaLogicPluginSettings } from "./main";
+import { DebugLevel, SemaLogicPluginSettings } from "../main";
 import { API_Defaults, semaLogicCommand, semaLogicHelp, rulesettypesCommands, DebugLevelNames, DebugLevMap, rstypes_ASP, rstypes_Semalogic } from "./const"
 import { SemaLogicView, SemaLogicViewType } from "./view";
-import { parseCommand } from 'view_utils';
+import { parseCommand } from 'src/view_utils';
 
 export const searchForSemaLogicCommands = (el: Element): boolean => {
   for (let i = 0; i < el.childNodes.length; i++) {
