@@ -2,7 +2,7 @@
 export const API_Defaults = {
 	http: "http://",
 	https: "https://",
-	Base_URL: "localhost",
+	Base_URL: "service.semalogic.ddns.net",
 	Port: "28000",
 	rules_parse: "/rules/parse",
 	reset: "/reset",
@@ -10,13 +10,13 @@ export const API_Defaults = {
 	PostDialect: "/dialect/define",
 	RemoveDialect: "/dialect/remove",
 	GetAPI: "/APIVersion",
-	SID: "12345678",
+	SID: "200202312072321",
 	ShowContext: true,
 	useUserPasswortforHTTP: false,
 	HttpUser: "User",
 	HttpPassword: "Password",
 	viewheader: "SemaLogicView",
-	AspUrl: "ASP-Service-URL.com/",
+	AspUrl: "ASP-Service-URL.com",
 	AspEndpoint: "/plans/count"
 
 }
