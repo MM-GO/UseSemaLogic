@@ -1,0 +1,51 @@
+{
+  "mySLSettings": [
+    {
+      "myPort": "443",
+      "myOutputFormat": "SVG",
+      "myBaseURL": "service.semalogic.ddns.net",
+      "myGetAPI": "/APIVersion",
+      "mySID": "12345680",
+      "myContext": true,
+      "myUseHttp": false,
+      "myUser": "myUser",
+      "myPassword": "myPassword",
+      "myUpdateInterval": 5000,
+      "myUseHttps": true,
+      "myAspUrl": "",
+      "myAspEndpoint": ""
+    },
+    {
+      "myPort": "443",
+      "myOutputFormat": "SVG",
+      "myBaseURL": "service.semalogic.ddns.net",
+      "myGetAPI": "/APIVersion",
+      "mySID": "12345680",
+      "myContext": true,
+      "myUseHttp": false,
+      "myUser": "myUser",
+      "myPassword": "myPassword",
+      "myUpdateInterval": 5000,
+      "myUseHttps": true,
+      "myAspUrl": "",
+      "myAspEndpoint": ""
+    },
+    {
+      "myPort": "443",
+      "myOutputFormat": "SVG",
+      "myBaseURL": "service.semalogic.ddns.net",
+      "myGetAPI": "/APIVersion",
+      "mySID": "12345680",
+      "myContext": true,
+      "myUseHttp": false,
+      "myUser": "myUser",
+      "myPassword": "myPassword",
+      "myUpdateInterval": 5000,
+      "myUseHttps": true,
+      "myAspUrl": "",
+      "myAspEndpoint": ""
+    }
+  ],
+  "mySetting": 0,
+  "myDebugLevel": 0
+}

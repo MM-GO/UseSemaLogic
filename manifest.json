@@ -1,0 +1,10 @@
+{
+	"id": "UseSemaLogicInObsidian",
+	"name": "SemaLogic Obsidian Plugin",
+	"version": "2.0.0",
+	"minAppVersion": "1.3.0",
+	"description": "c",
+	"author": "SemaLogic UG",
+	"authorUrl": "https://SemaLogic.de",
+	"isDesktopOnly": false
+}
