@@ -25,6 +25,8 @@ First SemaLogic Commands which are available are
 
 After installation there shoud be a first profile for connecting the SemaLogic service in the web on service.semalogic.ddns.net with default settings. Later it could be possible that there is a SemaLogic-Service running on localhost or private network, so there are more than one profile settings.
 
+We are building an overview documentation to use the SemaLogic formal and technical language. Then it will be linked here, published on SemaLogic.de and then you are able to create to own SemaLogic realtime notes.
+
 To test using SemaLogic - open a new notes and write following :
 
 Note 1 - Example technical language:
