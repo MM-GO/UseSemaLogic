@@ -19,8 +19,42 @@ First SemaLogic Commands which are available are
 - Show Version
 - Set Dialect with template
 
-3. Hand over the results of SemaLogic to an asp-specified-SemaLogic-service for solving
+3. Hand over the results of SemaLogic to an asp-specified-SemaLogic-service for solving (special opportunity for developer friend)
 
 ## How to use
 
-After installation there shoud be a first profile for connecting the SemaLogic service in the web on service.semalogic.ddns.net.
+After installation there shoud be a first profile for connecting the SemaLogic service in the web on service.semalogic.ddns.net with default settings. Later it could be possible that there is a SemaLogic-Service running on localhost or private network, so there are more than one profile settings.
+
+To test using SemaLogic - open a new notes and write following :
+
+Note 1 - Example technical language:
+
+OR-Rule 1|2 { Choice A, Choice B}
+Choice A [AND-Rule D,E]
+AND-Rule D[Choice A,F]
+
+and see what happens in the SemaLogicView
+
+Note 2 - Example:
+
+Formalsprachliche Definition einer Und-Regel inkl. notwendiger SymToken - Configuration (for German Language)
+
+Das Studium besteht aus der Abschlussarbeit, den Pflichtkursen und den Wahlmodulen.
+
+Aus den Wahlmodulen können 2 bis 3 Alternativen der Module Geschichte 19tes Jh., moderne Geschichte, römische Geschichte oder griechische Geschichte gewählt werden.
+
+SymTokenAndOpen≡ besteht aus
+SymTokenSpace≡Das
+SymTokenSpace≡der
+SymTokenElement≡,
+SymTokenSpace≡den
+SymTokenEoS≡.
+SymTokenElement≡ und
+
+SymTokenOrOpen≡ Alternativen
+SymTokenOrClose≡gewählt werden
+SymTokenSpace≡Aus
+SymTokenSpace≡können
+SymTokenInterval≡ bis
+SymTokenSpace≡der Module
+SymTokenElement≡ oder
