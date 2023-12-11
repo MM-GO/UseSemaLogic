@@ -1,7 +1,7 @@
 {
-	"name": "UseSemaLogicInObsidian",
+	"name": "UseSemaLogic",
 	"version": "2.0.0",
-	"description": "Initial version for publishing as obsidian plugins",
+	"description": "Real-time use of the SemaLogic formal languages",
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
@@ -10,7 +10,7 @@
 		"test": "jest"
 	},
 	"keywords": [],
-	"author": "SemaLogic",
+	"author": "SemaLogic UG",
 	"license": "Plugin under GnuGPLv3 (SemaLogic-service currently free use of a commercial license for testing)",
 	"devDependencies": {
 		"@types/jest": "^29.5.3",
