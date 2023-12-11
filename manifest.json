@@ -1,6 +1,6 @@
 {
 	"id": "UseSemaLogic",
-	"name": "Use formal language SemaLogic ",
+	"name": "UseSemaLogic",
 	"version": "2.0.0",
 	"minAppVersion": "1.4.16",
 	"description": "Real-time use of the SemaLogic formal language",
