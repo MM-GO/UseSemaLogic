@@ -54,9 +54,10 @@ export async function replaceWithCommandNode(containerEl: HTMLElement, settings:
         // search for a given filter
         const findfor = semaLogicCom.indexOf(semaLogicCommand.showFilter)
         if (findfor > 0) {
-          let filter = semaLogicCom.substring(findfor + semaLogicCommand.showFilter.length)
+          filter = semaLogicCom.substring(findfor + semaLogicCommand.showFilter.length)
           filter = filter.trim()
         }
+        found = true
         break
       }
     }

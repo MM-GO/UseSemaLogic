@@ -1,11 +1,11 @@
 import { App, MarkdownView, Plugin, PluginSettingTab, requestUrl, Setting, WorkspaceLeaf, renderResults, RequestUrlParam, RequestUrlResponse, RequestUrlResponsePromise, ButtonComponent, MarkdownRenderChild, MarkdownPreviewView, View }
 	from 'obsidian';
-import { SemaLogicView, SemaLogicViewType } from "./view";
-import { ASPView, ASPViewType } from "./view_asp";
+import { SemaLogicView, SemaLogicViewType } from "./src/view";
+import { ASPView, ASPViewType } from "./src/view_asp";
 import { ViewUpdate, EditorView } from "@codemirror/view";
-import { SemaLogicRenderedElement, searchForSemaLogicCommands, getHostPort, semaLogicPing, slconsolelog } from "./utils";
-import { API_Defaults, Value_Defaults, semaLogicCommand, rulesettypesCommands, rstypes_Semalogic, rstypes_Picture, rstypes_ASP, DebugLevMap, DebugLevelNames } from "./const"
-import { ViewUtils } from 'view_utils';
+import { SemaLogicRenderedElement, searchForSemaLogicCommands, getHostPort, semaLogicPing, slconsolelog } from "./src/utils";
+import { API_Defaults, Value_Defaults, semaLogicCommand, rulesettypesCommands, rstypes_Semalogic, rstypes_Picture, rstypes_ASP, DebugLevMap, DebugLevelNames } from "./src/const"
+import { ViewUtils } from 'src/view_utils';
 
 export var DebugLevel = 0;
 
@@ -407,7 +407,9 @@ export default class SemaLogicPlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		this.registerMarkdownPostProcessor((element, context) => {
-			console.log(element, context)
+			if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) {
+				console.log(element, context)
+			}
 			element.querySelectorAll("p").forEach((el) => {
 				if (searchForSemaLogicCommands(el)) {
 					let set = this.settings
@@ -579,7 +581,9 @@ export default class SemaLogicPlugin extends Plugin {
 			await this.semaLogicReset()
 			this.app.workspace.revealLeaf(leaf);
 		} else {
-			console.log("ASP-Leaf not created")
+			if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) {
+				console.log("ASP-Leaf not created")
+			}
 		}
 		this.setViews()
 		this.handlePing()
@@ -606,7 +610,9 @@ export default class SemaLogicPlugin extends Plugin {
 			await this.semaLogicReset()
 			this.app.workspace.revealLeaf(leaf);
 		} else {
-			console.log("SemaLogic-Leaf not created")
+			if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) {
+				console.log("SemaLogic-Leaf not created")
+			}
 		}
 		this.setViews()
 		this.handlePing()
