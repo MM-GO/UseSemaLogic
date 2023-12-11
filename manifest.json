@@ -3,7 +3,7 @@
 	"name": "SemaLogic Obsidian Plugin",
 	"version": "2.0.0",
 	"minAppVersion": "1.4.16",
-	"description": "Use SemaLogic in obsidian",
+	"description": "Real-time use of the SemaLogic formal language",
 	"author": "SemaLogic UG",
 	"authorUrl": "https://SemaLogic.de",
 	"isDesktopOnly": false
