@@ -2,10 +2,15 @@ import { DebugLevMap, rstypes_ASP, rstypes_Semalogic, rulesettypesCommands, sema
 import { DebugLevel } from "../main"
 import { slconsolelog } from "src/utils"
 
-export interface parseCommand {
+
+export type parseCommand = {
     outputformat: string,
     endpoint: string,
     param: string
+}
+
+export interface parseCommands {
+    commands: parseCommand[]
 }
 
 export class ViewUtils {
@@ -39,16 +44,16 @@ export class ViewUtils {
         contentArray.forEach(element => {
             let row = element.trim()
             row = row.toLowerCase()
-            if (DebugLevel == DebugLevMap.DebugLevel_Chatty) { console.log("Row before:" + row) }
+            slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, "Row before:" + row)
             row = row.replaceAll(" ", "")
-            if (DebugLevel == DebugLevMap.DebugLevel_Chatty) { console.log("Row after:" + row) }
+            slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, "Row after:" + row)
             if (row.indexOf(semaLogicCommand.command_start.toLowerCase()) != 0) { // No starting SemaLogic-Command
                 contentCleaned.push(element)
             } else {
                 // Starting SemaLogicCommand
                 // Test for SemaLogicCommands which should be interpretated by SemaLogicService    
-                if (DebugLevel == DebugLevMap.DebugLevel_Chatty) { console.log("Index Define:" + row.indexOf(semaLogicCommand.define).toString()) }
-                if (DebugLevel == DebugLevMap.DebugLevel_Chatty) { console.log("Length Start:" + semaLogicCommand.command_start.length.toString()) }
+                slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, "Index Define:" + row.indexOf(semaLogicCommand.define).toString())
+                slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, "Length Start:" + semaLogicCommand.command_start.length.toString())
                 if (row.indexOf(semaLogicCommand.define) == semaLogicCommand.command_start.length) {
                     contentCleaned.push(element)
                 }

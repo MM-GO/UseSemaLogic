@@ -79,14 +79,14 @@ export const Default_profile: SemaLogicPluginSettings = {
 
 
 const getDebugLevel = (DebugLevelName: string): number => {
-	if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) { console.log('Get for DebugLevelName', DebugLevelName) }
+	slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, 'Get for DebugLevelName', DebugLevelName)
 	DebugLevelNames.forEach((value, index) => {
 		if (value == DebugLevelName) {
-			if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) { console.log('Find DebugLevelIndex', index) }
+			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, 'Find DebugLevelIndex', index)
 			return index
 		}
 	});
-	if (DebugLevel >= DebugLevMap.DebugLevel_High) { console.log('No Finding for DebugLevelName', DebugLevelName) }
+	slconsolelog(DebugLevMap.DebugLevel_High, undefined, 'No Finding for DebugLevelName', DebugLevelName)
 	return 0
 }
 
@@ -120,7 +120,7 @@ class SemaLogicSettingTab extends PluginSettingTab {
 				.addOption('5', DebugLevelNames[5])
 				.setValue(String(this.plugin.settings.myDebugLevel))
 				.onChange(async (value) => {
-					if (this.plugin.settings.myDebugLevel >= DebugLevMap.DebugLevel_Current_Dev) { console.log('Set DebugLevel: ' + DebugLevelNames[parseInt(value)]) };
+					slconsolelog(DebugLevMap.DebugLevel_High, undefined, 'Set DebugLevel: ' + DebugLevelNames[parseInt(value)])
 					this.plugin.settings.myDebugLevel = parseInt(value);
 					DebugLevel = parseInt(value)
 					await this.plugin.saveSettings();
@@ -137,7 +137,7 @@ class SemaLogicSettingTab extends PluginSettingTab {
 				.addOption('2', 'Profile 3')
 				.setValue(this.plugin.settings.mySetting.toString())
 				.onChange(async (value) => {
-					if (this.plugin.settings.myDebugLevel >= DebugLevMap.DebugLevel_Current_Dev) { console.log('Set Profile: ' + value) };
+					slconsolelog(DebugLevMap.DebugLevel_High, undefined, 'Set Profile: ' + value)
 					this.plugin.settings.mySetting = parseInt(value);
 					this.display();
 					await this.plugin.saveSettings();
@@ -151,7 +151,7 @@ class SemaLogicSettingTab extends PluginSettingTab {
 				.setPlaceholder(API_Defaults.Port)
 				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myPort)
 				.onChange(async (value) => {
-					if (this.plugin.settings.myDebugLevel >= DebugLevMap.DebugLevel_Important) { console.log('Set to Port: ' + value) };
+					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set to Port: ' + value)
 					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myPort = value;
 					await this.plugin.saveSettings();
 				}));
@@ -167,7 +167,7 @@ class SemaLogicSettingTab extends PluginSettingTab {
 				.addOption(rulesettypesCommands[rstypes_Picture][1], rulesettypesCommands[rstypes_Picture][0])
 				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myOutputFormat)
 				.onChange(async (value) => {
-					if (this.plugin.settings.myDebugLevel >= DebugLevMap.DebugLevel_Important) { console.log('Set Outputformat: ' + value) };
+					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set Outputformat: ' + value)
 					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myOutputFormat = value;
 					await this.plugin.saveSettings();
 				}));
@@ -180,7 +180,7 @@ class SemaLogicSettingTab extends PluginSettingTab {
 				.setPlaceholder(API_Defaults.Base_URL)
 				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myBaseURL)
 				.onChange(async (value) => {
-					if (this.plugin.settings.myDebugLevel >= DebugLevMap.DebugLevel_Important) { console.log('Set BaseURL: ' + value) };
+					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set BaseURL: ' + value)
 					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myBaseURL = value;
 					await this.plugin.saveSettings();
 				}));
@@ -192,7 +192,7 @@ class SemaLogicSettingTab extends PluginSettingTab {
 				.setPlaceholder(API_Defaults.GetAPI)
 				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myGetAPI)
 				.onChange(async (value) => {
-					if (this.plugin.settings.myDebugLevel >= DebugLevMap.DebugLevel_Important) { console.log('Set to Get-API-Endpoint: ' + value) };
+					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set to Get-API-Endpoint: ' + value)
 					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myGetAPI = value;
 					await this.plugin.saveSettings();
 					//this.display()
@@ -205,7 +205,7 @@ class SemaLogicSettingTab extends PluginSettingTab {
 				.setPlaceholder(API_Defaults.SID)
 				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].mySID)
 				.onChange(async (value) => {
-					if (this.plugin.settings.myDebugLevel >= DebugLevMap.DebugLevel_Important) { console.log('Set SID: ' + value) };
+					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set SID: ' + value)
 					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].mySID = value;
 					await this.plugin.saveSettings();
 				}));
@@ -216,7 +216,7 @@ class SemaLogicSettingTab extends PluginSettingTab {
 			.addToggle(setting => setting
 				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myContext)
 				.onChange(async (value) => {
-					if (this.plugin.settings.myDebugLevel >= DebugLevMap.DebugLevel_Important) { console.log('Set Context of Reading View: ' + value) };
+					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set Context of Reading View: ' + value)
 					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myContext = value;
 					await this.plugin.saveSettings()
 					//this.display()
@@ -229,14 +229,12 @@ class SemaLogicSettingTab extends PluginSettingTab {
 			.addText(setting => setting
 				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUpdateInterval.toString())
 				.onChange(async (value) => {
-					if (this.plugin.settings.myDebugLevel >= DebugLevMap.DebugLevel_Important) { console.log('Set Update Interval: ' + value) };
+					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set Update Interval: ' + value)
 					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUpdateInterval = parseInt(value);
 					window.clearInterval(this.plugin.interval)
 					this.plugin.registerInterval(
 						this.plugin.interval = window.setInterval(this.plugin.handleUpdate, this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUpdateInterval)
 					);
-
-
 					await this.plugin.saveSettings()
 					//this.display()
 				}));
@@ -248,7 +246,7 @@ class SemaLogicSettingTab extends PluginSettingTab {
 			.addToggle(setting => setting
 				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUseHttps)
 				.onChange(async (value) => {
-					if (this.plugin.settings.myDebugLevel >= DebugLevMap.DebugLevel_Important) { console.log('Set UserPasswordRequest: ' + value) };
+					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set UserPasswordRequest: ' + value)
 					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUseHttps = value;
 					await this.plugin.saveSettings()
 					this.display()
@@ -264,7 +262,7 @@ class SemaLogicSettingTab extends PluginSettingTab {
 					.setPlaceholder(API_Defaults.HttpUser)
 					.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUser)
 					.onChange(async (value) => {
-						if (this.plugin.settings.myDebugLevel >= DebugLevMap.DebugLevel_Important) { console.log('Set HTTP-Request-User...') };
+						slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set HTTP-Request-User...')
 						this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUser = value;
 						await this.plugin.saveSettings();
 					}));
@@ -277,7 +275,7 @@ class SemaLogicSettingTab extends PluginSettingTab {
 					.setPlaceholder(API_Defaults.HttpPassword)
 					.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myPassword)
 					.onChange(async (value) => {
-						if (this.plugin.settings.myDebugLevel >= DebugLevMap.DebugLevel_Important) { console.log('Set HTTP-Request-Password...') };
+						slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set HTTP-Request-Password...')
 						this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myPassword = value;
 						await this.plugin.saveSettings();
 					}));
@@ -291,7 +289,7 @@ class SemaLogicSettingTab extends PluginSettingTab {
 				.setPlaceholder(API_Defaults.AspUrl)
 				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myAspUrl)
 				.onChange(async (value) => {
-					if (this.plugin.settings.myDebugLevel >= DebugLevMap.DebugLevel_Important) { console.log('Set ASPBaseURL: ' + value) };
+					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set ASPBaseURL: ' + value)
 					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myAspUrl = value;
 					await this.plugin.saveSettings();
 				}));
@@ -304,11 +302,10 @@ class SemaLogicSettingTab extends PluginSettingTab {
 				.setPlaceholder(API_Defaults.AspEndpoint)
 				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myAspEndpoint)
 				.onChange(async (value) => {
-					if (this.plugin.settings.myDebugLevel >= DebugLevMap.DebugLevel_Important) { console.log('Set to ASP-Standard-API-Endpoint: ' + value) };
+					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set to ASP-Standard-API-Endpoint: ' + value)
 					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myAspEndpoint = value;
 					await this.plugin.saveSettings();
 				}));
-
 	}
 }
 
@@ -368,14 +365,14 @@ export default class SemaLogicPlugin extends Plugin {
 		const activeView = app.workspace.getActiveViewOfType(MarkdownView);
 		if (activeView === null) {
 			if (this.lastactiveView === null) {
-				if (DebugLevel >= DebugLevMap.DebugLevel_High) { slconsolelog(this.slComm.slview, "ActiveView could not be defined through SemaLogic") }
+				slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, "ActiveView could not be defined through SemaLogic")
 				return
 			} else {
 				return this.lastactiveView;
 			}
 		}
 		this.lastactiveView = activeView
-		if (DebugLevel >= DebugLevMap.DebugLevel_Important) { slconsolelog(this.slComm.slview, this.lastactiveView.getDisplayText()) }
+		slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, this.lastactiveView.getDisplayText())
 		return this.lastactiveView
 	}
 
@@ -407,9 +404,8 @@ export default class SemaLogicPlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		this.registerMarkdownPostProcessor((element, context) => {
-			if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) {
-				console.log(element, context)
-			}
+			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, element)
+			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, context)
 			element.querySelectorAll("p").forEach((el) => {
 				if (searchForSemaLogicCommands(el)) {
 					let set = this.settings
@@ -475,14 +471,14 @@ export default class SemaLogicPlugin extends Plugin {
 
 		this.setViews();
 
-		if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) { slconsolelog(this.slComm.slview, 'Start SemaLogicParse') };
+		slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, 'Start SemaLogicParse')
 		let results: Node[] = [];
 
 		this.lastUpdate = Date.now()
 		await semaLogicPing(this.settings, this.lastUpdate)
 
 		let vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + this.settings.mySLSettings[this.settings.mySetting].mySID;
-		if (DebugLevel >= DebugLevMap.DebugLevel_Important) { slconsolelog(this.slComm.slview, vAPI_URL) };
+		slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, vAPI_URL)
 
 		let bodytext: string = "";
 		let activeView = this.getActiveView()
@@ -493,23 +489,20 @@ export default class SemaLogicPlugin extends Plugin {
 		let newCodeblock: boolean = false;
 
 		if (activeView != null) {
-			if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) { slconsolelog(this.slComm.slview, 'ActiveView is not NULL') };
+			slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, 'ActiveView is not NULL')
 
 			for (let i = 0; i < activeView.editor.lineCount(); i++) {
-				if (DebugLevel >= DebugLevMap.DebugLevel_All) {
-					slconsolelog(this.slComm.slview, i, ';', activeView.editor.getLine(i))
-					slconsolelog(this.slComm.slview, 'Substring:', activeView.editor.getLine(i).substring(0, 2));
-				}
+				slconsolelog(DebugLevMap.DebugLevel_All, this.slComm.slview, i, ';', activeView.editor.getLine(i))
+				slconsolelog(DebugLevMap.DebugLevel_All, this.slComm.slview, 'Substring:', activeView.editor.getLine(i).substring(0, 2));
 				if (activeView.editor.getLine(i).substring(0, 3) == "```") {
 					if (!codeblock) {
 						codeblock = true
 						newCodeblock = true
+						slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, 'Current line is Codeblock: ' + i.toString(), codeblock)
 					} else {
 						newCodeblock = false
 					}
 				}
-
-				if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) { slconsolelog(this.slComm.slview, 'Current line is Codeblock', codeblock) }
 
 				if ((!codeblock) && (!newCodeblock)) {
 					// Check inline Statements
@@ -539,25 +532,28 @@ export default class SemaLogicPlugin extends Plugin {
 		bodytext = this.view_utils.cleanCommands(bodytext)
 		if (dialectID == "") { dialectID = "default" }
 
-		if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) { console.log("Parsingresult for SemaLogicView") }
+		slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, "Parsingresult for SemaLogicView")
 		const responseForSemaLogic = this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, dialectID, bodytext, false)
 		responseForSemaLogic.then(value => {
-			if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) { console.log(value) }
+			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, value)
 		})
 
 		this.updateOutstanding = false
 
 		if (this.slComm.activatedASP) {
-			if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) { console.log("Parsingresult for OnTheFly Transfer.view in SemaLogic") }
+			slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, "Parsingresult for OnTheFly Transfer.view in SemaLogic")
 			const parseCommands = this.slComm.slaspview.getASPCommands(this.slComm, this.settings)
-			let outputFormat: string = rulesettypesCommands[rstypes_ASP][1]
-			if (parseCommands.outputformat != undefined && parseCommands.outputformat != rulesettypesCommands[rstypes_ASP][0]) { outputFormat = parseCommands.outputformat }
-			const responseForASP = this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, dialectID, bodytext, true, outputFormat)
-			responseForASP.then(value => {
-				if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) { console.log(value) }
-				const aspPromise = this.slComm.slaspview.aspParse(this.slComm, this.settings, value)
-				aspPromise.then(value => { if (value != undefined) { slconsolelog(this.slComm.slview, value) } })
-			})
+
+			parseCommands.commands.forEach(command => {
+				let outputFormat: string = rulesettypesCommands[rstypes_ASP][1]
+				if (command.outputformat != undefined && command.outputformat != rulesettypesCommands[rstypes_ASP][0]) { outputFormat = command.outputformat }
+				const responseForASP = this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, dialectID, bodytext, true, outputFormat)
+				responseForASP.then(value => {
+					slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, value)
+					const aspPromise = this.slComm.slaspview.aspParse(this.slComm, this.settings, value)
+					aspPromise.then(value => { if (value != undefined) { slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, value) } })
+				})
+			});
 		}
 		return results
 	}
@@ -581,9 +577,7 @@ export default class SemaLogicPlugin extends Plugin {
 			await this.semaLogicReset()
 			this.app.workspace.revealLeaf(leaf);
 		} else {
-			if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) {
-				console.log("ASP-Leaf not created")
-			}
+			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, "ASP-Leaf not created")
 		}
 		this.setViews()
 		this.handlePing()
@@ -610,9 +604,7 @@ export default class SemaLogicPlugin extends Plugin {
 			await this.semaLogicReset()
 			this.app.workspace.revealLeaf(leaf);
 		} else {
-			if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) {
-				console.log("SemaLogic-Leaf not created")
-			}
+			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, "SemaLogic-Leaf not created")
 		}
 		this.setViews()
 		this.handlePing()
@@ -636,7 +628,7 @@ export default class SemaLogicPlugin extends Plugin {
 
 	GetAspLeaf(): WorkspaceLeaf | undefined {
 		let found: boolean = false
-		var slv: WorkspaceLeaf | undefined = undefined
+		let slv: WorkspaceLeaf | undefined = undefined
 
 		this.app.workspace.iterateAllLeaves((leaf) => {
 			if (!found) {
@@ -650,16 +642,16 @@ export default class SemaLogicPlugin extends Plugin {
 			}
 		})
 		if (!found) {
-			if (DebugLevel >= DebugLevMap.DebugLevel_All) { console.log('Split') }
+			slconsolelog(DebugLevMap.DebugLevel_All, undefined, 'Split')
 			slv = this.app.workspace.getLeaf('split');
-			if (DebugLevel >= DebugLevMap.DebugLevel_All) { console.log(slv) }
+			slconsolelog(DebugLevMap.DebugLevel_All, undefined, slv)
 		}
 		return slv
 	}
 
 	GetSemaLogicLeaf(): WorkspaceLeaf | undefined {
 		let found: boolean = false
-		var slv: WorkspaceLeaf | undefined = undefined
+		let slv: WorkspaceLeaf | undefined = undefined
 
 		this.app.workspace.iterateAllLeaves((leaf) => {
 			if (!found) {
@@ -673,17 +665,18 @@ export default class SemaLogicPlugin extends Plugin {
 			}
 		})
 		if (!found) {
-			if (DebugLevel >= DebugLevMap.DebugLevel_All) { console.log('Split') }
+			slconsolelog(DebugLevMap.DebugLevel_All, undefined, 'Split')
 			slv = this.app.workspace.getLeaf('split');
-			if (DebugLevel >= DebugLevMap.DebugLevel_All) { console.log(slv) }
+			slconsolelog(DebugLevMap.DebugLevel_All, undefined, slv)
 		}
 		return slv
 	}
 
 
 	async onunload() {
-		this.app.workspace.detachLeavesOfType(ASPViewType);
-		this.app.workspace.detachLeavesOfType(SemaLogicViewType);
+		// commented out due to publishing process - see PlugInGuideline - could be deleted
+		//this.app.workspace.detachLeavesOfType(ASPViewType);
+		//this.app.workspace.detachLeavesOfType(SemaLogicViewType);
 	}
 
 	async loadSettings() {
@@ -704,11 +697,8 @@ export default class SemaLogicPlugin extends Plugin {
 	handleUpdate = (update: ViewUpdate) => {
 		if (this.statusSL) {
 			// To avoid to much parsing traffic for testing we tried to parse it only every 500 ms when there is an update
-
-			if (DebugLevel >= DebugLevMap.DebugLevel_Current_Dev || DebugLevel >= DebugLevMap.DebugLevel_High) {
-				const text = 'Updatetime' + '/' + String(Date.now()) + '/' + String(this.lastUpdate) + '/' + String(Date.now() - this.lastUpdate) + '/' + String(this.updateOutstanding) + '/' + String(this.waitingForResponse)
-				slconsolelog(this.slComm.slview, text)
-			}
+			const text = 'Updatetime' + '/' + String(Date.now()) + '/' + String(this.lastUpdate) + '/' + String(Date.now() - this.lastUpdate) + '/' + String(this.updateOutstanding) + '/' + String(this.waitingForResponse)
+			slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, text)
 
 			if (update == null) { }
 			else {
@@ -718,7 +708,7 @@ export default class SemaLogicPlugin extends Plugin {
 					} else {
 						if (this.UpdateProcessing == false) {
 							//this.updateOutstanding = true
-							if (DebugLevel >= DebugLevMap.DebugLevel_Current_Dev || DebugLevel >= DebugLevMap.DebugLevel_All) slconsolelog(this.slComm.slview, 'Start Update docChanged, focuschanged, UpdProc  ' + String(update.docChanged) + "/" + String(update.focusChanged) + "/" + String(this.UpdateProcessing))
+							slconsolelog(DebugLevMap.DebugLevel_All, this.slComm.slview, 'Start Update docChanged, focuschanged, UpdProc  ' + String(update.docChanged) + "/" + String(update.focusChanged) + "/" + String(this.UpdateProcessing))
 							this.semaLogicUpdate()
 						}
 					}
@@ -726,7 +716,7 @@ export default class SemaLogicPlugin extends Plugin {
 			}
 
 			if ((Date.now() - this.lastUpdate > this.settings.mySLSettings[this.settings.mySetting].myUpdateInterval) && (this.updateOutstanding == true) && (this.waitingForResponse == false)) {
-				if (DebugLevel >= DebugLevMap.DebugLevel_Current_Dev || DebugLevel >= DebugLevMap.DebugLevel_All) slconsolelog(this.slComm.slview, 'Start Update PARSING')
+				slconsolelog(DebugLevMap.DebugLevel_All, this.slComm.slview, 'Start Update PARSING')
 				this.lastUpdate = Date.now()
 				this.semaLogicUpdate()
 			} else
@@ -743,7 +733,7 @@ export default class SemaLogicPlugin extends Plugin {
 
 		if (setView == true || setView == undefined) { this.setViews() }
 
-		if (DebugLevel >= DebugLevMap.DebugLevel_Current_Dev || DebugLevel >= DebugLevMap.DebugLevel_Chatty) { slconsolelog(this.slComm.slview, 'Start SemaLogicUpdate') };
+		slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, 'Start SemaLogicUpdate')
 
 		this.setViews()
 		let activeView = this.getActiveView()
@@ -812,14 +802,14 @@ export default class SemaLogicPlugin extends Plugin {
 			}
 		}
 
-		if (DebugLevel >= DebugLevMap.DebugLevel_Important) { slconsolelog(this.slComm.slview, optionsReset) }
+		slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, optionsReset)
 		try {
 			const responseReset = await requestUrl(optionsReset)
-			if (DebugLevel >= DebugLevMap.DebugLevel_Informative) { console.log(this.slComm.slview, `SemaLogic: Reset with http-status ${responseReset.status.toString()}`) };
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm.slview, `SemaLogic: Reset with http-status ${responseReset.status.toString()}`)
 		}
 		catch (e) {
-			console.log(this.slComm.slview, `Catcherror by reset ${vAPI_URL_Reset}`)
-			console.log(this.slComm.slview, e.toString())
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm.slview, `Catcherror by reset ${vAPI_URL_Reset}`)
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm.slview, e.toString())
 		}
 	}
 

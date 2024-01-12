@@ -72,7 +72,9 @@ export const rulesettypesCommands: string[][] = [
 ]
 
 export const DebugLevelNames: string[] =
-	['DebugLevel_Off',
+	[
+		'DebugLevel_Off',
+		'DebugLevel_Error',
 		'DebugLevel_Current_Dev',
 		'DebugLevel_Important',
 		'DebugLevel_Informative',
@@ -83,11 +85,12 @@ export const DebugLevelNames: string[] =
 
 export const DebugLevMap: DebugLevel_I = {
 	'DebugLevel_Off': 0,
-	'DebugLevel_Current_Dev': 1,
-	'DebugLevel_Important': 2,
-	'DebugLevel_Informative': 3,
-	'DebugLevel_Chatty': 4,
-	'DebugLevel_All': 5
+	'DebugLevel_Error': 1,
+	'DebugLevel_Current_Dev': 2,
+	'DebugLevel_Important': 3,
+	'DebugLevel_Informative': 4,
+	'DebugLevel_Chatty': 5,
+	'DebugLevel_All': 6
 }
 
 interface DebugLevel_I {

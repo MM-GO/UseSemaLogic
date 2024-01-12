@@ -316,23 +316,30 @@ export class SemaLogicView extends ItemView {
 
     if (this.debugInline == true) {
       this.debugContent.forEach(value => {
-        const textline = responseContent.createEl("span", { text: value + "\n" })
-        textline.style.cssText = 'white-space: pre;' //; white-space: pre-line;'
+        const textline = responseContent.createEl("span", { text: value + "\n", cls: "debuginline" })
+        //textline.style.cssText = 'white-space: pre;' //; white-space: pre-line;'
       })
     } else {
       if (this.getOutPutFormat() == rulesettypesCommands[rstypes_ASP][1]) {
         let resulttextarray = this.getCurrResult().split('\n')
         resulttextarray.forEach(value => {
-          const textline = responseContent.createEl("span", { text: value + "\n" })
-          textline.style.cssText = 'white-space: pre;' //; white-space: pre-line;'
+          const textline = responseContent.createEl("span", { text: value + "\n", cls: "debuginline" })
+          // textline.style.cssText = 'white-space: pre;' //; white-space: pre-line;'
         })
       } else {
         responseContent.createEl("p", { text: " " })
+        /*
         let div = document.createElement('div');
+
         // Add some HTML content to the div 
         div.innerHTML = this.getCurrResult();
+
         // Append the div to the document body
         responseContent.appendChild(div);
+
+        */
+        responseContent.insertAdjacentHTML("afterend", this.getCurrResult())
+
       }
     }
     //return responseContent
@@ -348,6 +355,8 @@ export class SemaLogicView extends ItemView {
     this.apiURL = vAPI_URL
     this.dialectID = dialectID
     let outPutFormat: string
+    let resulthttp: string
+
     if (parsingFormat !== undefined) { outPutFormat = parsingFormat } else { outPutFormat = this.getOutPutFormat() }
     let semaLogicJsonRequestBody = this.createSemaLogicRequestBody(dialectID, bodytext, outPutFormat)
     let semaLogicRequest = this.createSemaLogicRequest(settings, vAPI_URL, semaLogicJsonRequestBody)
@@ -357,7 +366,7 @@ export class SemaLogicView extends ItemView {
 
       if (DebugLevel >= DebugLevMap.DebugLevel_High) { slconsolelog(this.slComm.slview, "SemaLogic: Parse with http-status " + response.status.toString()) };
       if (response.status == 200) {
-        var resulthttp = response.text;
+        resulthttp = response.text;
         if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) { slconsolelog(this.slComm.slview, `Parseresult:${resulthttp}`) }
         if ((this.debugInline == false) && (parseOnTheFly == false)) {
           this.currResult = resulthttp

@@ -101,7 +101,7 @@ async function showHelp(): Promise<Node[]> {
   let results: Node[] = [];
   let buildcontainerEl: HTMLElement;
 
-  if (DebugLevel >= DebugLevMap.DebugLevel_Informative) { console.log(semaLogicCommand.showHelp); }
+  slconsolelog(DebugLevMap.DebugLevel_Informative, undefined, semaLogicCommand.showHelp)
 
   buildcontainerEl = createEl('table');
   let body = buildcontainerEl.createEl("body");
@@ -123,7 +123,7 @@ async function showVersion(settings: SemaLogicPluginSettings): Promise<Node[]> {
   let buildcontainerEl: HTMLElement;
   let versiontext: string = "";
 
-  if (DebugLevel >= DebugLevMap.DebugLevel_Informative) { console.log(semaLogicCommand.showVersion); }
+  slconsolelog(DebugLevMap.DebugLevel_Informative, undefined, semaLogicCommand.showVersion)
 
   const version = await semaLogicGetVersion(settings)
     .then(function (resultBuffer: any) {
@@ -131,7 +131,7 @@ async function showVersion(settings: SemaLogicPluginSettings): Promise<Node[]> {
     })
     .catch(function (resultBuffer: any) { versiontext = resultBuffer; }
     )
-  if (DebugLevel >= DebugLevMap.DebugLevel_High) { console.log(`JSON-Text in Processor:${versiontext}`) }
+  slconsolelog(DebugLevMap.DebugLevel_High, undefined, `JSON-Text in Processor:${versiontext}`)
 
   // Version is shown in a table line
   buildcontainerEl = createEl('table');
@@ -148,8 +148,7 @@ async function showParseSVG(Filter: string): Promise<Node[]> {
   let results: Node[] = [];
   let buildcontainerEl: HTMLElement;
 
-  if (DebugLevel >= DebugLevMap.DebugLevel_Informative) { console.log(semaLogicCommand.showHelp); }
-
+  slconsolelog(DebugLevMap.DebugLevel_Informative, undefined, semaLogicCommand.showHelp);
 
   buildcontainerEl = createEl('table');
   let body = buildcontainerEl.createEl("body");
@@ -184,7 +183,7 @@ export function getHostPort(settings: SemaLogicPluginSettings): string {
   if (settings.mySLSettings[settings.mySetting].myPort != '') {
     adress = adress + ':' + settings.mySLSettings[settings.mySetting].myPort
   }
-  if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) { console.log('getting SemaLogic-Adress: ' + adress) }
+  slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, 'getting SemaLogic-Adress: ' + adress)
   return adress
 }
 
@@ -205,13 +204,13 @@ export function getHostAspPort(settings: SemaLogicPluginSettings, parsedCommands
     adress = parsedCommands.endpoint
   }
   if (parsedCommands.param != undefined) { adress = adress + "?" + parsedCommands.param }
-  if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) { console.log('getting asp-Adress: ' + adress) }
+  slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, 'getting asp-Adress: ' + adress)
   return adress
 }
 
 export async function semaLogicGetVersion(settings: SemaLogicPluginSettings): Promise<string> {
 
-  if (DebugLevel >= DebugLevMap.DebugLevel_Important) { console.log("Start semaLogicGetVersion") }
+  slconsolelog(DebugLevMap.DebugLevel_Important, undefined, "Start semaLogicGetVersion")
 
   // Prepare JSON-Format
   const myVersion = '{"version":"0","versiontext":"Text"}';
@@ -220,7 +219,7 @@ export async function semaLogicGetVersion(settings: SemaLogicPluginSettings): Pr
 
   // Create Url for Get Version
   let vAPI_URL_Version = getHostPort(settings) + API_Defaults.Version;
-  if (DebugLevel >= DebugLevMap.DebugLevel_Important) { console.log(vAPI_URL_Version) }
+  slconsolelog(DebugLevMap.DebugLevel_Important, undefined, vAPI_URL_Version)
 
   let options: RequestUrlParam
 
@@ -245,35 +244,32 @@ export async function semaLogicGetVersion(settings: SemaLogicPluginSettings): Pr
   try {
     response = await requestUrl(options)
     myJson = JSON.parse(response.text);
-    if (DebugLevel >= DebugLevMap.DebugLevel_All) { console.log(myJson.version) }
+    slconsolelog(DebugLevMap.DebugLevel_All, undefined, myJson.version)
     jsonVersion = myJson.version;
-    if (DebugLevel >= DebugLevMap.DebugLevel_All) { console.log(`JSON-Text in Request:${jsonVersion}`) }
+    slconsolelog(DebugLevMap.DebugLevel_All, undefined, `JSON-Text in Request:${jsonVersion}`)
     return jsonVersion;
   }
   catch (e) {
-    console.log('Error: Catch of APIVersion' + e.toString())
+    slconsolelog(DebugLevMap.DebugLevel_Error, undefined, 'Error: Catch of APIVersion' + e.toString())
     throw new Error()
-    //return 'Error: Catch of APIVersion'
   }
 }
 
 // semaLogicPing tries to test standardVersionAPI - if it can't be connected - show meaningful error state
 export async function semaLogicPing(settings: SemaLogicPluginSettings, lastUpdate: number): Promise<boolean> {
   let starttime = Date.now()
-  if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) { console.log('GetVersionPing at ', Date.now(), '  for ', getHostPort(settings)) }
+  slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, 'GetVersionPing at ', Date.now(), '  for ', getHostPort(settings))
   await semaLogicGetVersion(settings)
     .then(function (resultBuffer: any) {
       // nothing to do
-      if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) { console.log('SemaLogic GetVersionPing started at:', starttime, ' Endtime: ', Date.now()) }
+      slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, 'SemaLogic GetVersionPing started at:', starttime, ' Endtime: ', Date.now())
     })
     .catch(function (e: Error) {
       // If it is an old error (long time ago sent), then tehere is nothing to do
       if (starttime < lastUpdate) {
         // time to show an error 
-        if (DebugLevel >= DebugLevMap.DebugLevel_Important) {
-          console.log(`There is no connection to SemaLogicService APIVersion`)
-          console.log(getHostPort(settings))
-        }
+        slconsolelog(DebugLevMap.DebugLevel_Important, undefined, `There is no connection to SemaLogicService APIVersion`)
+        slconsolelog(DebugLevMap.DebugLevel_Important, undefined, getHostPort(settings))
         app.workspace.iterateAllLeaves((leaf: any) => {
           let slView = leaf.view.getViewType()
           if (slView == SemaLogicViewType) {
@@ -286,7 +282,7 @@ export async function semaLogicPing(settings: SemaLogicPluginSettings, lastUpdat
           }
         })
       } else {
-        if (DebugLevel >= DebugLevMap.DebugLevel_High) { console.log('SemaLogic GetVersionPing failed and not used started:', starttime, ' Endtime: ', Date.now()) }
+        slconsolelog(DebugLevMap.DebugLevel_High, undefined, 'SemaLogic GetVersionPing failed and not used started:', starttime, ' Endtime: ', Date.now())
       }
     }
     )
@@ -300,13 +296,12 @@ async function showParseWithFilter(filter: string, rulessettype: string, setting
   let buildcontainerEl: HTMLElement;
 
   let vAPI_URL = getHostPort(settings) + API_Defaults.rules_parse + "?sid=" + settings.mySLSettings[settings.mySetting].mySID;
-  if (DebugLevel >= DebugLevMap.DebugLevel_Important) { console.log(vAPI_URL) };
-
+  slconsolelog(DebugLevMap.DebugLevel_Important, undefined, vAPI_URL)
   let bodytext: string = "";
 
   let activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
   if (activeView == undefined) {
-    if (DebugLevel >= DebugLevMap.DebugLevel_High) { console.log("Do not find an active view") }
+    slconsolelog(DebugLevMap.DebugLevel_High, undefined, "Do not find an active view")
     return results
   }
 
@@ -317,10 +312,8 @@ async function showParseWithFilter(filter: string, rulessettype: string, setting
 
   if (activeView != null) {
     for (let i = 0; i < activeView.editor.lineCount(); i++) {
-      if (DebugLevel >= DebugLevMap.DebugLevel_All) {
-        console.log(i, ';', activeView.editor.getLine(i))
-        console.log('Substring:', activeView.editor.getLine(i).substring(0, 2));
-      }
+      slconsolelog(DebugLevMap.DebugLevel_All, undefined, i, ';', activeView.editor.getLine(i))
+      slconsolelog(DebugLevMap.DebugLevel_All, undefined, 'Substring:', activeView.editor.getLine(i).substring(0, 2));
       if (activeView.editor.getLine(i).substring(0, 3) == "```") {
         if (!codeblock) {
           codeblock = true
@@ -330,7 +323,7 @@ async function showParseWithFilter(filter: string, rulessettype: string, setting
         }
 
       }
-      if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) { console.log('Current line is Codeblock', codeblock) }
+      slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, 'Current line is Codeblock', codeblock)
 
       if ((!codeblock) && (!newCodeblock)) {
         // Check inline Statements
@@ -363,6 +356,8 @@ async function showParseWithFilter(filter: string, rulessettype: string, setting
   if (bodytext == "") { bodytext = "" }
   if (dialectID == "") { dialectID = "default" }
   let result = "";
+  let optionsParse: RequestUrlParam;
+
   if (filter != "") {
     let jsonwoFilter = {
       "text": [
@@ -383,7 +378,7 @@ async function showParseWithFilter(filter: string, rulessettype: string, setting
       "persistency": false,
       "rulesettype": rulessettype //settings.myOutputFormat
     }
-    var optionsParse: RequestUrlParam = {
+    optionsParse = {
       url: vAPI_URL,
       method: 'POST',
       headers: {
@@ -404,7 +399,7 @@ async function showParseWithFilter(filter: string, rulessettype: string, setting
       "persistency": false,
       "rulesettype": rulessettype //settings.myOutputFormat
     }
-    var optionsParse: RequestUrlParam = {
+    optionsParse = {
       url: vAPI_URL,
       method: 'POST',
       headers: {
@@ -415,15 +410,12 @@ async function showParseWithFilter(filter: string, rulessettype: string, setting
   }
 
   let res: string;
-  if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) {
-    console.log(`Context: ${dialectID}, Bodytext: ${bodytext}`)
-  }
-
-  if (DebugLevel >= DebugLevMap.DebugLevel_Important) { console.log(optionsParse) }
+  slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, `Context: ${dialectID}, Bodytext: ${bodytext}`)
+  slconsolelog(DebugLevMap.DebugLevel_Important, undefined, optionsParse)
   try {
     const responseParse = await requestUrl(optionsParse)
     const remJson = responseParse.text;
-    if (DebugLevel >= DebugLevMap.DebugLevel_Important) { console.log("SemaLogic: Parse with http-status " + responseParse.status.toString()) };
+    slconsolelog(DebugLevMap.DebugLevel_Important, undefined, "SemaLogic: Parse with http-status " + responseParse.status.toString())
     if (responseParse.status == 200) {
       let resulthttp = responseParse.text;
       const fragment = (new Range()).createContextualFragment(resulthttp);
@@ -431,16 +423,14 @@ async function showParseWithFilter(filter: string, rulessettype: string, setting
       buildcontainerEl = createEl("p")
       buildcontainerEl.appendChild(fragment);
       results.push(buildcontainerEl)
-      if (DebugLevel >= DebugLevMap.DebugLevel_Important) {
-        console.log(`Parseresult:${resulthttp}`);
-      }
+      slconsolelog(DebugLevMap.DebugLevel_Important, undefined, `Parseresult:${resulthttp}`);
       return results
     }
   }
   catch (e) {
-    slconsolelog(undefined, `Catcherror of removing context ${vAPI_URL}`)
+    slconsolelog(DebugLevMap.DebugLevel_Error, undefined, `Catcherror of removing context ${vAPI_URL}`)
     //console.log(`Catcherror of removing context ${vAPI_URL}`)
-    slconsolelog(undefined, e.toString())
+    slconsolelog(DebugLevMap.DebugLevel_Error, undefined, e.toString())
     //console.log(e.toString())
     throw e
   }
@@ -448,17 +438,19 @@ async function showParseWithFilter(filter: string, rulessettype: string, setting
   return results
 }
 
-export function slconsolelog(slview?: SemaLogicView | undefined, message?: any, ...optionalParams: any[]) {
-
-  if (slview != undefined) {
-    if (slview.getViewType() == SemaLogicViewType) {
-      if (slview.getDebugInline() == true) {
-        let logMessages = JSON.stringify(message)
-        slview.appendDebugContent(logMessages)
-      } else { console.log(message, ...optionalParams) }
+export function slconsolelog(DebugValue: number, slview?: SemaLogicView | undefined, message?: any, ...optionalParams: any[]) {
+  if (DebugLevel >= DebugValue) {
+    if (slview != undefined) {
+      if (slview.getViewType() == SemaLogicViewType) {
+        if (slview.getDebugInline() == true) {
+          let logMessages = JSON.stringify(message)
+          slview.appendDebugContent(logMessages)
+        } else { console.log(message, ...optionalParams) }
+      }
+    } else {
+      console.log(message, ...optionalParams)
     }
-  } else {
-    console.log(message, ...optionalParams)
   }
 }
+
 

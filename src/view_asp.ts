@@ -1,8 +1,8 @@
 import { ItemView, WorkspaceLeaf, RequestUrlParam, requestUrl } from "obsidian";
 import { rulesettypesCommands, rstypes_ASP, DebugLevMap, semaLogicCommand } from "./const"
 import { SemaLogicPluginComm, DebugLevel, SemaLogicPluginSettings } from "../main"
-import { getHostAspPort } from './utils'
-import { parseCommand } from "src/view_utils";
+import { getHostAspPort, slconsolelog } from './utils'
+import { parseCommand, parseCommands } from "src/view_utils";
 
 
 export const ASPViewType = 'TransferService';
@@ -105,19 +105,20 @@ export class ASPView extends ItemView {
       headers: myHeader,
       body: body
     }
-    if (DebugLevel >= DebugLevMap.DebugLevel_Important) { console.log(request) };
-
+    slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, request)
     return request
   }
 
-  getASPCommands(slComm: SemaLogicPluginComm, settings: SemaLogicPluginSettings): parseCommand {
-    let paramParsedCommand = {
-      outputformat: "ASP.json",
-      endpoint: settings.mySLSettings[settings.mySetting].myAspEndpoint,
-      param: ""
+  getASPCommands(slComm: SemaLogicPluginComm, settings: SemaLogicPluginSettings): parseCommands {
+    let parseCommands: parseCommands
+    parseCommands = {
+      commands: [{
+        outputformat: "ASP.json",
+        endpoint: settings.mySLSettings[settings.mySetting].myAspEndpoint,
+        param: ""
+      }]
     }
-
-    let commands: parseCommand
+    let parseInitial = true
 
     if (slComm.slview != null) {
 
@@ -149,44 +150,59 @@ export class ASPView extends ItemView {
               paramString = paramString.trimEnd()
             }
 
-            paramParsedCommand = {
+            let paramParsedCommand = {
               outputformat: transferString,
               endpoint: endpointString,
               param: paramString
+            }
+            if (parseInitial) {
+              parseInitial = false
+              parseCommands.commands[0] = paramParsedCommand
+            } else {
+              parseCommands.commands.push(paramParsedCommand)
             }
           }
         }
       })
     }
-    return paramParsedCommand
+    return parseCommands
   }
 
   public async aspParse(slComm: SemaLogicPluginComm, settings: SemaLogicPluginSettings, aspJsonParsedSemaLogic: string) {
-    if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) { console.log('Start Transfer_Parse') };
+    slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, 'Start Transfer_Parse')
+    //this.setNewASPInitial()
 
     let vAPI_URL: string = ""
     const parseCommands = this.getASPCommands(slComm, settings)
 
-    if (parseCommands.outputformat == rulesettypesCommands[rstypes_ASP][1] || parseCommands.outputformat == rulesettypesCommands[rstypes_ASP][0]) {
-      vAPI_URL = getHostAspPort(settings, parseCommands)
-    } else {
-      vAPI_URL = parseCommands.endpoint
-      if (parseCommands.param != undefined) {
-        if (parseCommands.param.length > 0) { vAPI_URL = vAPI_URL + "?" + parseCommands.param }
+    parseCommands.commands.forEach(parseCommands => {
+
+      if (parseCommands.outputformat == rulesettypesCommands[rstypes_ASP][1] || parseCommands.outputformat == rulesettypesCommands[rstypes_ASP][0]) {
+        vAPI_URL = getHostAspPort(settings, parseCommands)
+      } else {
+        vAPI_URL = parseCommands.endpoint
+        if (parseCommands.param != undefined) {
+          if (parseCommands.param.length > 0) { vAPI_URL = vAPI_URL + "?" + parseCommands.param }
+        }
+        slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, "Transfer URL: ", vAPI_URL)
       }
-      if (DebugLevel >= DebugLevMap.DebugLevel_Important) { console.log("Transfer URL: ", vAPI_URL) }
-    }
 
-    let optionsParse = this.createRequest(this.slComm, settings, vAPI_URL, 'POST', 'json', true, aspJsonParsedSemaLogic)
+      let optionsParse = this.createRequest(this.slComm, settings, vAPI_URL, 'POST', 'json', true, aspJsonParsedSemaLogic)
+      this.Resp(optionsParse, vAPI_URL)
+    })
+  }
 
+  public async Resp(optionsParse: RequestUrlParam, vAPI_URL: string) {
     try {
-      if (DebugLevel >= DebugLevMap.DebugLevel_Important) { console.log("ASP: want to parse ", optionsParse) };
+      slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, "ASP: want to parse ", optionsParse)
       const responseParse = await requestUrl(optionsParse)
       const remJson = responseParse.text;
-      if (DebugLevel >= DebugLevMap.DebugLevel_Important) { console.log("ASP: Parse with http-status " + responseParse.status.toString()) };
+      slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, "ASP: Parse with http-status " + responseParse.status.toString())
       if (responseParse.status == 200) {
         let resulthttp = responseParse.text;
-        this.setNewASPInitial()
+        this.contentEl.createEl("br")
+        this.contentEl.createEl("span", "---------------------------------------------------------")
+        this.contentEl.createEl("br")
         // temporary pretty print for not formatted json-output - will be changed in rel 2.x
         resulthttp = resulthttp.replaceAll("[", "[\n")
         resulthttp = resulthttp.replaceAll("]", "\n]")
@@ -196,12 +212,12 @@ export class ASPView extends ItemView {
           this.contentEl.append(element)
           this.contentEl.createEl("br")
         });
-        if ((DebugLevel >= DebugLevMap.DebugLevel_Chatty)) { console.log(`ASP-Parseresult:${resulthttp}`) }
+        slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, `ASP-Parseresult:${resulthttp}`)
       }
     }
     catch (e) {
-      if (DebugLevel >= DebugLevMap.DebugLevel_High) { console.log(`Catcherror of removing context ${vAPI_URL}`) }
-      if (DebugLevel >= DebugLevMap.DebugLevel_High) { console.log(e.toString()) }
+      slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm.slview, `Catcherror of removing context ${vAPI_URL}`)
+      slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm.slview, e.toString())
 
       let text = new DocumentFragment()
       text.createEl("p")
@@ -223,10 +239,14 @@ export class ASPView extends ItemView {
       this.contentEl.createEl("br")
       this.contentEl.append(text)
     }
-    //this.slComm.slview.showError(text)
-    //throw e
+
   }
+
 }
+
+
+
+
 
 
 
