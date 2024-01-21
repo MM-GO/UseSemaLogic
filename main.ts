@@ -29,7 +29,6 @@ export interface SemaLogicPluginSettings {
 	mySetting: number;
 	myDebugLevel: number;
 }
-
 export const Default_profile: SemaLogicPluginSettings = {
 	mySLSettings: [{
 		myPort: API_Defaults.Port,

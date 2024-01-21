@@ -213,10 +213,10 @@ async function showVersion(settings) {
   let buildcontainerEl;
   let versiontext = "";
   slconsolelog(DebugLevMap.DebugLevel_Informative, void 0, semaLogicCommand.showVersion);
-  const version = await semaLogicGetVersion(settings).then(function(resultBuffer) {
+  const version = await semaLogicGetVersion(settings).then(function (resultBuffer) {
     versiontext = resultBuffer;
   }).catch(
-    function(resultBuffer) {
+    function (resultBuffer) {
       versiontext = resultBuffer;
     }
   );
@@ -307,10 +307,10 @@ async function semaLogicGetVersion(settings) {
 async function semaLogicPing(settings, lastUpdate) {
   let starttime = Date.now();
   slconsolelog(DebugLevMap.DebugLevel_Chatty, void 0, "GetVersionPing at ", Date.now(), "  for ", getHostPort(settings));
-  await semaLogicGetVersion(settings).then(function(resultBuffer) {
+  await semaLogicGetVersion(settings).then(function (resultBuffer) {
     slconsolelog(DebugLevMap.DebugLevel_Chatty, void 0, "SemaLogic GetVersionPing started at:", starttime, " Endtime: ", Date.now());
   }).catch(
-    function(e) {
+    function (e) {
       if (starttime < lastUpdate) {
         slconsolelog(DebugLevMap.DebugLevel_Important, void 0, `There is no connection to SemaLogicService APIVersion`);
         slconsolelog(DebugLevMap.DebugLevel_Important, void 0, getHostPort(settings));
