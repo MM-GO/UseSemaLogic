@@ -2,8 +2,8 @@
 export const API_Defaults = {
 	http: "http://",
 	https: "https://",
-	Base_URL: "service.semalogic.ddns.net",
-	Port: "443",
+	Base_URL: "localhost",
+	Port: "28000",
 	rules_parse: "/rules/parse",
 	reset: "/reset",
 	Version: "/APIVersion",
@@ -12,11 +12,11 @@ export const API_Defaults = {
 	GetAPI: "/APIVersion",
 	SID: "12345678",
 	ShowContext: true,
-	useUserPasswortforHTTP: true,
+	useUserPasswortforHTTP: false,
 	HttpUser: "User",
 	HttpPassword: "Password",
-	viewheader: "SVG",
-	AspUrl: "ASP-Service-URL.com/",
+	viewheader: "SemaLogicView",
+	AspUrl: "studyregulation-stage.cavas.uni-potsdam.de/",
 	AspEndpoint: "/plans/count"
 
 }
@@ -26,13 +26,13 @@ export const Value_Defaults = {
 }
 
 
-// ToDo: 2.x Optimized array struct / methods for commands 
+// ToDo: Optimierung der Speicherung von Befehlen in Array und späteren Case-Aufruf und Aufteilung in Unterfunktionen
 export var semaLogicCommand = {
 	command_start: "SemaLogic(",
 	command_end: ")",
 	showHelp: "show help",
 	showVersion: "show version",
-	getDialectwTemplate: "template", // ToDo: Get Template planed for version 2.x
+	getDialectwTemplate: "template", // ToDo: Get Template muss wie Version and Help auch außerhalb des Codeblocks funktionieren
 	useDialect: "use ???dialectName???",
 	define: "define", // Define is not for obsidian - it is for defining SemaLogic-Interpretation
 	showParse: "show as",
@@ -72,9 +72,7 @@ export const rulesettypesCommands: string[][] = [
 ]
 
 export const DebugLevelNames: string[] =
-	[
-		'DebugLevel_Off',
-		'DebugLevel_Error',
+	['DebugLevel_Off',
 		'DebugLevel_Current_Dev',
 		'DebugLevel_Important',
 		'DebugLevel_Informative',
@@ -85,12 +83,11 @@ export const DebugLevelNames: string[] =
 
 export const DebugLevMap: DebugLevel_I = {
 	'DebugLevel_Off': 0,
-	'DebugLevel_Error': 1,
-	'DebugLevel_Current_Dev': 2,
-	'DebugLevel_Important': 3,
-	'DebugLevel_Informative': 4,
-	'DebugLevel_Chatty': 5,
-	'DebugLevel_All': 6
+	'DebugLevel_Current_Dev': 1,
+	'DebugLevel_Important': 2,
+	'DebugLevel_Informative': 3,
+	'DebugLevel_Chatty': 4,
+	'DebugLevel_All': 5
 }
 
 interface DebugLevel_I {

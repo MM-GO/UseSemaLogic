@@ -1,7 +1,7 @@
 import { MarkdownRenderChild, MarkdownView } from 'obsidian';
 import { requestUrl, RequestUrlParam, RequestUrlResponse } from 'obsidian';
-import { DebugLevel, SemaLogicPluginSettings, mygSID } from "../main";
-import { API_Defaults, semaLogicCommand, semaLogicHelp, DebugLevMap, RulesettypesCommands, Rstypes_ASP } from "./const"
+import { DebugLevel, SemaLogicPluginSettings } from "../main";
+import { API_Defaults, semaLogicCommand, semaLogicHelp, rulesettypesCommands, DebugLevelNames, DebugLevMap, rstypes_ASP, rstypes_Semalogic } from "./const"
 import { SemaLogicView, SemaLogicViewType } from "./view";
 import { parseCommand } from 'src/view_utils';
 
@@ -47,10 +47,10 @@ export async function replaceWithCommandNode(containerEl: HTMLElement, settings:
     let rulesettype: string = "" // so far as there is no outputformat - nothing to do
     let filter: string = ""
 
-    for (let rule in RulesettypesCommands) {
+    for (let rule in rulesettypesCommands) {
       // search for the rulessettype which is to show inline
-      if (semaLogicCom.contains(RulesettypesCommands[rule][0])) {
-        rulesettype = RulesettypesCommands[rule][1]
+      if (semaLogicCom.contains(rulesettypesCommands[rule][0])) {
+        rulesettype = rulesettypesCommands[rule][1]
         // search for a given filter
         const findfor = semaLogicCom.indexOf(semaLogicCommand.showFilter)
         if (findfor > 0) {
@@ -177,19 +177,19 @@ function sethttps(https: boolean): string {
 }
 
 export function getHostPort(settings: SemaLogicPluginSettings): string {
-  let adress = sethttps(settings.mySLSettings[settings.mySetting].myUseHttpsSL)
+  let adress = sethttps(settings.mySLSettings[settings.mySetting].myUseHttps)
   adress = adress + settings.mySLSettings[settings.mySetting].myBaseURL
 
   if (settings.mySLSettings[settings.mySetting].myPort != '') {
     adress = adress + ':' + settings.mySLSettings[settings.mySetting].myPort
   }
-  slconsolelog(DebugLevMap.DebugLevel_High, undefined, 'getting SemaLogic-Adress: ' + adress)
+  slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, 'getting SemaLogic-Adress: ' + adress)
   return adress
 }
 
 export function getHostAspPort(settings: SemaLogicPluginSettings, parsedCommands: parseCommand): string {
   let adress: string
-  if (parsedCommands.outputformat == RulesettypesCommands[Rstypes_ASP][1]) {
+  if (parsedCommands.outputformat == rulesettypesCommands[rstypes_ASP][1]) {
     adress = sethttps(settings.mySLSettings[settings.mySetting].myUseHttps)
     adress = adress + settings.mySLSettings[settings.mySetting].myAspUrl
     if (parsedCommands.endpoint != undefined) {
@@ -203,8 +203,8 @@ export function getHostAspPort(settings: SemaLogicPluginSettings, parsedCommands
     // undefinded new transfer endpoint
     adress = parsedCommands.endpoint
   }
-  if ((parsedCommands.param != undefined) && (parsedCommands.param != '')) { adress = adress + "?" + parsedCommands.param }
-  slconsolelog(DebugLevMap.DebugLevel_High, undefined, 'getting asp-Adress: ' + adress)
+  if (parsedCommands.param != undefined) { adress = adress + "?" + parsedCommands.param }
+  slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, 'getting asp-Adress: ' + adress)
   return adress
 }
 
@@ -223,13 +223,13 @@ export async function semaLogicGetVersion(settings: SemaLogicPluginSettings): Pr
 
   let options: RequestUrlParam
 
-  if (settings.mySLSettings[settings.mySetting].myUseHttpsSL && settings.mySLSettings[settings.mySetting].myUserSL != '') {
+  if (settings.mySLSettings[settings.mySetting].myUseHttps && settings.mySLSettings[settings.mySetting].myUser != '') {
     options = {
       url: vAPI_URL_Version,
       method: 'GET',
       headers: {
         "content-type": "application/json",
-        "Authorization": "Basic " + btoa(settings.mySLSettings[settings.mySetting].myUserSL + ":" + settings.mySLSettings[settings.mySetting].myPasswordSL)
+        "Authorization": "Basic " + btoa(settings.mySLSettings[settings.mySetting].myUser + ":" + settings.mySLSettings[settings.mySetting].myPassword)
       },
     }
   } else {
@@ -258,11 +258,11 @@ export async function semaLogicGetVersion(settings: SemaLogicPluginSettings): Pr
 // semaLogicPing tries to test standardVersionAPI - if it can't be connected - show meaningful error state
 export async function semaLogicPing(settings: SemaLogicPluginSettings, lastUpdate: number): Promise<boolean> {
   let starttime = Date.now()
-  slconsolelog(DebugLevMap.DebugLevel_Informative, undefined, 'GetVersionPing at ', Date.now(), '  for ', getHostPort(settings))
+  slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, 'GetVersionPing at ', Date.now(), '  for ', getHostPort(settings))
   await semaLogicGetVersion(settings)
     .then(function (resultBuffer: any) {
       // nothing to do
-      slconsolelog(DebugLevMap.DebugLevel_Informative, undefined, 'SemaLogic GetVersionPing started at:', starttime, ' Endtime: ', Date.now())
+      slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, 'SemaLogic GetVersionPing started at:', starttime, ' Endtime: ', Date.now())
     })
     .catch(function (e: Error) {
       // If it is an old error (long time ago sent), then tehere is nothing to do
@@ -295,8 +295,7 @@ async function showParseWithFilter(filter: string, rulessettype: string, setting
   let results: Node[] = [];
   let buildcontainerEl: HTMLElement;
 
-  //let vAPI_URL = getHostPort(settings) + API_Defaults.rules_parse + "?sid=" + settings.mySLSettings[settings.mySetting].mySID;
-  let vAPI_URL = getHostPort(settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
+  let vAPI_URL = getHostPort(settings) + API_Defaults.rules_parse + "?sid=" + settings.mySLSettings[settings.mySetting].mySID;
   slconsolelog(DebugLevMap.DebugLevel_Important, undefined, vAPI_URL)
   let bodytext: string = "";
 
@@ -324,7 +323,7 @@ async function showParseWithFilter(filter: string, rulessettype: string, setting
         }
 
       }
-      slconsolelog(DebugLevMap.DebugLevel_Informative, undefined, 'Current line is Codeblock', codeblock)
+      slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, 'Current line is Codeblock', codeblock)
 
       if ((!codeblock) && (!newCodeblock)) {
         // Check inline Statements

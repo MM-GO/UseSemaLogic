@@ -1,4 +1,4 @@
-import { DebugLevMap, semaLogicCommand, RulesettypesCommands, Rstypes_ASP, Rstypes_Semalogic } from "src/const"
+import { DebugLevMap, rstypes_ASP, rstypes_Semalogic, rulesettypesCommands, semaLogicCommand } from "src/const"
 import { DebugLevel } from "../main"
 import { slconsolelog } from "src/utils"
 
@@ -25,11 +25,11 @@ export class ViewUtils {
 
     cleanContent(content: string, outPutFormat: string): string {
         // Textmanipulation for special outcomes
-        if (outPutFormat == RulesettypesCommands[Rstypes_ASP][1]) {
+        if (outPutFormat == rulesettypesCommands[rstypes_ASP][1]) {
             const firstJSONBracket = content.indexOf("{")
             content = content.substring(firstJSONBracket, content.length)
         }
-        if (outPutFormat == RulesettypesCommands[Rstypes_Semalogic][1]) {
+        if (outPutFormat == rulesettypesCommands[rstypes_Semalogic][1]) {
             const headerString = "Semalogic Output"
             const firstheaderString = content.indexOf(headerString)
             content = content.substring(firstheaderString + headerString.length, content.length)

@@ -1,5 +1,5 @@
 import { DropdownComponent, ItemView, WorkspaceLeaf, ButtonComponent, RequestUrlParam, requestUrl } from "obsidian";
-import { slTexts, DebugLevMap, RulesettypesCommands, Rstypes_Semalogic, Rstypes_SemanticTree, Rstypes_KnowledgeGraph, Rstypes_Picture, Rstypes_ASP } from "./const"
+import { slTexts, rulesettypesCommands, rstypes_Semalogic, rstypes_Picture, rstypes_ASP, rstypes_SemanticTree, DebugLevMap } from "./const"
 import { SemaLogicPluginComm, DebugLevel, SemaLogicPluginSettings } from "../main"
 import { slconsolelog } from './utils'
 import { ViewUtils } from "./view_utils";
@@ -100,14 +100,13 @@ export class SemaLogicView extends ItemView {
 
   createDropDownButtonForOutPutFormat(container: HTMLElement, dropDownValue: string): HTMLElement {
     this.dropdownButton = new DropdownComponent(container)
-      .addOption(RulesettypesCommands[Rstypes_Semalogic][1], RulesettypesCommands[Rstypes_Semalogic][0])
-      .addOption(RulesettypesCommands[Rstypes_ASP][1], RulesettypesCommands[Rstypes_ASP][0])
-      .addOption(RulesettypesCommands[Rstypes_Picture][1], RulesettypesCommands[Rstypes_Picture][0])
-      .addOption(RulesettypesCommands[Rstypes_SemanticTree][1], RulesettypesCommands[Rstypes_SemanticTree][0])
-      .addOption(RulesettypesCommands[Rstypes_KnowledgeGraph][1], RulesettypesCommands[Rstypes_KnowledgeGraph][0])
+      .addOption(rulesettypesCommands[rstypes_Semalogic][1], rulesettypesCommands[rstypes_Semalogic][0])
+      .addOption(rulesettypesCommands[rstypes_ASP][1], rulesettypesCommands[rstypes_ASP][0])
+      .addOption(rulesettypesCommands[rstypes_Picture][1], rulesettypesCommands[rstypes_Picture][0])
+      .addOption(rulesettypesCommands[rstypes_SemanticTree][1], rulesettypesCommands[rstypes_SemanticTree][0])
       .setValue(dropDownValue)
       .onChange(async (value) => {
-        slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm.slview, 'Set ViewOutputFormat: ' + value);
+        if (DebugLevel >= DebugLevMap.DebugLevel_Informative) { slconsolelog(this.slComm.slview, 'Set ViewOutputFormat: ' + value); }
         this.slComm.slPlugin.updateOutstanding = true
         dropDownValue = value
         this.dropdownButton.setValue(value)
@@ -134,7 +133,7 @@ export class SemaLogicView extends ItemView {
             this.debugContent = []
           } else { this.debugInline = true }
           if (this.slComm.slview != undefined) {
-            slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm.slview, 'Set InlineDebugging: ' + this.debugInline);
+            if (DebugLevel >= DebugLevMap.DebugLevel_Informative) { slconsolelog(this.slComm.slview, 'Set InlineDebugging: ' + this.debugInline); }
             //this.setNewInitial(dropDownValue)
           }
           this.updateView()
@@ -150,14 +149,14 @@ export class SemaLogicView extends ItemView {
       .onClick((mouse_event: MouseEvent) => {
         this.scaleRatio = this.scaleRatio / 2
         if (this.zoomRatio != null) { this.zoomRatio.setButtonText(String(this.scaleRatio)) }
-        slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm.slview, 'Set ScaleRatio to: ' + this.scaleRatio);
+        if (DebugLevel >= DebugLevMap.DebugLevel_Informative) { slconsolelog(this.slComm.slview, 'Set ScaleRatio to: ' + this.scaleRatio); }
         this.updateView()
       })
 
     this.zoomRatio = new ButtonComponent(container)
       .setButtonText(String(this.scaleRatio))
       .onClick((mouse_event: MouseEvent) => {
-        slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm.slview, 'ScaleRatio := ' + this.scaleRatio);
+        if (DebugLevel >= DebugLevMap.DebugLevel_Informative) { slconsolelog(this.slComm.slview, 'ScaleRatio := ' + this.scaleRatio); }
       })
 
     this.zoomOut = new ButtonComponent(container)
@@ -165,7 +164,7 @@ export class SemaLogicView extends ItemView {
       .onClick((mouse_event: MouseEvent) => {
         this.scaleRatio = this.scaleRatio * 2
         this.zoomRatio.setButtonText(String(this.scaleRatio))
-        slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm.slview, 'Set ScaleRatio to: ' + this.scaleRatio);
+        if (DebugLevel >= DebugLevMap.DebugLevel_Informative) { slconsolelog(this.slComm.slview, 'Set ScaleRatio to: ' + this.scaleRatio); }
         this.updateView()
       })
 
@@ -207,7 +206,7 @@ export class SemaLogicView extends ItemView {
       container = this.createDropDownButtonForOutPutFormat(container, dropDownValue)
       container = this.createCopyToClipboardButton(container)
       container = this.createDebugButton(container)
-      if (dropDownValue == RulesettypesCommands[Rstypes_Picture][1]) {
+      if (dropDownValue == rulesettypesCommands[rstypes_Picture][1]) {
         container = this.createScaleButtons(container)
       }
       container.createEl("p")
@@ -217,7 +216,7 @@ export class SemaLogicView extends ItemView {
   }
 
   async onOpen() {
-    this.setNewInitial(RulesettypesCommands[Rstypes_Semalogic][1])
+    this.setNewInitial(rulesettypesCommands[rstypes_Semalogic][1])
     // this.containerEl.children[1].appendText("let's begin");
   }
 
@@ -226,7 +225,7 @@ export class SemaLogicView extends ItemView {
   }
 
   showError(fragment: DocumentFragment) {
-    //   this.setInitial(RulesettypesCommands[Rstypes_Semalogic][1])
+    //   this.setInitial(rulesettypesCommands[rstypes_Semalogic][1])
     this.contentEl.appendChild(fragment)
   }
   onunload(): void {
@@ -239,7 +238,7 @@ export class SemaLogicView extends ItemView {
   }
 
   createSemaLogicRequestBody(dialectID: string, bodytext: string, outPutFormat: string): any {
-    slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, 'Context: ' + dialectID + ' Bodytext: ' + bodytext)
+    if (DebugLevel >= DebugLevMap.DebugLevel_Important) { slconsolelog(this.slComm.slview, 'Context: ' + dialectID + ' Bodytext: ' + bodytext) }
     let semaLogicJsonRequestBody = {
       "text": [
         {
@@ -265,24 +264,26 @@ export class SemaLogicView extends ItemView {
       body: JSON.stringify(semaLogicJsonRequestBody)
     }
 
-    if (settings.mySLSettings[settings.mySetting].myUseHttpsSL && settings.mySLSettings[settings.mySetting].myUserSL != '') {
+    if (settings.mySLSettings[settings.mySetting].myUseHttps && settings.mySLSettings[settings.mySetting].myUser != '') {
       request = {
         url: vAPI_URL,
         method: 'POST',
         headers: {
           "content-type": "application/json",
-          "Authorization": "Basic " + btoa(settings.mySLSettings[settings.mySetting].myUserSL + ":" + settings.mySLSettings[settings.mySetting].myPasswordSL)
+          "Authorization": "Basic " + btoa(settings.mySLSettings[settings.mySetting].myUser + ":" + settings.mySLSettings[settings.mySetting].myPassword)
         },
         body: JSON.stringify(semaLogicJsonRequestBody)
       }
     }
-    slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, 'Parsingsstring')
-    slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, request)
+    if (DebugLevel >= DebugLevMap.DebugLevel_Important) {
+      slconsolelog(this.slComm.slview, 'Parsingsstring')
+      slconsolelog(this.slComm.slview, request)
+    }
     return request
   }
 
   getRequestEmbed(content: string): string {
-    if (this.getOutPutFormat() == RulesettypesCommands[Rstypes_Picture][1]) {
+    if (this.getOutPutFormat() == rulesettypesCommands[rstypes_Picture][1]) {
       // Zoom for Picture
       // try to get original viewbox size
       let viewBoxString: string
@@ -319,7 +320,7 @@ export class SemaLogicView extends ItemView {
         //textline.style.cssText = 'white-space: pre;' //; white-space: pre-line;'
       })
     } else {
-      if (this.getOutPutFormat() == RulesettypesCommands[Rstypes_ASP][1]) {
+      if (this.getOutPutFormat() == rulesettypesCommands[rstypes_ASP][1]) {
         let resulttextarray = this.getCurrResult().split('\n')
         resulttextarray.forEach(value => {
           const textline = responseContent.createEl("span", { text: value + "\n", cls: "debuginline" })
@@ -363,10 +364,10 @@ export class SemaLogicView extends ItemView {
     try {
       const response = await requestUrl(semaLogicRequest)
 
-      slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, "SemaLogic: Parse with http-status " + response.status.toString())
+      if (DebugLevel >= DebugLevMap.DebugLevel_High) { slconsolelog(this.slComm.slview, "SemaLogic: Parse with http-status " + response.status.toString()) };
       if (response.status == 200) {
         resulthttp = response.text;
-        slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, `Parseresult:${resulthttp}`)
+        if (DebugLevel >= DebugLevMap.DebugLevel_Chatty) { slconsolelog(this.slComm.slview, `Parseresult:${resulthttp}`) }
         if ((this.debugInline == false) && (parseOnTheFly == false)) {
           this.currResult = resulthttp
         }
@@ -384,8 +385,8 @@ export class SemaLogicView extends ItemView {
       });
     }
     catch (e) {
-      slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, `Catcherror of removing context ${vAPI_URL}`)
-      slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, e.toString())
+      if (DebugLevel >= DebugLevMap.DebugLevel_High) { slconsolelog(this.slComm.slview, `Catcherror of removing context ${vAPI_URL}`) }
+      if (DebugLevel >= DebugLevMap.DebugLevel_High) { slconsolelog(this.slComm.slview, e.toString()) }
       let text = new DocumentFragment()
       text.createEl("p")
       let textfragment = (new Range()).createContextualFragment(e.toString());
