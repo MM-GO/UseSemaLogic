@@ -4,10 +4,13 @@ import { SemaLogicView, SemaLogicViewType } from "./src/view";
 import { ASPView, ASPViewType } from "./src/view_asp";
 import { ViewUpdate, EditorView } from "@codemirror/view";
 import { SemaLogicRenderedElement, searchForSemaLogicCommands, getHostPort, semaLogicPing, slconsolelog } from "./src/utils";
-import { API_Defaults, Value_Defaults, semaLogicCommand, rulesettypesCommands, rstypes_Semalogic, rstypes_Picture, rstypes_ASP, DebugLevMap, DebugLevelNames } from "./src/const"
+import { API_Defaults, Value_Defaults, semaLogicCommand, RulesettypesCommands, Rstypes_Semalogic, Rstypes_Picture, Rstypes_ASP, DebugLevMap, DebugLevelNames, Rstypes_KnowledgeGraph, Rstypes_SemanticTree } from "./src/const"
 import { ViewUtils } from 'src/view_utils';
+//import { Rstypes_SemanticTree } from 'src/const only for UP';
 
 export var DebugLevel = 0;
+
+export var mygSID = String(Math.round(Math.random() * 99999999999))
 
 export interface SLSetting {
 	myPort: string;
@@ -19,9 +22,12 @@ export interface SLSetting {
 	myUpdateInterval: number;
 	myUseHttps: boolean,
 	myUser: string,
-	myPassword: string
+	myPassword: string,
 	myAspUrl: string,
-	myAspEndpoint: string
+	myAspEndpoint: string,
+	myUseHttpsSL: boolean,
+	myUserSL: string,
+	myPasswordSL: string
 }
 
 export interface SemaLogicPluginSettings {
@@ -42,7 +48,10 @@ export const Default_profile: SemaLogicPluginSettings = {
 		myPassword: API_Defaults.HttpPassword,
 		myUpdateInterval: Value_Defaults.updateInterval,
 		myAspUrl: API_Defaults.AspUrl,
-		myAspEndpoint: API_Defaults.AspEndpoint
+		myAspEndpoint: API_Defaults.AspEndpoint,
+		myUseHttpsSL: API_Defaults.useUserPasswortforHTTPSL,
+		myUserSL: API_Defaults.HttpUserSL,
+		myPasswordSL: API_Defaults.HttpPasswordSL
 	},
 	{
 		myPort: API_Defaults.Port,
@@ -56,7 +65,10 @@ export const Default_profile: SemaLogicPluginSettings = {
 		myPassword: API_Defaults.HttpPassword,
 		myUpdateInterval: Value_Defaults.updateInterval,
 		myAspUrl: API_Defaults.AspUrl,
-		myAspEndpoint: API_Defaults.AspEndpoint
+		myAspEndpoint: API_Defaults.AspEndpoint,
+		myUseHttpsSL: API_Defaults.useUserPasswortforHTTPSL,
+		myUserSL: API_Defaults.HttpUserSL,
+		myPasswordSL: API_Defaults.HttpPasswordSL
 	},
 	{
 		myPort: API_Defaults.Port,
@@ -70,7 +82,10 @@ export const Default_profile: SemaLogicPluginSettings = {
 		myPassword: API_Defaults.HttpPassword,
 		myUpdateInterval: Value_Defaults.updateInterval,
 		myAspUrl: API_Defaults.AspUrl,
-		myAspEndpoint: API_Defaults.AspEndpoint
+		myAspEndpoint: API_Defaults.AspEndpoint,
+		myUseHttpsSL: API_Defaults.useUserPasswortforHTTPSL,
+		myUserSL: API_Defaults.HttpUserSL,
+		myPasswordSL: API_Defaults.HttpPasswordSL
 	},
 	],
 	mySetting: 0,
@@ -143,34 +158,24 @@ class SemaLogicSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		// Port for reaching SemaLogic with Standardparameter
+
+		// Show StandardUpdateInterval
 		new Setting(containerEl)
-			.setName('Port SemaLogic')
-			.setDesc('Enter the Port')
-			.addText(text => text
-				.setPlaceholder(API_Defaults.Port)
-				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myPort)
+			.setName('Standard updateinterval')
+			//.setDesc('Set standard updateinterval')
+			.addText(setting => setting
+				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUpdateInterval.toString())
 				.onChange(async (value) => {
-					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set to Port: ' + value)
-					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myPort = value;
-					await this.plugin.saveSettings();
+					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set Update Interval: ' + value)
+					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUpdateInterval = parseInt(value);
+					window.clearInterval(this.plugin.interval)
+					this.plugin.registerInterval(
+						this.plugin.interval = window.setInterval(this.plugin.handleUpdate, this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUpdateInterval)
+					);
+					await this.plugin.saveSettings()
+					//this.display()
 				}));
 
-		// OutputFormats 
-		// ToDo: Get from API which OutputFormats are possible		
-		new Setting(containerEl)
-			.setName('OutputFormat')
-			.setDesc('Here you can set the outputformat for SemaLogic, which could be get from SemaLogicService')
-			.addDropdown(dropDown => dropDown
-				.addOption(rulesettypesCommands[rstypes_Semalogic][1], rulesettypesCommands[rstypes_Semalogic][0])
-				.addOption(rulesettypesCommands[rstypes_ASP][1], rulesettypesCommands[rstypes_ASP][0])
-				.addOption(rulesettypesCommands[rstypes_Picture][1], rulesettypesCommands[rstypes_Picture][0])
-				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myOutputFormat)
-				.onChange(async (value) => {
-					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set Outputformat: ' + value)
-					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myOutputFormat = value;
-					await this.plugin.saveSettings();
-				}));
 
 		// BaseURL 
 		new Setting(containerEl)
@@ -197,18 +202,96 @@ class SemaLogicSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 					//this.display()
 				}));
-		// SID-Information
+
+
+		// Port for reaching SemaLogic with Standardparameter
 		new Setting(containerEl)
-			.setName('SID')
-			.setDesc('SemaLogic SessionID')
+			.setName('Port SemaLogic')
+			.setDesc('Enter the Port')
 			.addText(text => text
-				.setPlaceholder(API_Defaults.SID)
-				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].mySID)
+				.setPlaceholder(API_Defaults.Port)
+				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myPort)
 				.onChange(async (value) => {
-					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set SID: ' + value)
-					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].mySID = value;
+					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set to Port: ' + value)
+					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myPort = value;
 					await this.plugin.saveSettings();
 				}));
+
+		// OutputFormats 
+		// ToDo: Get from API which OutputFormats are possible		
+		new Setting(containerEl)
+			.setName('OutputFormat')
+			.setDesc('Here you can set the outputformat for SemaLogic, which could be get from SemaLogicService')
+			.addDropdown(dropDown => dropDown
+				.addOption(RulesettypesCommands[Rstypes_Semalogic][1], RulesettypesCommands[Rstypes_Semalogic][0])
+				.addOption(RulesettypesCommands[Rstypes_ASP][1], RulesettypesCommands[Rstypes_ASP][0])
+				.addOption(RulesettypesCommands[Rstypes_Picture][1], RulesettypesCommands[Rstypes_Picture][0])
+				.addOption(RulesettypesCommands[Rstypes_SemanticTree][1], RulesettypesCommands[Rstypes_SemanticTree][0])
+				.addOption(RulesettypesCommands[Rstypes_KnowledgeGraph][1], RulesettypesCommands[Rstypes_KnowledgeGraph][0])
+				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myOutputFormat)
+				.onChange(async (value) => {
+					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set Outputformat: ' + value)
+					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myOutputFormat = value;
+					await this.plugin.saveSettings();
+				}));
+
+		/* SID is not needed for on-the-fly-solving in obsidian
+				// SID-Information
+				new Setting(containerEl)
+					.setName('SID')
+					.setDesc('SemaLogic SessionID')
+					.addText(text => text
+						.setPlaceholder(API_Defaults.SID)
+						.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].mySID)
+						.onChange(async (value) => {
+							slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set SID: ' + value)
+							this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].mySID = value;
+							await this.plugin.saveSettings();
+						}));
+		*/
+
+		// For HTTP-Request with User/Password for transfer view		
+		new Setting(containerEl)
+			.setName('Secure HTTP-Request SemaLogic')
+			.setDesc('If you has to use User/Password for http-request to the semalogic service')
+			.addToggle(setting => setting
+				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUseHttpsSL)
+				.onChange(async (value) => {
+					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set UserPasswordRequest: ' + value)
+					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUseHttpsSL = value;
+					await this.plugin.saveSettings()
+					this.display()
+				}));
+
+		if (this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUseHttpsSL) {
+			// Request-User
+			new Setting(containerEl)
+				.setName('HTTP-Request-User')
+				.setDesc('User to reach transfer service')
+				.addText(text => text
+					.setPlaceholder(API_Defaults.HttpUserSL)
+					.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUserSL)
+					.onChange(async (value) => {
+						slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set HTTP-Request-User...')
+						this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUserSL = value;
+						await this.plugin.saveSettings();
+					}));
+
+			// Request-Password
+			new Setting(containerEl)
+				.setName('HTTP-Request-Password')
+				.setDesc('Password to reach transfer service')
+				.addText(text => text
+					.setPlaceholder(API_Defaults.HttpPasswordSL)
+					.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myPasswordSL)
+					.onChange(async (value) => {
+						slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set HTTP-Request-Password...')
+						this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myPasswordSL = value;
+						await this.plugin.saveSettings();
+					}));
+		}
+
+
 		// Show Dialect in Reading View
 		new Setting(containerEl)
 			.setName('Show Context in Reading View')
@@ -222,27 +305,40 @@ class SemaLogicSettingTab extends PluginSettingTab {
 					//this.display()
 				}));
 
-		// Show StandardUpdateInterval
+		// Headline for SettingsTab
+		containerEl.createEl('h1', { text: '_______________________________' });
+		containerEl.createEl('h2', { text: 'Settings for Transfer/ASP-View:' });
+
+		// ASPBaseURL 
 		new Setting(containerEl)
-			.setName('Standard updateinterval')
-			//.setDesc('Set standard updateinterval')
-			.addText(setting => setting
-				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUpdateInterval.toString())
+			.setName('BaseUrl for Transfer/ASP')
+			.setDesc('BaseURL for reaching Transfer/ASP-Service')
+			.addText(text => text
+				.setPlaceholder(API_Defaults.AspUrl)
+				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myAspUrl)
 				.onChange(async (value) => {
-					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set Update Interval: ' + value)
-					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUpdateInterval = parseInt(value);
-					window.clearInterval(this.plugin.interval)
-					this.plugin.registerInterval(
-						this.plugin.interval = window.setInterval(this.plugin.handleUpdate, this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUpdateInterval)
-					);
-					await this.plugin.saveSettings()
-					//this.display()
+					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set Transfer/ASP-BaseURL: ' + value)
+					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myAspUrl = value;
+					await this.plugin.saveSettings();
 				}));
 
-		// For HTTP-Request with User/Password 		
+		// Standard ASPEndpoint
+		new Setting(containerEl)
+			.setName('Path to Get-Transfer/ASP-StandardAPI-Endpoint')
+			.setDesc('Path to Transfer/ASP-Standard-API ')
+			.addText(text => text
+				.setPlaceholder(API_Defaults.AspEndpoint)
+				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myAspEndpoint)
+				.onChange(async (value) => {
+					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set to Transfer/ASP-Standard-API-Endpoint: ' + value)
+					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myAspEndpoint = value;
+					await this.plugin.saveSettings();
+				}));
+
+		// For HTTP-Request with User/Password for transfer view		
 		new Setting(containerEl)
 			.setName('Secure HTTP-Request')
-			.setDesc('If you has to use User/Password for http-request to the SemaLogic service')
+			.setDesc('If you has to use User/Password for http-request to the transfer service')
 			.addToggle(setting => setting
 				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUseHttps)
 				.onChange(async (value) => {
@@ -257,7 +353,7 @@ class SemaLogicSettingTab extends PluginSettingTab {
 			// Request-User
 			new Setting(containerEl)
 				.setName('HTTP-Request-User')
-				.setDesc('User to reach SemaLogic service')
+				.setDesc('User to reach transfer service')
 				.addText(text => text
 					.setPlaceholder(API_Defaults.HttpUser)
 					.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUser)
@@ -270,7 +366,7 @@ class SemaLogicSettingTab extends PluginSettingTab {
 			// Request-Password
 			new Setting(containerEl)
 				.setName('HTTP-Request-Password')
-				.setDesc('Password to reach SemaLogic service')
+				.setDesc('Password to reach transfer service')
 				.addText(text => text
 					.setPlaceholder(API_Defaults.HttpPassword)
 					.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myPassword)
@@ -281,31 +377,7 @@ class SemaLogicSettingTab extends PluginSettingTab {
 					}));
 		}
 
-		// ASPBaseURL 
-		new Setting(containerEl)
-			.setName('BaseUrl for ASP')
-			.setDesc('BaseURL for reaching ASP-Service')
-			.addText(text => text
-				.setPlaceholder(API_Defaults.AspUrl)
-				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myAspUrl)
-				.onChange(async (value) => {
-					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set ASPBaseURL: ' + value)
-					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myAspUrl = value;
-					await this.plugin.saveSettings();
-				}));
 
-		// Standard ASPEndpoint
-		new Setting(containerEl)
-			.setName('Path to Get-ASP-StandardAPI-Endpoint')
-			.setDesc('Path to ASP-Standard-API ')
-			.addText(text => text
-				.setPlaceholder(API_Defaults.AspEndpoint)
-				.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myAspEndpoint)
-				.onChange(async (value) => {
-					slconsolelog(DebugLevMap.DebugLevel_Important, undefined, 'Set to ASP-Standard-API-Endpoint: ' + value)
-					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myAspEndpoint = value;
-					await this.plugin.saveSettings();
-				}));
 	}
 }
 
@@ -341,6 +413,7 @@ export default class SemaLogicPlugin extends Plugin {
 	updating: boolean = false;
 	lastUpdate: number = 0;
 	updateOutstanding: boolean = false;
+	updateTransferOutstanding: boolean = false;
 	updateOutstandingSetting: boolean = false;
 	waitingForResponse = false;
 	UpdateProcessing: boolean = false;
@@ -380,14 +453,6 @@ export default class SemaLogicPlugin extends Plugin {
 		this.slComm.activatedASP = false
 		this.app.workspace.iterateAllLeaves((leaf) => {
 			switch (leaf.view.getViewType()) {
-				case ASPViewType: {
-					this.slComm.slaspview = (leaf.view as ASPView)
-					this.slComm.slaspview.setComm(this.slComm)
-					this.slComm.slaspview.slComm.setSlView(this.slComm.slview)
-					this.slComm.slaspview.slComm.slPlugin = this.slComm.slPlugin
-					this.slComm.activatedASP = true
-					this.statusTransfer = true
-				}
 				case SemaLogicViewType: {
 					this.slComm.slview = (leaf.view as SemaLogicView)
 					this.slComm.slview.setComm(this.slComm)
@@ -395,6 +460,17 @@ export default class SemaLogicPlugin extends Plugin {
 					this.slComm.slview.slComm.slPlugin = this.slComm.slPlugin
 					this.activated = true
 					this.statusSL = true
+					break
+				}
+				case ASPViewType: {
+					this.slComm.slaspview = (leaf.view as ASPView)
+					this.slComm.slaspview.setComm(this.slComm)
+					this.slComm.slaspview.slComm.setSlView(this.slComm.slview)
+					this.slComm.slaspview.slComm.slPlugin = this.slComm.slPlugin
+					this.slComm.activatedASP = true
+					this.statusTransfer = true
+
+					break
 				}
 			}
 		})
@@ -471,13 +547,14 @@ export default class SemaLogicPlugin extends Plugin {
 
 		this.setViews();
 
-		slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, 'Start SemaLogicParse')
+		slconsolelog(DebugLevMap.DebugLevel_, this.slComm.slview, 'Start SemaLogicParse')
 		let results: Node[] = [];
 
 		this.lastUpdate = Date.now()
 		await semaLogicPing(this.settings, this.lastUpdate)
 
-		let vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + this.settings.mySLSettings[this.settings.mySetting].mySID;
+		// let vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + this.settings.mySLSettings[this.settings.mySetting].mySID;
+		let vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
 		slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, vAPI_URL)
 
 		let bodytext: string = "";
@@ -538,23 +615,35 @@ export default class SemaLogicPlugin extends Plugin {
 			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, value)
 		})
 
-		this.updateOutstanding = false
-
+		//slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, 'Check: UpdateASPOutstanding = false:' + this.updateTransferOutstanding)
 		if (this.slComm.activatedASP) {
-			slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, "Parsingresult for OnTheFly Transfer.view in SemaLogic")
-			const parseCommands = this.slComm.slaspview.getASPCommands(this.slComm, this.settings)
+			if (Date.now() - this.slComm.slaspview.LastRequestTime >= this.settings.mySLSettings[this.settings.mySetting].myUpdateInterval) {
+				//this.slComm.slaspview.contentEl.empty
+				this.slComm.slaspview.LastRequestTime = Date.now()
+				slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, `Set-Requesttime: ${this.slComm.slaspview.LastRequestTime}`)
 
-			parseCommands.commands.forEach(command => {
-				let outputFormat: string = rulesettypesCommands[rstypes_ASP][1]
-				if (command.outputformat != undefined && command.outputformat != rulesettypesCommands[rstypes_ASP][0]) { outputFormat = command.outputformat }
+				//slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, "Parsingresult for OnTheFly Transfer.view in SemaLogic")
+				//const parseCommands = this.slComm.slaspview.getASPCommands(this.slComm, this.settings)
+				this.updateTransferOutstanding = false
+				//parseCommands.commands.forEach(command => {
+				let outputFormat: string = RulesettypesCommands[Rstypes_ASP][1]
+				//	if (command.outputformat != undefined && command.outputformat != RulesettypesCommands[Rstypes_ASP][0]) { outputFormat = command.outputformat }
+
 				const responseForASP = this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, dialectID, bodytext, true, outputFormat)
 				responseForASP.then(value => {
+					//this.updateTransferOutstanding = true;
+					//slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, 'Set UpdateASPOutstanding:' + this.updateTransferOutstanding)
 					slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, value)
-					const aspPromise = this.slComm.slaspview.aspParse(this.slComm, this.settings, value)
-					aspPromise.then(value => { if (value != undefined) { slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, value) } })
+					const aspPromise = this.slComm.slaspview.aspParse(this.slComm, this.settings, value, this.slComm.slaspview.LastRequestTime)
+					aspPromise.then(value => {
+						if (value != undefined) { slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, value) }
+						//
+						//slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, 'Set UpdateASPOutstanding:' + this.updateTransferOutstanding)
+					})
 				})
-			});
+			} else { this.updateTransferOutstanding = true }
 		}
+
 		return results
 	}
 
@@ -675,7 +764,8 @@ export default class SemaLogicPlugin extends Plugin {
 
 	async onunload() {
 		// commented out due to publishing process - see PlugInGuideline - could be deleted
-		//this.app.workspace.detachLeavesOfType(ASPViewType);
+		this.app.workspace.detachLeavesOfType(ASPViewType);
+		//this.slComm.slaspview.unload()
 		//this.app.workspace.detachLeavesOfType(SemaLogicViewType);
 	}
 
@@ -698,8 +788,7 @@ export default class SemaLogicPlugin extends Plugin {
 		if (this.statusSL) {
 			// To avoid to much parsing traffic for testing we tried to parse it only every 500 ms when there is an update
 			const text = 'Updatetime' + '/' + String(Date.now()) + '/' + String(this.lastUpdate) + '/' + String(Date.now() - this.lastUpdate) + '/' + String(this.updateOutstanding) + '/' + String(this.waitingForResponse)
-			slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, text)
-
+			slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, text)
 			if (update == null) { }
 			else {
 				if (update.view) {
@@ -708,22 +797,25 @@ export default class SemaLogicPlugin extends Plugin {
 					} else {
 						if (this.UpdateProcessing == false) {
 							//this.updateOutstanding = true
-							slconsolelog(DebugLevMap.DebugLevel_All, this.slComm.slview, 'Start Update docChanged, focuschanged, UpdProc  ' + String(update.docChanged) + "/" + String(update.focusChanged) + "/" + String(this.UpdateProcessing))
+							slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, 'Start Update docChanged, focuschanged, UpdProc  ' + String(update.docChanged) + "/" + String(update.focusChanged) + "/" + String(this.UpdateProcessing))
 							this.semaLogicUpdate()
 						}
 					}
 				}
 			}
 
-			if ((Date.now() - this.lastUpdate > this.settings.mySLSettings[this.settings.mySetting].myUpdateInterval) && (this.updateOutstanding == true) && (this.waitingForResponse == false)) {
-				slconsolelog(DebugLevMap.DebugLevel_All, this.slComm.slview, 'Start Update PARSING')
+			if ((Date.now() - this.lastUpdate > this.settings.mySLSettings[this.settings.mySetting].myUpdateInterval) && (this.updateOutstanding == true || this.updateTransferOutstanding == true) && (this.waitingForResponse == false)) {
+				slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, 'Start Update PARSING')
 				this.lastUpdate = Date.now()
 				this.semaLogicUpdate()
+				//this.updateTransferOutstanding = false
+				//slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, 'Set in interval UpdateASPOutstanding:' + this.updateTransferOutstanding)
 			} else
 				if ((Date.now() - this.lastUpdate > this.settings.mySLSettings[this.settings.mySetting].myUpdateInterval) && (this.updateOutstanding == true) && (this.waitingForResponse == false)) {
 					semaLogicPing(this.settings, this.lastUpdate)
 				}
 		}
+
 	}
 
 	semaLogicUpdate(setView?: boolean) {
@@ -780,16 +872,16 @@ export default class SemaLogicPlugin extends Plugin {
 
 	async semaLogicReset() {
 		// let vAPI_URL_Reset = API_Defaults.Base_URL + ":" + API_Defaults.Port + API_Defaults.reset + "?sid=" + API_Defaults.SID;
-		let vAPI_URL_Reset = getHostPort(this.settings) + API_Defaults.reset + "?sid=" + this.settings.mySLSettings[this.settings.mySetting].mySID;
-
+		// let vAPI_URL_Reset = getHostPort(this.settings) + API_Defaults.reset + "?sid=" + this.settings.mySLSettings[this.settings.mySetting].mySID;
+		let vAPI_URL_Reset = getHostPort(this.settings) + API_Defaults.reset + "?sid=" + mygSID;
 		let optionsReset: RequestUrlParam
-		if (this.settings.mySLSettings[this.settings.mySetting].myUseHttps && this.settings.mySLSettings[this.settings.mySetting].myUser != '') {
+		if (this.settings.mySLSettings[this.settings.mySetting].myUseHttpsSL && this.settings.mySLSettings[this.settings.mySetting].myUserSL != '') {
 			optionsReset = {
 				url: vAPI_URL_Reset,
 				method: 'POST',
 				headers: {
 					"content-type": "text/plain",
-					"Authorization": "Basic " + btoa(this.settings.mySLSettings[this.settings.mySetting].myUser + ":" + this.settings.mySLSettings[this.settings.mySetting].myPassword)
+					"Authorization": "Basic " + btoa(this.settings.mySLSettings[this.settings.mySetting].myUserSL + ":" + this.settings.mySLSettings[this.settings.mySetting].myPasswordSL)
 				},
 			}
 		} else {
