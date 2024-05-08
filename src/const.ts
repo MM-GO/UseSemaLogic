@@ -17,8 +17,10 @@ export const API_Defaults = {
 	HttpPassword: "Password",
 	viewheader: "SVG",
 	AspUrl: "ASP-Service-URL.com/",
-	AspEndpoint: "/plans/count"
-
+	AspEndpoint: "/plans/count",
+	useUserPasswortforHTTPSL: true,
+	HttpUserSL: "User",
+	HttpPasswordSL: "Password",
 }
 
 export const Value_Defaults = {
@@ -54,12 +56,13 @@ export const semaLogicHelp: string[][] = [
 ]
 
 // rulesettype : type, Naming
-export const rstypes_Semalogic = 0
-export const rstypes_Picture = 3
-export const rstypes_ASP = 6
-export const rstypes_SemanticTree = 8
+export const Rstypes_Semalogic = 0
+export const Rstypes_Picture = 3
+export const Rstypes_ASP = 6
+export const Rstypes_SemanticTree = 8
+export const Rstypes_KnowledgeGraph = 9
 
-export const rulesettypesCommands: string[][] = [
+export const RulesettypesCommands: string[][] = [
 	["SemaLogic", "SemaLogic"],
 	["technical", "SemaLogic"],
 	["semalogic", "SemaLogic"],
@@ -69,6 +72,7 @@ export const rulesettypesCommands: string[][] = [
 	["ASP", "ASP.json"],
 	["asp", "ASP.json"],
 	["SemanticTree", "SemanticTree"],
+	["KnwoledgeGraph", "KnowledgeGraph"]
 ]
 
 export const DebugLevelNames: string[] =
@@ -102,5 +106,6 @@ type MapType = {
 }
 
 export const slTexts: MapType = {
-	"HeaderSL": "SemaLogic.View"
+	"HeaderSL": "SemaLogic.View",
+	"HeaderTV": "Transfer.View"
 }
