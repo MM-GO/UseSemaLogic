@@ -72,7 +72,7 @@ export class SemaLogicView extends ItemView {
     if (this.slComm != comm) {
       this.slComm = comm
       //this.slComm.setSlView(this)
-      this.setNewInitial(this.slComm.slPlugin.settings.mySLSettings[this.slComm.slPlugin.settings.mySetting].myOutputFormat)
+      this.setNewInitial(this.slComm.slPlugin.settings.mySLSettings[this.slComm.slPlugin.settings.mySetting].myOutputFormat, false)
     }
   }
 
@@ -174,7 +174,7 @@ export class SemaLogicView extends ItemView {
 
   checkContainerContent(): boolean {
     if (this.containerEl.children != undefined) {
-      if (this.containerEl.children[1].textContent == slTexts['HeaderSL']) {
+      if (this.containerEl.children[1].textContent?.substring(0, slTexts['HeaderSL'].length) == slTexts['HeaderSL']) {
         return true
       } else {
         return false
@@ -197,9 +197,9 @@ export class SemaLogicView extends ItemView {
   }
 
 
-  public setNewInitial(dropDownValue: string) {
+  public setNewInitial(dropDownValue: string, now: boolean) {
     let container = this.contentEl
-    if (!this.checkContainerContent()) {
+    if (!this.checkContainerContent() || now) {
       container.empty()
       //container.contentEditable = 'true'
       container.createEl("h4", { text: slTexts['HeaderSL'] });
@@ -217,7 +217,7 @@ export class SemaLogicView extends ItemView {
   }
 
   async onOpen() {
-    this.setNewInitial(RulesettypesCommands[Rstypes_Semalogic][1])
+    this.setNewInitial(RulesettypesCommands[Rstypes_Semalogic][1], false)
     // this.containerEl.children[1].appendText("let's begin");
   }
 
@@ -327,25 +327,14 @@ export class SemaLogicView extends ItemView {
         })
       } else {
         responseContent.createEl("p", { text: " " })
-        /*
-        let div = document.createElement('div');
-
-        // Add some HTML content to the div 
-        div.innerHTML = this.getCurrResult();
-
-        // Append the div to the document body
-        responseContent.appendChild(div);
-
-        */
         responseContent.insertAdjacentHTML("afterend", this.getCurrResult())
-
       }
     }
     //return responseContent
   }
 
   updateView(): void {
-    this.setNewInitial(this.getOutPutFormat())
+    this.setNewInitial(this.getOutPutFormat(), true)
     this.getCurrHTML()
   }
 

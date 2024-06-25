@@ -109,3 +109,16 @@ export const slTexts: MapType = {
 	"HeaderSL": "SemaLogic.View",
 	"HeaderTV": "Transfer.View"
 }
+
+
+export const slTemplate: MapType = {
+	"PathCommands": "Templates/SemaLogic/Commands",
+	"PathSymTokenComparison": "Templates/SemaLogic/SymToken/Comparison",
+	"PathSymTokenElements": "Templates/SemaLogic/SymToken/Elements",
+	"PathSymTokenFunc": "Templates/SemaLogic/SymToken/FuncToken",
+	"PathSymTokenMath": "Templates/SemaLogic/SymToken/Math",
+	"PathSymTokenRefToken": "Templates/SemaLogic/SymToken/RefToken",
+	"PathSymTokenTerms": "Templates/SemaLogic/SymToken/TermsAndRules",
+	"PathExamplesBasic": "Templates/SemaLogic/Examples/Basic"
+}
+

@@ -3,6 +3,7 @@ import { DebugLevMap, semaLogicCommand, Rstypes_ASP, RulesettypesCommands, slTex
 import { SemaLogicPluginComm, SemaLogicPluginSettings } from "../main"
 import { getHostAspPort, slconsolelog } from './utils'
 import { parseCommands } from "src/view_utils";
+import { } from "src/template";
 
 
 export const ASPViewType = 'TransferService';

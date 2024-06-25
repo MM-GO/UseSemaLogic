@@ -6,6 +6,8 @@ import { ViewUpdate, EditorView } from "@codemirror/view";
 import { SemaLogicRenderedElement, searchForSemaLogicCommands, getHostPort, semaLogicPing, slconsolelog } from "./src/utils";
 import { API_Defaults, Value_Defaults, semaLogicCommand, RulesettypesCommands, Rstypes_Semalogic, Rstypes_Picture, Rstypes_ASP, DebugLevMap, DebugLevelNames, Rstypes_KnowledgeGraph, Rstypes_SemanticTree } from "./src/const"
 import { ViewUtils } from 'src/view_utils';
+import { createTemplateFolder } from 'src/template';
+import { createExamples } from 'src/examples';
 //import { Rstypes_SemanticTree } from 'src/const only for UP';
 
 export var DebugLevel = 0;
@@ -531,10 +533,25 @@ export default class SemaLogicPlugin extends Plugin {
 				}
 			}
 		});
+		// add an RibbonIcon to activcate and deactivate the SemaLogicView
+		//this.addRibbonIcon("file-type-2", "Create TemplateFolder", () => {
+		//	createTemplateFolder(app.vault)
+		//});
+
+		this.addCommand({
+			id: "sl_create_template",
+			name: "SemaLogic create template",
+			callback: () => {
+				createTemplateFolder(app.vault);
+				createExamples(app.vault);
+			},
+		});
+
+
 		if (this.statusSL) {
 			this.semaLogicReset();
 			// Default is that SemaLogicView is activated but it can be deactivated by click on Ribbon Icon
-			this.slComm.slview.setNewInitial(this.settings.mySLSettings[this.settings.mySetting].myOutputFormat);
+			this.slComm.slview.setNewInitial(this.settings.mySLSettings[this.settings.mySetting].myOutputFormat, true);
 			this.semaLogicParse();
 		}
 		this.registerInterval(
@@ -775,7 +792,7 @@ export default class SemaLogicPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
-		if (this.slComm.slview != undefined) { this.slComm.slview.setNewInitial(this.settings.mySLSettings[this.settings.mySetting].myOutputFormat) }
+		if (this.slComm.slview != undefined) { this.slComm.slview.setNewInitial(this.settings.mySLSettings[this.settings.mySetting].myOutputFormat, false) }
 		this.updateOutstanding = true;
 		//this.semaLogicParse();
 	}
@@ -833,27 +850,29 @@ export default class SemaLogicPlugin extends Plugin {
 
 		if (!this.updating) {
 			this.updating = true
-			if (activeView != null) {
-				const editortext = activeView.editor.getRange({ line: 0, ch: 0 }, { line: activeView.editor.lastLine(), ch: activeView.editor.lastLine.length })
-				const addChar: string = " "
-				let cursor = activeView.editor.getCursor()
-				for (let i = 0; i < activeView.editor.lastLine(); i++) {
-					if (activeView.editor.getLine(i).substring(0, semaLogicCommand.command_start.length) == semaLogicCommand.command_start) {
-						if (activeView.editor.getLine(i).substring(activeView.editor.getLine(i).length - 1, activeView.editor.getLine(i).length) == semaLogicCommand.command_end) {
-							// temporarly add a char for forcing an update of html-view 
-							activeView.editor.setLine(i, activeView.editor.getLine(i).substring(0, activeView.editor.getLine(i).length) + addChar)
-
-						} else {
-							if (activeView.editor.getLine(i).substring(activeView.editor.getLine(i).length - 1, activeView.editor.getLine(i).length) == addChar) {
-								// temporarly add a char for forcing an update of html-view 
-								activeView.editor.setLine(i, activeView.editor.getLine(i).substring(0, activeView.editor.getLine(i).length - 1))
+			/* For Version 2.1.3 deactivated because of an editor problem by adding char for htmlupdating
+						if (activeView != null) {
+							const editortext = activeView.editor.getRange({ line: 0, ch: 0 }, { line: activeView.editor.lastLine(), ch: activeView.editor.lastLine.length })
+							const addChar: string = " "
+							let cursor = activeView.editor.getCursor()
+							for (let i = 0; i < activeView.editor.lastLine(); i++) {
+								if (activeView.editor.getLine(i).substring(0, semaLogicCommand.command_start.length) == semaLogicCommand.command_start) {
+									if (activeView.editor.getLine(i).substring(activeView.editor.getLine(i).length - 1, activeView.editor.getLine(i).length) == semaLogicCommand.command_end) {
+										// temporarly add a char for forcing an update of html-view 
+										activeView.editor.setLine(i, activeView.editor.getLine(i).substring(0, activeView.editor.getLine(i).length) + addChar)
+			
+									} else {
+										if (activeView.editor.getLine(i).substring(activeView.editor.getLine(i).length - 1, activeView.editor.getLine(i).length) == addChar) {
+											// temporarly add a char for forcing an update of html-view 
+											activeView.editor.setLine(i, activeView.editor.getLine(i).substring(0, activeView.editor.getLine(i).length - 1))
+										}
+									}
+								}
 							}
+							// back to cursor
+							activeView.editor.setCursor(cursor)
 						}
-					}
-				}
-				// back to cursor
-				activeView.editor.setCursor(cursor)
-			}
+			*/
 			this.updating = false
 		}
 
