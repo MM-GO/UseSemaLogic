@@ -1,6 +1,6 @@
 {
 	"name": "UseSemaLogic",
-	"version": "2.1.3",
+	"version": "2.1.4",
 	"description": "Real-time use of the SemaLogic formal languages",
 	"main": "main.js",
 	"scripts": {

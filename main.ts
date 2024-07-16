@@ -845,6 +845,7 @@ export default class SemaLogicPlugin extends Plugin {
 		slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, 'Start SemaLogicUpdate')
 
 		this.setViews()
+
 		let activeView = this.getActiveView()
 		this.semaLogicParse();
 
