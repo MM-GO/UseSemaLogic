@@ -173,7 +173,7 @@ class SemaLogicSettingTab extends PluginSettingTab {
 					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUpdateInterval = parseInt(value);
 					window.clearInterval(this.plugin.interval)
 					this.plugin.registerInterval(
-						this.plugin.interval = window.setInterval(this.plugin.handleUpdate, this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUpdateInterval)
+						this.plugin.interval = 0
 					);
 					await this.plugin.saveSettings()
 					//this.display()
@@ -425,6 +425,8 @@ export default class SemaLogicPlugin extends Plugin {
 	lastactiveView: MarkdownView;
 	view_utils = new ViewUtils
 	interval: number
+	parseDebounce: number | undefined
+	lastParsedHash: string = ""
 	knowledgeCanvasPath: string = "SemaLogic/KnowledgeGraph.canvas"
 	knowledgeLastRequestTime: number = 0
 	knowledgeLeaf: WorkspaceLeaf | undefined
@@ -433,11 +435,13 @@ export default class SemaLogicPlugin extends Plugin {
 	knowledgeEditInterval: number | undefined
 	knowledgeEditLastCanvas: string = ""
 	knowledgeEditSelection: { view: MarkdownView; from: { line: number; ch: number }; to: { line: number; ch: number }; original: string } | undefined
+	knowledgeEditDebounce: number | undefined
 	interpreterCanvasPath: string = "SemaLogic/SLInterpreter.canvas"
 	interpreterLeaf: WorkspaceLeaf | undefined
 	interpreterInterval: number | undefined
 	interpreterLastCanvas: string = ""
 	interpreterSelection: { view: MarkdownView; from: { line: number; ch: number }; to: { line: number; ch: number }; original: string; lastRendered: string } | undefined
+	interpreterDebounce: number | undefined
 	pauseAllRequests: boolean = false
 
 	// Due to change in Sprint 1/2023 to inline dialects, detection of contexts will be needed in later sprints 
@@ -526,6 +530,28 @@ export default class SemaLogicPlugin extends Plugin {
 			}
 		}));
 
+		this.registerEvent(this.app.vault.on("modify", (file) => {
+			const path = normalizePath(file.path)
+			if (path == normalizePath(this.knowledgeEditCanvasPath)) {
+				if (!this.pauseAllRequests || this.knowledgeEditSelection == undefined) { return }
+				if (this.knowledgeEditDebounce != undefined) {
+					window.clearTimeout(this.knowledgeEditDebounce)
+				}
+				this.knowledgeEditDebounce = window.setTimeout(() => {
+					this.tickKnowledgeEdit()
+				}, 300)
+			}
+			if (path == normalizePath(this.interpreterCanvasPath)) {
+				if (!this.pauseAllRequests || this.interpreterSelection == undefined) { return }
+				if (this.interpreterDebounce != undefined) {
+					window.clearTimeout(this.interpreterDebounce)
+				}
+				this.interpreterDebounce = window.setTimeout(() => {
+					this.tickSLInterpreter()
+				}, 300)
+			}
+		}));
+
 		this.registerMarkdownPostProcessor((element, context) => {
 			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, element)
 			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, context)
@@ -610,9 +636,6 @@ export default class SemaLogicPlugin extends Plugin {
 			this.slComm.slview.setNewInitial(this.settings.mySLSettings[this.settings.mySetting].myOutputFormat, true);
 			this.semaLogicParse();
 		}
-		this.registerInterval(
-			this.interval = window.setInterval(this.handleUpdate, this.settings.mySLSettings[this.settings.mySetting].myUpdateInterval)
-		);
 		this.registerEditorExtension([EditorView.updateListener.of(this.handleUpdate), slTermHider]);
 	}
 
@@ -684,6 +707,12 @@ export default class SemaLogicPlugin extends Plugin {
 
 		bodytext = this.view_utils.cleanCommands(bodytext)
 		if (dialectID == "") { dialectID = "default" }
+
+		const newHash = `${dialectID}|${bodytext}`
+		if (newHash == this.lastParsedHash) {
+			return results
+		}
+		this.lastParsedHash = newHash
 
 		slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, "Parsingresult for SemaLogicView")
 		const responseForSemaLogic = this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, dialectID, bodytext, false)
@@ -1041,16 +1070,18 @@ export default class SemaLogicPlugin extends Plugin {
 
 		if (this.knowledgeEditInterval != undefined) {
 			window.clearInterval(this.knowledgeEditInterval)
+			this.knowledgeEditInterval = undefined
 		}
-		this.knowledgeEditInterval = window.setInterval(() => {
-			this.tickKnowledgeEdit()
-		}, 1000)
 	}
 
 	public async stopKnowledgeEdit(): Promise<void> {
 		if (this.knowledgeEditInterval != undefined) {
 			window.clearInterval(this.knowledgeEditInterval)
 			this.knowledgeEditInterval = undefined
+		}
+		if (this.knowledgeEditDebounce != undefined) {
+			window.clearTimeout(this.knowledgeEditDebounce)
+			this.knowledgeEditDebounce = undefined
 		}
 		this.detachKnowledgeEditCanvasLeaves()
 		const file = this.app.vault.getAbstractFileByPath(normalizePath(this.knowledgeEditCanvasPath))
@@ -1169,16 +1200,18 @@ export default class SemaLogicPlugin extends Plugin {
 
 		if (this.interpreterInterval != undefined) {
 			window.clearInterval(this.interpreterInterval)
+			this.interpreterInterval = undefined
 		}
-		this.interpreterInterval = window.setInterval(() => {
-			this.tickSLInterpreter()
-		}, 1000)
 	}
 
 	public async stopSLInterpreter(): Promise<void> {
 		if (this.interpreterInterval != undefined) {
 			window.clearInterval(this.interpreterInterval)
 			this.interpreterInterval = undefined
+		}
+		if (this.interpreterDebounce != undefined) {
+			window.clearTimeout(this.interpreterDebounce)
+			this.interpreterDebounce = undefined
 		}
 		this.detachInterpreterCanvasLeaves()
 		const file = this.app.vault.getAbstractFileByPath(normalizePath(this.interpreterCanvasPath))
@@ -1277,34 +1310,21 @@ export default class SemaLogicPlugin extends Plugin {
 			return;
 		}
 		if (this.statusSL) {
-			// To avoid to much parsing traffic for testing we tried to parse it only every 500 ms when there is an update
-			const text = 'Updatetime' + '/' + String(Date.now()) + '/' + String(this.lastUpdate) + '/' + String(Date.now() - this.lastUpdate) + '/' + String(this.updateOutstanding) + '/' + String(this.waitingForResponse)
-			slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, text)
 			if (update == null) { }
 			else {
 				if (update.view) {
 					if (!update.docChanged && !update.focusChanged) {
 						return;
 					} else {
-						if (this.UpdateProcessing == false) {
-							//this.updateOutstanding = true
-							slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, 'Start Update docChanged, focuschanged, UpdProc  ' + String(update.docChanged) + "/" + String(update.focusChanged) + "/" + String(this.UpdateProcessing))
-							this.semaLogicUpdate()
+						if (this.parseDebounce != undefined) {
+							window.clearTimeout(this.parseDebounce)
 						}
+						this.parseDebounce = window.setTimeout(() => {
+							this.semaLogicUpdate()
+						}, 400)
 					}
 				}
 			}
-
-			if ((Date.now() - this.lastUpdate > this.settings.mySLSettings[this.settings.mySetting].myUpdateInterval) && (this.updateOutstanding == true || this.updateTransferOutstanding == true) && (this.waitingForResponse == false)) {
-				slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, 'Start Update PARSING')
-				this.lastUpdate = Date.now()
-				this.semaLogicUpdate()
-				//this.updateTransferOutstanding = false
-				//slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, 'Set in interval UpdateASPOutstanding:' + this.updateTransferOutstanding)
-			} else
-				if ((Date.now() - this.lastUpdate > this.settings.mySLSettings[this.settings.mySetting].myUpdateInterval) && (this.updateOutstanding == true) && (this.waitingForResponse == false)) {
-					semaLogicPing(this.settings, this.lastUpdate)
-				}
 		}
 
 	}

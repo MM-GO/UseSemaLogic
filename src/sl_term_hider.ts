@@ -1,4 +1,5 @@
-import { Decoration, RangeSetBuilder, ViewPlugin, WidgetType } from "@codemirror/view";
+import { Decoration, ViewPlugin, WidgetType } from "@codemirror/view";
+import { RangeSetBuilder } from "@codemirror/state";
 
 class SLHiddenWidget extends WidgetType {
   toDOM(): HTMLElement {

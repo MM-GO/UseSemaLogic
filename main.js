@@ -1128,7 +1128,7 @@ var ASPView = class extends import_obsidian4.ItemView {
 };
 
 // main.ts
-var import_view3 = require("@codemirror/view");
+var import_view4 = require("@codemirror/view");
 
 // src/template.ts
 var import_obsidian5 = require("obsidian");
@@ -1510,6 +1510,42 @@ async function createExamples(vault) {
   }
 }
 
+// src/sl_term_hider.ts
+var import_view2 = require("@codemirror/view");
+var import_state = require("@codemirror/state");
+var SLHiddenWidget = class extends import_view2.WidgetType {
+  toDOM() {
+    const span = document.createElement("span");
+    span.className = "sl-term-hidden";
+    span.textContent = "";
+    return span;
+  }
+};
+var SL_TERM_REGEX = /\(SL:[^)]+\)/g;
+var slTermHider = import_view2.ViewPlugin.fromClass(class {
+  constructor(view) {
+    this.decorations = this.buildDecorations(view);
+  }
+  update(update) {
+    if (update.docChanged || update.viewportChanged) {
+      this.decorations = this.buildDecorations(update.view);
+    }
+  }
+  buildDecorations(view) {
+    const builder = new import_state.RangeSetBuilder();
+    const text = view.state.doc.toString();
+    let match;
+    while ((match = SL_TERM_REGEX.exec(text)) !== null) {
+      const from = match.index;
+      const to = from + match[0].length;
+      builder.add(from, to, import_view2.Decoration.replace({ widget: new SLHiddenWidget() }));
+    }
+    return builder.finish();
+  }
+}, {
+  decorations: (v) => v.decorations
+});
+
 // main.ts
 var DebugLevel = 0;
 var mygSID = String(Math.round(Math.random() * 99999999999));
@@ -1597,7 +1633,7 @@ var SemaLogicSettingTab = class extends import_obsidian7.PluginSettingTab {
       this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUpdateInterval = parseInt(value);
       window.clearInterval(this.plugin.interval);
       this.plugin.registerInterval(
-        this.plugin.interval = window.setInterval(this.plugin.handleUpdate, this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUpdateInterval)
+        this.plugin.interval = 0
       );
       await this.plugin.saveSettings();
     }));
@@ -1703,6 +1739,7 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
     this.waitingForResponse = false;
     this.UpdateProcessing = false;
     this.view_utils = new ViewUtils();
+    this.lastParsedHash = "";
     this.knowledgeCanvasPath = "SemaLogic/KnowledgeGraph.canvas";
     this.knowledgeLastRequestTime = 0;
     this.knowledgeEditCanvasPath = "SemaLogic/KnowledgeEdit.canvas";
@@ -1715,27 +1752,20 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
         return;
       }
       if (this.statusSL) {
-        const text = "Updatetime/" + String(Date.now()) + "/" + String(this.lastUpdate) + "/" + String(Date.now() - this.lastUpdate) + "/" + String(this.updateOutstanding) + "/" + String(this.waitingForResponse);
-        slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, text);
         if (update == null) {
         } else {
           if (update.view) {
             if (!update.docChanged && !update.focusChanged) {
               return;
             } else {
-              if (this.UpdateProcessing == false) {
-                slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, "Start Update docChanged, focuschanged, UpdProc  " + String(update.docChanged) + "/" + String(update.focusChanged) + "/" + String(this.UpdateProcessing));
-                this.semaLogicUpdate();
+              if (this.parseDebounce != void 0) {
+                window.clearTimeout(this.parseDebounce);
               }
+              this.parseDebounce = window.setTimeout(() => {
+                this.semaLogicUpdate();
+              }, 400);
             }
           }
-        }
-        if (Date.now() - this.lastUpdate > this.settings.mySLSettings[this.settings.mySetting].myUpdateInterval && (this.updateOutstanding == true || this.updateTransferOutstanding == true) && this.waitingForResponse == false) {
-          slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, "Start Update PARSING");
-          this.lastUpdate = Date.now();
-          this.semaLogicUpdate();
-        } else if (Date.now() - this.lastUpdate > this.settings.mySLSettings[this.settings.mySetting].myUpdateInterval && this.updateOutstanding == true && this.waitingForResponse == false) {
-          semaLogicPing(this.settings, this.lastUpdate);
         }
       }
     };
@@ -1819,6 +1849,31 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
         this.stopSLInterpreter();
       }
     }));
+    this.registerEvent(this.app.vault.on("modify", (file) => {
+      const path = (0, import_obsidian7.normalizePath)(file.path);
+      if (path == (0, import_obsidian7.normalizePath)(this.knowledgeEditCanvasPath)) {
+        if (!this.pauseAllRequests || this.knowledgeEditSelection == void 0) {
+          return;
+        }
+        if (this.knowledgeEditDebounce != void 0) {
+          window.clearTimeout(this.knowledgeEditDebounce);
+        }
+        this.knowledgeEditDebounce = window.setTimeout(() => {
+          this.tickKnowledgeEdit();
+        }, 300);
+      }
+      if (path == (0, import_obsidian7.normalizePath)(this.interpreterCanvasPath)) {
+        if (!this.pauseAllRequests || this.interpreterSelection == void 0) {
+          return;
+        }
+        if (this.interpreterDebounce != void 0) {
+          window.clearTimeout(this.interpreterDebounce);
+        }
+        this.interpreterDebounce = window.setTimeout(() => {
+          this.tickSLInterpreter();
+        }, 300);
+      }
+    }));
     this.registerMarkdownPostProcessor((element, context) => {
       slconsolelog(DebugLevMap.DebugLevel_Chatty, void 0, element);
       slconsolelog(DebugLevMap.DebugLevel_Chatty, void 0, context);
@@ -1883,10 +1938,7 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
       this.slComm.slview.setNewInitial(this.settings.mySLSettings[this.settings.mySetting].myOutputFormat, true);
       this.semaLogicParse();
     }
-    this.registerInterval(
-      this.interval = window.setInterval(this.handleUpdate, this.settings.mySLSettings[this.settings.mySetting].myUpdateInterval)
-    );
-    this.registerEditorExtension([import_view3.EditorView.updateListener.of(this.handleUpdate)]);
+    this.registerEditorExtension([import_view4.EditorView.updateListener.of(this.handleUpdate), slTermHider]);
   }
   async semaLogicParse() {
     if (this.pauseAllRequests) {
@@ -1949,6 +2001,11 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
     if (dialectID == "") {
       dialectID = "default";
     }
+    const newHash = `${dialectID}|${bodytext}`;
+    if (newHash == this.lastParsedHash) {
+      return results;
+    }
+    this.lastParsedHash = newHash;
     slconsolelog(DebugLevMap.DebugLevel_Chatty, void 0, "Parsingresult for SemaLogicView");
     const responseForSemaLogic = this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, dialectID, bodytext, false);
     responseForSemaLogic.then((value) => {
@@ -2275,15 +2332,17 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
     await this.openKnowledgeEditCanvas();
     if (this.knowledgeEditInterval != void 0) {
       window.clearInterval(this.knowledgeEditInterval);
+      this.knowledgeEditInterval = void 0;
     }
-    this.knowledgeEditInterval = window.setInterval(() => {
-      this.tickKnowledgeEdit();
-    }, 1e3);
   }
   async stopKnowledgeEdit() {
     if (this.knowledgeEditInterval != void 0) {
       window.clearInterval(this.knowledgeEditInterval);
       this.knowledgeEditInterval = void 0;
+    }
+    if (this.knowledgeEditDebounce != void 0) {
+      window.clearTimeout(this.knowledgeEditDebounce);
+      this.knowledgeEditDebounce = void 0;
     }
     this.detachKnowledgeEditCanvasLeaves();
     const file = this.app.vault.getAbstractFileByPath((0, import_obsidian7.normalizePath)(this.knowledgeEditCanvasPath));
@@ -2370,7 +2429,7 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
       slconsolelog(DebugLevMap.DebugLevel_Informative, (_a = this.slComm) == null ? void 0 : _a.slview, "SL-Interpreter: selection changed, skip replace");
       return;
     }
-    const newText = `[${sel.original}] (<span class="sl-term">${response}</span>)`;
+    const newText = `[${sel.original}] (SL:${response})`;
     editor.replaceRange(newText, sel.from, sel.to);
     const fromOffset = editor.posToOffset(sel.from);
     sel.to = editor.offsetToPos(fromOffset + newText.length);
@@ -2400,15 +2459,17 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
     await this.openInterpreterCanvas();
     if (this.interpreterInterval != void 0) {
       window.clearInterval(this.interpreterInterval);
+      this.interpreterInterval = void 0;
     }
-    this.interpreterInterval = window.setInterval(() => {
-      this.tickSLInterpreter();
-    }, 1e3);
   }
   async stopSLInterpreter() {
     if (this.interpreterInterval != void 0) {
       window.clearInterval(this.interpreterInterval);
       this.interpreterInterval = void 0;
+    }
+    if (this.interpreterDebounce != void 0) {
+      window.clearTimeout(this.interpreterDebounce);
+      this.interpreterDebounce = void 0;
     }
     this.detachInterpreterCanvasLeaves();
     const file = this.app.vault.getAbstractFileByPath((0, import_obsidian7.normalizePath)(this.interpreterCanvasPath));
