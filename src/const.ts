@@ -107,7 +107,8 @@ type MapType = {
 
 export const slTexts: MapType = {
 	"HeaderSL": "SemaLogic.View",
-	"HeaderTV": "Transfer.View"
+	"HeaderTV": "Transfer.View",
+	"HeaderKnowledge": "Knowledge.View"
 }
 
 

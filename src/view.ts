@@ -22,6 +22,10 @@ export class SemaLogicView extends ItemView {
   bodytext: string
   apiURL: string
   dialectID: string
+  headerEl: HTMLElement
+  controlsEl: HTMLElement
+  scaleControlsEl: HTMLElement
+  resultEl: HTMLElement
 
   public debugInline: boolean
 
@@ -111,7 +115,19 @@ export class SemaLogicView extends ItemView {
         this.slComm.slPlugin.updateOutstanding = true
         dropDownValue = value
         this.dropdownButton.setValue(value)
-        this.getSemaLogicParse(this.slComm.slPlugin.settings, this.apiURL, this.dialectID, this.bodytext, false, value)
+        this.updateScaleControls(value)
+        if (value == RulesettypesCommands[Rstypes_KnowledgeGraph][1]) {
+          await this.slComm.slPlugin.activateKnowledgeView()
+        }
+        const responseForView = this.getSemaLogicParse(this.slComm.slPlugin.settings, this.apiURL, this.dialectID, this.bodytext, false, value)
+        if (value == RulesettypesCommands[Rstypes_KnowledgeGraph][1]) {
+          responseForView.then(result => {
+            if (this.slComm.slknowledgeview != undefined) {
+              this.slComm.slknowledgeview.LastRequestTime = Date.now()
+              this.slComm.slknowledgeview.renderKnowledge(this.getRequestEmbed(result), this.slComm.slknowledgeview.LastRequestTime)
+            }
+          })
+        }
         //this.updateView()
       })
     return container
@@ -197,20 +213,28 @@ export class SemaLogicView extends ItemView {
   }
 
 
-  public setNewInitial(dropDownValue: string, now: boolean) {
-    let container = this.contentEl
-    if (!this.checkContainerContent() || now) {
-      container.empty()
-      //container.contentEditable = 'true'
-      container.createEl("h4", { text: slTexts['HeaderSL'] });
+  updateScaleControls(outputFormat: string): void {
+    if (this.scaleControlsEl == undefined) {
+      this.scaleControlsEl = this.controlsEl.createEl("span")
+    }
+    this.scaleControlsEl.empty()
+    if (outputFormat == RulesettypesCommands[Rstypes_Picture][1]) {
+      this.createScaleButtons(this.scaleControlsEl)
+    }
+  }
 
-      container = this.createDropDownButtonForOutPutFormat(container, dropDownValue)
-      container = this.createCopyToClipboardButton(container)
-      container = this.createDebugButton(container)
-      if (dropDownValue == RulesettypesCommands[Rstypes_Picture][1]) {
-        container = this.createScaleButtons(container)
-      }
-      container.createEl("p")
+  public setNewInitial(dropDownValue: string, now: boolean) {
+    if (!this.checkContainerContent() || now || this.headerEl == undefined) {
+      this.contentEl.empty()
+      this.headerEl = this.contentEl.createEl("h4", { text: slTexts['HeaderSL'] })
+      this.controlsEl = this.contentEl.createEl("div")
+      this.scaleControlsEl = this.controlsEl.createEl("span")
+      this.resultEl = this.contentEl.createEl("div")
+
+      this.createDropDownButtonForOutPutFormat(this.controlsEl, dropDownValue)
+      this.createCopyToClipboardButton(this.controlsEl)
+      this.createDebugButton(this.controlsEl)
+      this.updateScaleControls(dropDownValue)
     } else {
       this.deleteContainerContent()
     }
@@ -311,7 +335,10 @@ export class SemaLogicView extends ItemView {
   }
 
   getCurrHTML(): void {
-    let responseContent = this.contentEl.createEl('div');
+    if (this.resultEl == undefined) {
+      this.resultEl = this.contentEl.createEl("div")
+    }
+    let responseContent = this.resultEl.createEl('div');
 
     if (this.debugInline == true) {
       this.debugContent.forEach(value => {
@@ -334,7 +361,13 @@ export class SemaLogicView extends ItemView {
   }
 
   updateView(): void {
-    this.setNewInitial(this.getOutPutFormat(), true)
+    if (this.headerEl == undefined || this.controlsEl == undefined || this.resultEl == undefined) {
+      this.setNewInitial(this.getOutPutFormat(), false)
+    }
+    this.updateScaleControls(this.getOutPutFormat())
+    if (this.resultEl != undefined) {
+      this.resultEl.empty()
+    }
     this.getCurrHTML()
   }
 

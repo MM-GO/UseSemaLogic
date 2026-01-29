@@ -2,6 +2,7 @@ import { App, MarkdownView, Plugin, PluginSettingTab, requestUrl, Setting, Works
 	from 'obsidian';
 import { SemaLogicView, SemaLogicViewType } from "./src/view";
 import { ASPView, ASPViewType } from "./src/view_asp";
+import { KnowledgeView, KnowledgeViewType } from "./src/view_knowledge";
 import { ViewUpdate, EditorView } from "@codemirror/view";
 import { SemaLogicRenderedElement, searchForSemaLogicCommands, getHostPort, semaLogicPing, slconsolelog } from "./src/utils";
 import { API_Defaults, Value_Defaults, semaLogicCommand, RulesettypesCommands, Rstypes_Semalogic, Rstypes_Picture, Rstypes_ASP, DebugLevMap, DebugLevelNames, Rstypes_KnowledgeGraph, Rstypes_SemanticTree } from "./src/const"
@@ -388,7 +389,9 @@ export class SemaLogicPluginComm {
 	slview: SemaLogicView
 	slPlugin: SemaLogicPlugin
 	slaspview: ASPView
+	slknowledgeview: KnowledgeView
 	activatedASP: boolean = false;
+	activatedKnowledge: boolean = false;
 	slUsedMDView: MarkdownView
 
 	setSlView(view: SemaLogicView) {
@@ -453,6 +456,7 @@ export default class SemaLogicPlugin extends Plugin {
 
 	setViews(): void {
 		this.slComm.activatedASP = false
+		this.slComm.activatedKnowledge = false
 		this.app.workspace.iterateAllLeaves((leaf) => {
 			switch (leaf.view.getViewType()) {
 				case SemaLogicViewType: {
@@ -472,6 +476,14 @@ export default class SemaLogicPlugin extends Plugin {
 					this.slComm.activatedASP = true
 					this.statusTransfer = true
 
+					break
+				}
+				case KnowledgeViewType: {
+					this.slComm.slknowledgeview = (leaf.view as KnowledgeView)
+					this.slComm.slknowledgeview.setComm(this.slComm)
+					this.slComm.slknowledgeview.slComm.setSlView(this.slComm.slview)
+					this.slComm.slknowledgeview.slComm.slPlugin = this.slComm.slPlugin
+					this.slComm.activatedKnowledge = true
 					break
 				}
 			}
@@ -530,6 +542,17 @@ export default class SemaLogicPlugin extends Plugin {
 					this.activateASPView();
 				} else {
 					this.deactivateASPView();
+				}
+			}
+		});
+		// add an RibbonIcon to activcate and deactivate the Knowledge.View
+		this.addRibbonIcon("share-2", "On/Off Knowledge.View", () => {
+			this.setViews()
+			if (this.slComm != undefined) {
+				if (this.slComm.activatedKnowledge == false) {
+					this.activateKnowledgeView();
+				} else {
+					this.deactivateKnowledgeView();
 				}
 			}
 		});
@@ -661,6 +684,16 @@ export default class SemaLogicPlugin extends Plugin {
 			} else { this.updateTransferOutstanding = true }
 		}
 
+		if (this.slComm.activatedKnowledge) {
+			if (Date.now() - this.slComm.slknowledgeview.LastRequestTime >= this.settings.mySLSettings[this.settings.mySetting].myUpdateInterval) {
+				this.slComm.slknowledgeview.LastRequestTime = Date.now()
+				const responseForKnowledge = this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, dialectID, bodytext, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1])
+				responseForKnowledge.then(value => {
+					this.slComm.slknowledgeview.renderKnowledge(value, this.slComm.slknowledgeview.LastRequestTime)
+				})
+			}
+		}
+
 		return results
 	}
 
@@ -690,6 +723,31 @@ export default class SemaLogicPlugin extends Plugin {
 		this.statusTransfer = true
 		this.semaLogicUpdate()
 		this.myStatus.setText('ASP is on');
+	}
+
+	async activateKnowledgeView() {
+		if (this.slComm.slknowledgeview == undefined) {
+			this.registerView(
+				KnowledgeViewType,
+				leaf => new KnowledgeView(leaf)
+			);
+		}
+
+		const leaf = this.GetKnowledgeLeaf();
+		if (leaf != undefined) {
+			leaf.setViewState({
+				type: KnowledgeViewType,
+				active: false,
+			})
+			await this.semaLogicReset()
+			this.app.workspace.revealLeaf(leaf);
+		} else {
+			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, "Knowledge-Leaf not created")
+		}
+		this.setViews()
+		this.handlePing()
+		this.semaLogicUpdate()
+		this.myStatus.setText('Knowledge is on');
 	}
 
 	async activateView() {
@@ -723,6 +781,12 @@ export default class SemaLogicPlugin extends Plugin {
 		this.slComm.activatedASP = false
 		this.statusTransfer = true
 		this.myStatus.setText('ASP is off');
+	}
+
+	async deactivateKnowledgeView() {
+		this.app.workspace.detachLeavesOfType(KnowledgeViewType);
+		this.slComm.activatedKnowledge = false
+		this.myStatus.setText('Knowledge is off');
 	}
 
 	async deactivateView() {
@@ -778,10 +842,33 @@ export default class SemaLogicPlugin extends Plugin {
 		return slv
 	}
 
+	GetKnowledgeLeaf(): WorkspaceLeaf | undefined {
+		let found: boolean = false
+		let slv: WorkspaceLeaf | undefined = undefined
+
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (!found) {
+				switch (leaf.view.getViewType()) {
+					case KnowledgeViewType: {
+						found = true
+						slv = leaf
+					}
+				}
+			}
+		})
+		if (!found) {
+			slconsolelog(DebugLevMap.DebugLevel_All, undefined, 'Split')
+			slv = this.app.workspace.getLeaf('split');
+			slconsolelog(DebugLevMap.DebugLevel_All, undefined, slv)
+		}
+		return slv
+	}
+
 
 	async onunload() {
 		// commented out due to publishing process - see PlugInGuideline - could be deleted
 		this.app.workspace.detachLeavesOfType(ASPViewType);
+		this.app.workspace.detachLeavesOfType(KnowledgeViewType);
 		//this.slComm.slaspview.unload()
 		//this.app.workspace.detachLeavesOfType(SemaLogicViewType);
 	}
