@@ -8,6 +8,7 @@ import { API_Defaults, Value_Defaults, semaLogicCommand, RulesettypesCommands, R
 import { ViewUtils } from 'src/view_utils';
 import { createTemplateFolder } from 'src/template';
 import { createExamples } from 'src/examples';
+import { slTermHider } from "src/sl_term_hider";
 //import { Rstypes_SemanticTree } from 'src/const only for UP';
 
 export var DebugLevel = 0;
@@ -432,6 +433,11 @@ export default class SemaLogicPlugin extends Plugin {
 	knowledgeEditInterval: number | undefined
 	knowledgeEditLastCanvas: string = ""
 	knowledgeEditSelection: { view: MarkdownView; from: { line: number; ch: number }; to: { line: number; ch: number }; original: string } | undefined
+	interpreterCanvasPath: string = "SemaLogic/SLInterpreter.canvas"
+	interpreterLeaf: WorkspaceLeaf | undefined
+	interpreterInterval: number | undefined
+	interpreterLastCanvas: string = ""
+	interpreterSelection: { view: MarkdownView; from: { line: number; ch: number }; to: { line: number; ch: number }; original: string; lastRendered: string } | undefined
 	pauseAllRequests: boolean = false
 
 	// Due to change in Sprint 1/2023 to inline dialects, detection of contexts will be needed in later sprints 
@@ -503,11 +509,20 @@ export default class SemaLogicPlugin extends Plugin {
 						this.startKnowledgeEdit(view as MarkdownView, selection);
 					});
 			});
+			menu.addItem((item) => {
+				item.setTitle("SL-Interpreter")
+					.onClick(() => {
+						this.startSLInterpreter(view as MarkdownView, selection);
+					});
+			});
 		}));
 
 		this.registerEvent(this.app.workspace.on("layout-change", () => {
 			if (this.knowledgeEditLeaf != undefined && this.findKnowledgeEditLeaf() == undefined) {
 				this.stopKnowledgeEdit();
+			}
+			if (this.interpreterLeaf != undefined && this.findInterpreterLeaf() == undefined) {
+				this.stopSLInterpreter();
 			}
 		}));
 
@@ -598,7 +613,7 @@ export default class SemaLogicPlugin extends Plugin {
 		this.registerInterval(
 			this.interval = window.setInterval(this.handleUpdate, this.settings.mySLSettings[this.settings.mySetting].myUpdateInterval)
 		);
-		this.registerEditorExtension([EditorView.updateListener.of(this.handleUpdate)]);
+		this.registerEditorExtension([EditorView.updateListener.of(this.handleUpdate), slTermHider]);
 	}
 
 	async semaLogicParse(): Promise<Node[]> {
@@ -1047,6 +1062,135 @@ export default class SemaLogicPlugin extends Plugin {
 		this.pauseAllRequests = false
 	}
 
+	private async ensureInterpreterCanvasFile(content?: string): Promise<TFile> {
+		const path = normalizePath(this.interpreterCanvasPath)
+		const folder = path.split("/").slice(0, -1).join("/")
+		if (folder.length > 0 && this.app.vault.getAbstractFileByPath(folder) == null) {
+			await this.app.vault.createFolder(folder)
+		}
+		let file = this.app.vault.getAbstractFileByPath(path)
+		if (file == null) {
+			file = await this.app.vault.create(path, content ?? "{ \"nodes\": [], \"edges\": [] }")
+		} else if (content != undefined) {
+			await this.app.vault.adapter.write(path, content)
+			await this.app.vault.modify(file as TFile, content)
+		}
+		return file as TFile
+	}
+
+	private findInterpreterLeaf(): WorkspaceLeaf | undefined {
+		let found: WorkspaceLeaf | undefined = undefined
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (found != undefined) { return }
+			if (leaf.view.getViewType() == "canvas") {
+				const file = (leaf.view as any).file as TFile | undefined
+				if (file != undefined && normalizePath(file.path) == normalizePath(this.interpreterCanvasPath)) {
+					found = leaf
+				}
+			}
+		})
+		if (found != undefined) {
+			this.interpreterLeaf = found
+		}
+		return found
+	}
+
+	private detachInterpreterCanvasLeaves(): void {
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (leaf.view.getViewType() == "canvas") {
+				const file = (leaf.view as any).file as TFile | undefined
+				if (file != undefined && normalizePath(file.path) == normalizePath(this.interpreterCanvasPath)) {
+					leaf.detach()
+				}
+			}
+		})
+		this.interpreterLeaf = undefined
+	}
+
+	private async openInterpreterCanvas(): Promise<void> {
+		const file = await this.ensureInterpreterCanvasFile()
+		let leaf = this.findInterpreterLeaf()
+		if (leaf == undefined) {
+			leaf = this.app.workspace.getLeaf('split')
+		}
+		this.interpreterLeaf = leaf
+		await leaf.openFile(file, { active: false })
+	}
+
+	private async tickSLInterpreter(): Promise<void> {
+		if (!this.pauseAllRequests || this.interpreterSelection == undefined) { return }
+		const file = await this.ensureInterpreterCanvasFile()
+		const content = await this.app.vault.adapter.read((file as TFile).path)
+		if (content == this.interpreterLastCanvas) { return }
+		this.interpreterLastCanvas = content
+
+		const vAPI_URL = getHostPort(this.settings) + "/canvas/convert";
+		const response = await this.requestCanvasConvert(vAPI_URL, content)
+		if (response == undefined || response.length == 0) { return }
+
+		const sel = this.interpreterSelection
+		const editor = sel.view.editor
+		const current = editor.getRange(sel.from, sel.to)
+		if (current != sel.lastRendered && current != sel.original) {
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, "SL-Interpreter: selection changed, skip replace")
+			return
+		}
+
+		const newText = `[${sel.original}] (SL:${response})`
+		editor.replaceRange(newText, sel.from, sel.to)
+		const fromOffset = editor.posToOffset(sel.from)
+		sel.to = editor.offsetToPos(fromOffset + newText.length)
+		sel.lastRendered = newText
+
+		this.pauseAllRequests = false
+		this.semaLogicUpdate()
+		this.pauseAllRequests = true
+	}
+
+	public async startSLInterpreter(view: MarkdownView, selection: string): Promise<void> {
+		if (!this.activated || selection.length == 0) { return }
+		this.pauseAllRequests = true
+		this.updateOutstanding = false
+		this.updateTransferOutstanding = false
+
+		this.interpreterLastCanvas = ""
+		const from = view.editor.getCursor("from")
+		const to = view.editor.getCursor("to")
+		this.interpreterSelection = { view, from, to, original: selection, lastRendered: selection }
+
+		const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
+		const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", selection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1])
+		if (response.length > 0) {
+			await this.ensureInterpreterCanvasFile(response)
+		} else {
+			await this.ensureInterpreterCanvasFile()
+		}
+		await this.openInterpreterCanvas()
+
+		if (this.interpreterInterval != undefined) {
+			window.clearInterval(this.interpreterInterval)
+		}
+		this.interpreterInterval = window.setInterval(() => {
+			this.tickSLInterpreter()
+		}, 1000)
+	}
+
+	public async stopSLInterpreter(): Promise<void> {
+		if (this.interpreterInterval != undefined) {
+			window.clearInterval(this.interpreterInterval)
+			this.interpreterInterval = undefined
+		}
+		this.detachInterpreterCanvasLeaves()
+		const file = this.app.vault.getAbstractFileByPath(normalizePath(this.interpreterCanvasPath))
+		if (file != undefined) {
+			await this.app.vault.delete(file)
+		}
+		this.interpreterLastCanvas = ""
+		this.interpreterSelection = undefined
+		this.pauseAllRequests = false
+	}
+
+
 	private async requestCanvasConvert(apiUrl: string, canvasJson: string): Promise<string> {
 		let body = ""
 		try {
@@ -1106,7 +1250,9 @@ export default class SemaLogicPlugin extends Plugin {
 		this.app.workspace.detachLeavesOfType(ASPViewType);
 		this.detachKnowledgeCanvasLeaves();
 		this.detachKnowledgeEditCanvasLeaves();
+		this.detachInterpreterCanvasLeaves();
 		await this.stopKnowledgeEdit();
+		await this.stopSLInterpreter();
 		//this.slComm.slaspview.unload()
 		//this.app.workspace.detachLeavesOfType(SemaLogicViewType);
 	}

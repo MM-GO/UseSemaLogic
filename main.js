@@ -1707,6 +1707,8 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
     this.knowledgeLastRequestTime = 0;
     this.knowledgeEditCanvasPath = "SemaLogic/KnowledgeEdit.canvas";
     this.knowledgeEditLastCanvas = "";
+    this.interpreterCanvasPath = "SemaLogic/SLInterpreter.canvas";
+    this.interpreterLastCanvas = "";
     this.pauseAllRequests = false;
     this.handleUpdate = (update) => {
       if (this.pauseAllRequests) {
@@ -1803,10 +1805,18 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
           this.startKnowledgeEdit(view, selection);
         });
       });
+      menu.addItem((item) => {
+        item.setTitle("SL-Interpreter").onClick(() => {
+          this.startSLInterpreter(view, selection);
+        });
+      });
     }));
     this.registerEvent(this.app.workspace.on("layout-change", () => {
       if (this.knowledgeEditLeaf != void 0 && this.findKnowledgeEditLeaf() == void 0) {
         this.stopKnowledgeEdit();
+      }
+      if (this.interpreterLeaf != void 0 && this.findInterpreterLeaf() == void 0) {
+        this.stopSLInterpreter();
       }
     }));
     this.registerMarkdownPostProcessor((element, context) => {
@@ -2284,6 +2294,131 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
     this.knowledgeEditSelection = void 0;
     this.pauseAllRequests = false;
   }
+  async ensureInterpreterCanvasFile(content) {
+    const path = (0, import_obsidian7.normalizePath)(this.interpreterCanvasPath);
+    const folder = path.split("/").slice(0, -1).join("/");
+    if (folder.length > 0 && this.app.vault.getAbstractFileByPath(folder) == null) {
+      await this.app.vault.createFolder(folder);
+    }
+    let file = this.app.vault.getAbstractFileByPath(path);
+    if (file == null) {
+      file = await this.app.vault.create(path, content != null ? content : '{ "nodes": [], "edges": [] }');
+    } else if (content != void 0) {
+      await this.app.vault.adapter.write(path, content);
+      await this.app.vault.modify(file, content);
+    }
+    return file;
+  }
+  findInterpreterLeaf() {
+    let found = void 0;
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (found != void 0) {
+        return;
+      }
+      if (leaf.view.getViewType() == "canvas") {
+        const file = leaf.view.file;
+        if (file != void 0 && (0, import_obsidian7.normalizePath)(file.path) == (0, import_obsidian7.normalizePath)(this.interpreterCanvasPath)) {
+          found = leaf;
+        }
+      }
+    });
+    if (found != void 0) {
+      this.interpreterLeaf = found;
+    }
+    return found;
+  }
+  detachInterpreterCanvasLeaves() {
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (leaf.view.getViewType() == "canvas") {
+        const file = leaf.view.file;
+        if (file != void 0 && (0, import_obsidian7.normalizePath)(file.path) == (0, import_obsidian7.normalizePath)(this.interpreterCanvasPath)) {
+          leaf.detach();
+        }
+      }
+    });
+    this.interpreterLeaf = void 0;
+  }
+  async openInterpreterCanvas() {
+    const file = await this.ensureInterpreterCanvasFile();
+    let leaf = this.findInterpreterLeaf();
+    if (leaf == void 0) {
+      leaf = this.app.workspace.getLeaf("split");
+    }
+    this.interpreterLeaf = leaf;
+    await leaf.openFile(file, { active: false });
+  }
+  async tickSLInterpreter() {
+    var _a;
+    if (!this.pauseAllRequests || this.interpreterSelection == void 0) {
+      return;
+    }
+    const file = await this.ensureInterpreterCanvasFile();
+    const content = await this.app.vault.adapter.read(file.path);
+    if (content == this.interpreterLastCanvas) {
+      return;
+    }
+    this.interpreterLastCanvas = content;
+    const vAPI_URL = getHostPort(this.settings) + "/canvas/convert";
+    const response = await this.requestCanvasConvert(vAPI_URL, content);
+    if (response == void 0 || response.length == 0) {
+      return;
+    }
+    const sel = this.interpreterSelection;
+    const editor = sel.view.editor;
+    const current = editor.getRange(sel.from, sel.to);
+    if (current != sel.lastRendered && current != sel.original) {
+      slconsolelog(DebugLevMap.DebugLevel_Informative, (_a = this.slComm) == null ? void 0 : _a.slview, "SL-Interpreter: selection changed, skip replace");
+      return;
+    }
+    const newText = `[${sel.original}] (<span class="sl-term">${response}</span>)`;
+    editor.replaceRange(newText, sel.from, sel.to);
+    const fromOffset = editor.posToOffset(sel.from);
+    sel.to = editor.offsetToPos(fromOffset + newText.length);
+    sel.lastRendered = newText;
+    this.pauseAllRequests = false;
+    this.semaLogicUpdate();
+    this.pauseAllRequests = true;
+  }
+  async startSLInterpreter(view, selection) {
+    if (!this.activated || selection.length == 0) {
+      return;
+    }
+    this.pauseAllRequests = true;
+    this.updateOutstanding = false;
+    this.updateTransferOutstanding = false;
+    this.interpreterLastCanvas = "";
+    const from = view.editor.getCursor("from");
+    const to = view.editor.getCursor("to");
+    this.interpreterSelection = { view, from, to, original: selection, lastRendered: selection };
+    const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
+    const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", selection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1]);
+    if (response.length > 0) {
+      await this.ensureInterpreterCanvasFile(response);
+    } else {
+      await this.ensureInterpreterCanvasFile();
+    }
+    await this.openInterpreterCanvas();
+    if (this.interpreterInterval != void 0) {
+      window.clearInterval(this.interpreterInterval);
+    }
+    this.interpreterInterval = window.setInterval(() => {
+      this.tickSLInterpreter();
+    }, 1e3);
+  }
+  async stopSLInterpreter() {
+    if (this.interpreterInterval != void 0) {
+      window.clearInterval(this.interpreterInterval);
+      this.interpreterInterval = void 0;
+    }
+    this.detachInterpreterCanvasLeaves();
+    const file = this.app.vault.getAbstractFileByPath((0, import_obsidian7.normalizePath)(this.interpreterCanvasPath));
+    if (file != void 0) {
+      await this.app.vault.delete(file);
+    }
+    this.interpreterLastCanvas = "";
+    this.interpreterSelection = void 0;
+    this.pauseAllRequests = false;
+  }
   async requestCanvasConvert(apiUrl, canvasJson) {
     var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
     let body = "";
@@ -2342,7 +2477,9 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
     this.app.workspace.detachLeavesOfType(ASPViewType);
     this.detachKnowledgeCanvasLeaves();
     this.detachKnowledgeEditCanvasLeaves();
+    this.detachInterpreterCanvasLeaves();
     await this.stopKnowledgeEdit();
+    await this.stopSLInterpreter();
   }
   async loadSettings() {
     this.settings = Object.assign({}, Default_profile, await this.loadData());
