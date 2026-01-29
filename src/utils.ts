@@ -1,4 +1,4 @@
-import { MarkdownRenderChild, MarkdownView } from 'obsidian';
+import { MarkdownRenderChild, MarkdownView, Notice } from 'obsidian';
 import { requestUrl, RequestUrlParam, RequestUrlResponse } from 'obsidian';
 import { DebugLevel, SemaLogicPluginSettings, mygSID } from "../main";
 import { API_Defaults, semaLogicCommand, semaLogicHelp, DebugLevMap, RulesettypesCommands, Rstypes_ASP } from "./const"
@@ -17,6 +17,8 @@ export const searchForSemaLogicCommands = (el: Element): boolean => {
 
 export const isSemaLogicCommand = (n: Node): boolean =>
   n.nodeType === Node.TEXT_NODE && Boolean(n.textContent?.startsWith(semaLogicCommand.command_start));
+
+let lastVersionNoticeKey: string | undefined
 
 
 // check if the node has to be replaced must be do before 
@@ -263,6 +265,14 @@ export async function semaLogicPing(settings: SemaLogicPluginSettings, lastUpdat
     .then(function (resultBuffer: any) {
       // nothing to do
       slconsolelog(DebugLevMap.DebugLevel_Informative, undefined, 'SemaLogic GetVersionPing started at:', starttime, ' Endtime: ', Date.now())
+      const noticeKey = getHostPort(settings)
+      if (noticeKey != lastVersionNoticeKey) {
+        lastVersionNoticeKey = noticeKey
+        const ok = isApiVersionAtLeast(resultBuffer, "00.02.00")
+        if (!ok) {
+          new Notice("UseSemaLogic requires a SemaLogic Service API version 00.02.00 or higher.")
+        }
+      }
     })
     .catch(function (e: Error) {
       // If it is an old error (long time ago sent), then tehere is nothing to do
@@ -286,6 +296,23 @@ export async function semaLogicPing(settings: SemaLogicPluginSettings, lastUpdat
       }
     }
     )
+  return true
+}
+
+function isApiVersionAtLeast(versionText: string, minVersion: string): boolean {
+  if (!versionText) { return false }
+  const extract = (v: string): number[] => {
+    const m = v.match(/(\d{2})\.(\d{2})\.(\d{2})/)
+    if (!m) { return [] }
+    return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)]
+  }
+  const a = extract(versionText)
+  const b = extract(minVersion)
+  if (a.length !== 3 || b.length !== 3) { return false }
+  for (let i = 0; i < 3; i++) {
+    if (a[i] > b[i]) { return true }
+    if (a[i] < b[i]) { return false }
+  }
   return true
 }
 

@@ -152,6 +152,7 @@ var isSemaLogicCommand = (n) => {
   var _a;
   return n.nodeType === Node.TEXT_NODE && Boolean((_a = n.textContent) == null ? void 0 : _a.startsWith(semaLogicCommand.command_start));
 };
+var lastVersionNoticeKey;
 var replaceWithEmptyNode = (containerEl) => {
   const results = [];
   return results;
@@ -327,6 +328,14 @@ async function semaLogicPing(settings, lastUpdate) {
   slconsolelog(DebugLevMap.DebugLevel_Informative, void 0, "GetVersionPing at ", Date.now(), "  for ", getHostPort(settings));
   await semaLogicGetVersion(settings).then(function(resultBuffer) {
     slconsolelog(DebugLevMap.DebugLevel_Informative, void 0, "SemaLogic GetVersionPing started at:", starttime, " Endtime: ", Date.now());
+    const noticeKey = getHostPort(settings);
+    if (noticeKey != lastVersionNoticeKey) {
+      lastVersionNoticeKey = noticeKey;
+      const ok = isApiVersionAtLeast(resultBuffer, "00.02.00");
+      if (!ok) {
+        new import_obsidian.Notice("UseSemaLogic requires a SemaLogic Service API version 00.02.00 or higher.");
+      }
+    }
   }).catch(
     function(e) {
       if (starttime < lastUpdate) {
@@ -348,6 +357,32 @@ async function semaLogicPing(settings, lastUpdate) {
       }
     }
   );
+  return true;
+}
+function isApiVersionAtLeast(versionText, minVersion) {
+  if (!versionText) {
+    return false;
+  }
+  const extract = (v) => {
+    const m = v.match(/(\d{2})\.(\d{2})\.(\d{2})/);
+    if (!m) {
+      return [];
+    }
+    return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)];
+  };
+  const a = extract(versionText);
+  const b = extract(minVersion);
+  if (a.length !== 3 || b.length !== 3) {
+    return false;
+  }
+  for (let i = 0; i < 3; i++) {
+    if (a[i] > b[i]) {
+      return true;
+    }
+    if (a[i] < b[i]) {
+      return false;
+    }
+  }
   return true;
 }
 async function showParseWithFilter(filter, rulessettype, settings) {
