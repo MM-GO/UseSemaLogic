@@ -2,6 +2,19 @@
 
 The PlugIn for SemaLogic is under development.
 
+### 2.3.0 / 2026-01-29 - Canvas tooltips + SL-Interpreter UX
+
+Enhancements:
+
+* Canvas tooltips for linked node info files (TestCanvas helper + node info button)
+* SL-Interpreter feedback shown via inline icon and tooltip, avoiding text mutation
+* Markdown parsing throttled with change detection and on-focus refresh
+
+Bugfixes:
+
+* KnowledgeEdit / SL-Interpreter canvas updates no longer spam requests
+* Canvas2SL errors now log request and response details for troubleshooting
+
 ### 2.2.0 / 2026-01-29 - Knowledge Canvas + UI stability
 
 Enhancements:
