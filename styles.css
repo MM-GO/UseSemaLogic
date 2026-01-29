@@ -27,3 +27,23 @@ If your plugin does not need CSS, delete this file.
     text-decoration-thickness: 2px;
     text-underline-offset: 2px;
 }
+
+.sl-node-tooltip {
+    position: fixed;
+    z-index: 10000;
+    max-width: 360px;
+    background: #1f1f1f;
+    color: #f5f5f5;
+    border: 1px solid #3a3a3a;
+    border-radius: 6px;
+    padding: 8px 10px;
+    font-size: 0.9em;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+    pointer-events: none;
+}
+
+.sl-node-info-btn {
+    font-size: 0.95em;
+    font-weight: 600;
+    line-height: 1;
+}

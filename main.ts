@@ -1,4 +1,4 @@
-import { App, MarkdownView, Plugin, PluginSettingTab, requestUrl, Setting, WorkspaceLeaf, renderResults, RequestUrlParam, RequestUrlResponse, RequestUrlResponsePromise, ButtonComponent, MarkdownRenderChild, MarkdownPreviewView, View, TFile, normalizePath }
+import { App, MarkdownView, Plugin, PluginSettingTab, requestUrl, Setting, WorkspaceLeaf, renderResults, RequestUrlParam, RequestUrlResponse, RequestUrlResponsePromise, ButtonComponent, MarkdownRenderChild, MarkdownPreviewView, View, TFile, normalizePath, MarkdownRenderer }
 	from 'obsidian';
 import { SemaLogicView, SemaLogicViewType } from "./src/view";
 import { ASPView, ASPViewType } from "./src/view_asp";
@@ -8,6 +8,7 @@ import { API_Defaults, Value_Defaults, semaLogicCommand, RulesettypesCommands, R
 import { ViewUtils } from 'src/view_utils';
 import { createTemplateFolder } from 'src/template';
 import { createExamples } from 'src/examples';
+import { createTestCanvas } from 'src/test_canvas';
 import { slTermHider } from "src/sl_term_hider";
 //import { Rstypes_SemanticTree } from 'src/const only for UP';
 
@@ -427,6 +428,9 @@ export default class SemaLogicPlugin extends Plugin {
 	interval: number
 	parseDebounce: number | undefined
 	lastParsedHash: string = ""
+	canvasTooltipEl: HTMLElement | undefined
+	canvasTooltipObservers: WeakMap<WorkspaceLeaf, MutationObserver> = new WeakMap()
+	canvasNodeFileCache: Map<string, { mtime: number; map: Map<string, string>; textMap: Map<string, string> }> = new Map()
 	knowledgeCanvasPath: string = "SemaLogic/KnowledgeGraph.canvas"
 	knowledgeLastRequestTime: number = 0
 	knowledgeLeaf: WorkspaceLeaf | undefined
@@ -522,6 +526,7 @@ export default class SemaLogicPlugin extends Plugin {
 		}));
 
 		this.registerEvent(this.app.workspace.on("layout-change", () => {
+			this.attachCanvasTooltipsToAllLeaves()
 			if (this.knowledgeEditLeaf != undefined && this.findKnowledgeEditLeaf() == undefined) {
 				this.stopKnowledgeEdit();
 			}
@@ -650,6 +655,16 @@ export default class SemaLogicPlugin extends Plugin {
 			callback: () => {
 				createTemplateFolder(app.vault);
 				createExamples(app.vault);
+			},
+		});
+
+		this.attachCanvasTooltipsToAllLeaves()
+
+		this.addCommand({
+			id: "sl_create_test_canvas",
+			name: "SemaLogic create test canvas",
+			callback: () => {
+				createTestCanvas(app.vault);
 			},
 		});
 
@@ -818,6 +833,295 @@ export default class SemaLogicPlugin extends Plugin {
 		} catch (e) {
 			return "";
 		}
+	}
+
+	private async processCanvasResponse(raw: string, canvasPath: string, allowFiles: boolean): Promise<void> {
+		if (!raw || raw.length == 0) {
+			await this.writeCanvasFile(canvasPath, "{ \"nodes\": [], \"edges\": [] }")
+			return;
+		}
+		try {
+			const parsed = JSON.parse(raw)
+			if (parsed && Array.isArray(parsed.nodes) && Array.isArray(parsed.edges)) {
+				if (allowFiles && Array.isArray(parsed.files)) {
+					await this.createFilesFromResponse(parsed.files)
+				}
+				const canvas = { nodes: parsed.nodes, edges: parsed.edges }
+				await this.writeCanvasFile(canvasPath, JSON.stringify(canvas))
+				return;
+			}
+		} catch (e) {
+			// fall through to raw
+		}
+		await this.writeCanvasFile(canvasPath, raw)
+	}
+
+	private async writeCanvasFile(path: string, content: string): Promise<void> {
+		const norm = normalizePath(path)
+		const folder = norm.split("/").slice(0, -1).join("/")
+		if (folder.length > 0 && this.app.vault.getAbstractFileByPath(folder) == null) {
+			await this.app.vault.createFolder(folder)
+		}
+		let file = this.app.vault.getAbstractFileByPath(norm)
+		if (file == null) {
+			file = await this.app.vault.create(norm, content)
+		} else {
+			await this.app.vault.adapter.write(norm, content)
+			await this.app.vault.modify(file as TFile, content)
+		}
+	}
+
+	private async createFilesFromResponse(files: any[]): Promise<void> {
+		for (const f of files) {
+			const p = normalizePath(String(f?.path ?? ""))
+			if (!p) { continue }
+			const content = String(f?.content ?? "")
+			const folder = p.split("/").slice(0, -1).join("/")
+			if (folder.length > 0 && this.app.vault.getAbstractFileByPath(folder) == null) {
+				await this.app.vault.createFolder(folder)
+			}
+			let file = this.app.vault.getAbstractFileByPath(p)
+			if (file == null) {
+				await this.app.vault.create(p, content)
+			} else {
+				await this.app.vault.adapter.write(p, content)
+				await this.app.vault.modify(file as TFile, content)
+			}
+		}
+	}
+
+	private attachCanvasTooltips(leaf: WorkspaceLeaf): void {
+		if (this.canvasTooltipObservers.has(leaf)) { return }
+		const view: any = leaf.view
+		const container: HTMLElement | null = view?.containerEl ?? null
+		if (!container) { return }
+		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, "Attach canvas tooltips: observer start")
+		const observer = new MutationObserver(() => {
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, "Canvas DOM mutation")
+			this.refreshCanvasTooltips(leaf)
+			this.addCanvasInfoButton(leaf)
+		})
+		observer.observe(container, { childList: true, subtree: true })
+		this.canvasTooltipObservers.set(leaf, observer)
+		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, "Attach canvas tooltips: initial refresh")
+		this.refreshCanvasTooltips(leaf)
+		this.addCanvasInfoButton(leaf)
+	}
+
+	private attachCanvasTooltipsToAllLeaves(): void {
+		let count = 0
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (leaf.view.getViewType() == "canvas") {
+				count++
+				slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Attach canvas tooltips: leaf ${count}`)
+				this.attachCanvasTooltips(leaf)
+			}
+		})
+		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Attach canvas tooltips: total ${count}`)
+	}
+
+	private async refreshCanvasTooltips(leaf: WorkspaceLeaf): Promise<void> {
+		const view: any = leaf.view
+		const canvasFile: TFile | undefined = view?.file
+		if (!canvasFile) { return }
+		const maps = await this.loadCanvasNodeFileMaps(canvasFile)
+		if (maps.idMap.size == 0 && maps.textMap.size == 0) { return }
+		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas tooltip map sizes id=${maps.idMap.size} text=${maps.textMap.size}`)
+		let singleFilePath: string | undefined
+		if (maps.idMap.size + maps.textMap.size == 1) {
+			for (const v of maps.idMap.values()) { singleFilePath = v }
+			for (const v of maps.textMap.values()) { singleFilePath = v }
+		}
+		const container: HTMLElement | null = view?.containerEl ?? null
+		if (!container) { return }
+		const nodes = Array.from(container.querySelectorAll<HTMLElement>(".canvas-node"))
+		for (const el of nodes) {
+			if (el.dataset.slTooltipBound == "1") { continue }
+			const id = el.getAttribute("data-node-id") || el.getAttribute("data-id") || el.dataset.nodeId || el.dataset.id
+			let filePath: string | undefined
+			if (id) {
+				filePath = maps.idMap.get(id)
+			}
+			if (!filePath) {
+				let nodeText = ""
+				const textEl = el.querySelector<HTMLElement>(".canvas-node-content .markdown-preview-view p, .canvas-node-content textarea, .canvas-node-content")
+				nodeText = textEl?.textContent?.trim() ?? ""
+				if (!nodeText) {
+					const iframe = el.querySelector<HTMLIFrameElement>("iframe.embed-iframe")
+					const doc = iframe?.contentDocument
+					const p = doc?.querySelector("p")
+					nodeText = p?.textContent?.trim() ?? ""
+				}
+				if (nodeText) {
+					slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas node text="${nodeText}"`)
+				}
+				if (nodeText.length > 0) {
+					filePath = maps.textMap.get(nodeText)
+				}
+			}
+			if (!filePath && singleFilePath) {
+				filePath = singleFilePath
+			}
+			if (filePath) {
+				slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas tooltip file=${filePath}`)
+			}
+			if (!filePath) { continue }
+			const fp = filePath
+			el.dataset.slTooltipBound = "1"
+			el.addEventListener("mouseenter", async (evt) => {
+				const content = await this.safeReadFile(fp)
+				if (content.length == 0) { return }
+				this.showCanvasTooltip(content, evt as MouseEvent)
+			})
+			el.addEventListener("mouseleave", () => {
+				this.hideCanvasTooltip()
+			})
+		}
+	}
+
+	private async loadCanvasNodeFileMaps(canvasFile: TFile): Promise<{ idMap: Map<string, string>; textMap: Map<string, string> }> {
+		const cache = this.canvasNodeFileCache.get(canvasFile.path)
+		const stat = await this.app.vault.adapter.stat(canvasFile.path)
+		if (cache && stat && cache.mtime == stat.mtime) {
+			return { idMap: cache.map, textMap: cache.textMap ?? new Map() }
+		}
+		let raw = ""
+		try {
+			raw = await this.app.vault.cachedRead(canvasFile)
+		} catch (e) {
+			return { idMap: new Map(), textMap: new Map() }
+		}
+		let parsed: any
+		try {
+			parsed = JSON.parse(raw)
+		} catch (e) {
+			return { idMap: new Map(), textMap: new Map() }
+		}
+		const map = new Map<string, string>()
+		const textMap = new Map<string, string>()
+		if (parsed && Array.isArray(parsed.nodes)) {
+			for (const n of parsed.nodes) {
+				const id = String(n?.id ?? "")
+				if (!id) { continue }
+				const meta = n?.meta ?? {}
+				const linked = meta?.SL_LinkedFile ?? n?.SL_LinkedFile
+				if (linked) {
+					map.set(id, String(linked))
+					const text = String(n?.text ?? "").trim()
+					if (text.length > 0 && !textMap.has(text)) {
+						textMap.set(text, String(linked))
+					}
+				}
+			}
+		}
+		if (stat) {
+			this.canvasNodeFileCache.set(canvasFile.path, { mtime: stat.mtime, map, textMap })
+		}
+		return { idMap: map, textMap }
+	}
+
+	private async safeReadFile(path: string): Promise<string> {
+		const norm = normalizePath(path)
+		const file = this.app.vault.getAbstractFileByPath(norm)
+		if (!file) {
+			try {
+				return await this.app.vault.adapter.read(norm)
+			} catch (e) {
+				return ""
+			}
+		}
+		try {
+			return await this.app.vault.cachedRead(file as TFile)
+		} catch (e) {
+			return ""
+		}
+	}
+
+	private showCanvasTooltip(content: string, evt: MouseEvent): void {
+		this.hideCanvasTooltip()
+		const tooltip = document.createElement("div")
+		tooltip.className = "sl-node-tooltip"
+		document.body.appendChild(tooltip)
+		this.canvasTooltipEl = tooltip
+		try {
+			MarkdownRenderer.renderMarkdown(content, tooltip, "", this)
+		} catch (e) {
+			tooltip.textContent = content
+		}
+		const x = evt.clientX + 12
+		const y = evt.clientY + 12
+		tooltip.style.left = `${x}px`
+		tooltip.style.top = `${y}px`
+	}
+
+	private hideCanvasTooltip(): void {
+		if (this.canvasTooltipEl) {
+			this.canvasTooltipEl.remove()
+			this.canvasTooltipEl = undefined
+		}
+	}
+
+	private addCanvasInfoButton(leaf: WorkspaceLeaf): void {
+		const view: any = leaf.view
+		const canvasFile: TFile | undefined = view?.file
+		if (!canvasFile) { return }
+		const container: HTMLElement | null = view?.containerEl ?? null
+		if (!container) { return }
+		const menu = container.querySelector<HTMLElement>(".canvas-menu")
+		if (!menu || menu.querySelector(".sl-node-info-btn")) { return }
+
+		const btn = document.createElement("button")
+		btn.className = "clickable-icon sl-node-info-btn"
+		btn.setAttribute("aria-label", "SL Info")
+		btn.textContent = "ⓘ"
+		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, "Canvas info button attached")
+		btn.addEventListener("click", async (evt) => {
+			evt.preventDefault()
+			evt.stopPropagation()
+			const maps = await this.loadCanvasNodeFileMaps(canvasFile)
+			let filePath: string | undefined
+			let nodeText = ""
+
+			const focused = container.querySelector<HTMLElement>(".canvas-node.is-focused")
+			if (focused) {
+				const id = focused.getAttribute("data-node-id") || focused.getAttribute("data-id") || focused.dataset.nodeId || focused.dataset.id
+				if (id) {
+					filePath = maps.idMap.get(id)
+				}
+				if (!filePath) {
+					const textEl = focused.querySelector<HTMLElement>(".canvas-node-content .markdown-preview-view p, .canvas-node-content textarea, .canvas-node-content")
+					nodeText = textEl?.textContent?.trim() ?? ""
+					if (!nodeText) {
+						const iframe = focused.querySelector<HTMLIFrameElement>("iframe.embed-iframe")
+						const doc = iframe?.contentDocument
+						const p = doc?.querySelector("p")
+						nodeText = p?.textContent?.trim() ?? ""
+					}
+					if (nodeText.length > 0) {
+						filePath = maps.textMap.get(nodeText)
+					}
+				}
+			}
+
+			if (!filePath && maps.idMap.size + maps.textMap.size == 1) {
+				for (const v of maps.idMap.values()) { filePath = v }
+				for (const v of maps.textMap.values()) { filePath = v }
+			}
+
+			let content = ""
+			if (filePath) {
+				slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas info button: filePath=${filePath}`)
+				content = await this.safeReadFile(filePath)
+				slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas info button: file content len=${content.length}`)
+			}
+			if (content.length == 0 && nodeText.length > 0) {
+				content = nodeText
+			}
+			if (content.length == 0) { return }
+			this.showCanvasTooltip(content, evt as MouseEvent)
+		})
+
+		menu.appendChild(btn)
 	}
 
 	async activateASPView() {
@@ -1002,12 +1306,14 @@ export default class SemaLogicPlugin extends Plugin {
 		}
 		this.knowledgeLeaf = leaf
 		await leaf.openFile(file, { active: false })
+		this.attachCanvasTooltips(leaf)
 		this.slComm.activatedKnowledge = true
 	}
 
 	public async updateKnowledgeCanvas(content: string): Promise<void> {
 		slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, `Update KnowledgeCanvas (len=${content?.length ?? 0})`)
-		const file = await this.ensureKnowledgeCanvasFile(content)
+		await this.processCanvasResponse(content, this.knowledgeCanvasPath, false)
+		const file = await this.ensureKnowledgeCanvasFile()
 		let leaf = this.knowledgeLeaf
 		if (leaf == undefined) {
 			leaf = this.findKnowledgeCanvasLeaf()
@@ -1015,6 +1321,7 @@ export default class SemaLogicPlugin extends Plugin {
 		if (leaf != undefined) {
 			this.knowledgeLeaf = leaf
 			await leaf.openFile(file, { active: false })
+			this.attachCanvasTooltips(leaf)
 		}
 	}
 
@@ -1071,6 +1378,7 @@ export default class SemaLogicPlugin extends Plugin {
 		}
 		this.knowledgeEditLeaf = leaf
 		await leaf.openFile(file, { active: false })
+		this.attachCanvasTooltips(leaf)
 	}
 
 	private async tickKnowledgeEdit(): Promise<void> {
@@ -1119,7 +1427,7 @@ export default class SemaLogicPlugin extends Plugin {
 
 		const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
 		const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", selection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1])
-		await this.ensureKnowledgeEditCanvasFile(response)
+		await this.processCanvasResponse(response, this.knowledgeEditCanvasPath, false)
 		await this.openKnowledgeEditCanvas()
 
 		if (this.knowledgeEditInterval != undefined) {
@@ -1200,6 +1508,7 @@ export default class SemaLogicPlugin extends Plugin {
 		}
 		this.interpreterLeaf = leaf
 		await leaf.openFile(file, { active: false })
+		this.attachCanvasTooltips(leaf)
 	}
 
 	private async tickSLInterpreter(): Promise<void> {
@@ -1256,11 +1565,7 @@ export default class SemaLogicPlugin extends Plugin {
 
 		const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
 		const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", selection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1])
-		if (response.length > 0) {
-			await this.ensureInterpreterCanvasFile(response)
-		} else {
-			await this.ensureInterpreterCanvasFile()
-		}
+		await this.processCanvasResponse(response, this.interpreterCanvasPath, false)
 		await this.openInterpreterCanvas()
 
 		if (this.interpreterInterval != undefined) {
