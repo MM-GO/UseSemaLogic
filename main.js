@@ -1513,15 +1513,44 @@ async function createExamples(vault) {
 // src/sl_term_hider.ts
 var import_view2 = require("@codemirror/view");
 var import_state = require("@codemirror/state");
-var SLHiddenWidget = class extends import_view2.WidgetType {
+function decodeSLTerm(b64) {
+  try {
+    const bin = atob(b64);
+    const pct = Array.from(bin, (c) => "%" + c.charCodeAt(0).toString(16).padStart(2, "0")).join("");
+    return decodeURIComponent(pct);
+  } catch (e) {
+    return "";
+  }
+}
+var SLHintWidget = class extends import_view2.WidgetType {
+  constructor(term, view, selFrom, selTo) {
+    super();
+    this.term = term;
+    this.view = view;
+    this.selFrom = selFrom;
+    this.selTo = selTo;
+  }
   toDOM() {
     const span = document.createElement("span");
-    span.className = "sl-term-hidden";
-    span.textContent = "";
+    span.className = "sl-term-hint";
+    span.textContent = "\u24D8";
+    span.title = this.term;
+    span.addEventListener("click", (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      try {
+        this.view.dispatch({
+          selection: { anchor: this.selFrom, head: this.selTo },
+          scrollIntoView: true
+        });
+      } catch (e) {
+      }
+      document.dispatchEvent(new CustomEvent("sl-interpreter"));
+    });
     return span;
   }
 };
-var SL_TERM_REGEX = /\(SL:[^)]+\)/g;
+var SL_TERM_REGEX = /«(.+?)»\s*\((SL64|SL):([^)]+)\)/g;
 var slTermHider = import_view2.ViewPlugin.fromClass(class {
   constructor(view) {
     this.decorations = this.buildDecorations(view);
@@ -1532,13 +1561,39 @@ var slTermHider = import_view2.ViewPlugin.fromClass(class {
     }
   }
   buildDecorations(view) {
+    var _a, _b, _c;
     const builder = new import_state.RangeSetBuilder();
     const text = view.state.doc.toString();
     let match;
     while ((match = SL_TERM_REGEX.exec(text)) !== null) {
+      const matchText = match[0];
       const from = match.index;
-      const to = from + match[0].length;
-      builder.add(from, to, import_view2.Decoration.replace({ widget: new SLHiddenWidget() }));
+      const to = from + matchText.length;
+      const orig = (_a = match[1]) != null ? _a : "";
+      const mode = (_b = match[2]) != null ? _b : "SL";
+      const rawTerm = (_c = match[3]) != null ? _c : "";
+      let term = rawTerm;
+      if (mode === "SL64") {
+        term = decodeSLTerm(rawTerm);
+      } else {
+        term = rawTerm.replace(/\\\)/g, ")").replace(/\\\(/g, "(").replace(/\\\\/g, "\\");
+      }
+      const endBracket = matchText.indexOf("]");
+      if (endBracket >= 0) {
+        builder.add(from, from + endBracket + 1, import_view2.Decoration.mark({ class: "sl-term-origin" }));
+      }
+      const slIndex = matchText.indexOf("(" + mode + ":");
+      if (slIndex >= 0) {
+        const slFrom = from + slIndex;
+        const slTo = to;
+        const origFrom = from + 1;
+        const origTo = from + endBracket;
+        builder.add(slFrom, slTo, import_view2.Decoration.replace({ widget: new SLHintWidget(term, view, origFrom, origTo) }));
+      } else {
+        const origFrom = from + 1;
+        const origTo = from + endBracket;
+        builder.add(from, to, import_view2.Decoration.replace({ widget: new SLHintWidget(term, view, origFrom, origTo) }));
+      }
     }
     return builder.finish();
   }
@@ -1874,6 +1929,40 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
         }, 300);
       }
     }));
+    this.registerDomEvent(document, "sl-interpreter", () => {
+      if (!this.activated || this.pauseAllRequests) {
+        return;
+      }
+      const view = this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
+      if (!view) {
+        return;
+      }
+      const selection = view.editor.getSelection();
+      if (!selection || selection.length == 0) {
+        return;
+      }
+      this.startSLInterpreter(view, selection);
+    });
+    this.registerDomEvent(document, "dblclick", (evt) => {
+      if (!this.activated || this.pauseAllRequests) {
+        return;
+      }
+      const view = this.app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
+      if (!view) {
+        return;
+      }
+      const target = evt.target;
+      if (!target || !view.contentEl.contains(target)) {
+        return;
+      }
+      if (this.parseDebounce != void 0) {
+        window.clearTimeout(this.parseDebounce);
+      }
+      this.parseDebounce = window.setTimeout(() => {
+        this.lastParsedHash = "";
+        this.semaLogicUpdate();
+      }, 200);
+    });
     this.registerMarkdownPostProcessor((element, context) => {
       slconsolelog(DebugLevMap.DebugLevel_Chatty, void 0, element);
       slconsolelog(DebugLevMap.DebugLevel_Chatty, void 0, context);
@@ -1998,6 +2087,7 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
       }
     }
     bodytext = this.view_utils.cleanCommands(bodytext);
+    bodytext = this.normalizeSLInterpreterTerms(bodytext);
     if (dialectID == "") {
       dialectID = "default";
     }
@@ -2045,6 +2135,32 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
       }
     }
     return results;
+  }
+  normalizeSLInterpreterTerms(text) {
+    const re = /«(.+?)»\s*\((SL64|SL):([^)]+)\)/g;
+    return text.replace(re, (_m, _orig, mode, rawTerm) => {
+      if (mode == "SL64") {
+        return this.decodeSLTerm(String(rawTerm != null ? rawTerm : ""));
+      }
+      let term = String(rawTerm != null ? rawTerm : "");
+      term = term.replace(/\\\)/g, ")").replace(/\\\(/g, "(").replace(/\\\\/g, "\\");
+      return term;
+    });
+  }
+  encodeSLTerm(text) {
+    const utf8 = encodeURIComponent(text).replace(/%([0-9A-F]{2})/g, (_m, p1) => {
+      return String.fromCharCode(parseInt(p1, 16));
+    });
+    return btoa(utf8);
+  }
+  decodeSLTerm(b64) {
+    try {
+      const bin = atob(b64);
+      const pct = Array.from(bin, (c) => "%" + c.charCodeAt(0).toString(16).padStart(2, "0")).join("");
+      return decodeURIComponent(pct);
+    } catch (e) {
+      return "";
+    }
   }
   async activateASPView() {
     if (this.slComm.slaspview == void 0) {
@@ -2429,7 +2545,18 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
       slconsolelog(DebugLevMap.DebugLevel_Informative, (_a = this.slComm) == null ? void 0 : _a.slview, "SL-Interpreter: selection changed, skip replace");
       return;
     }
-    const newText = `[${sel.original}] (SL:${response})`;
+    const trailingMatch = sel.original.match(/\s+$/);
+    const trailingSpace = trailingMatch ? trailingMatch[0] : "";
+    const baseOriginal = trailingSpace.length > 0 ? sel.original.slice(0, -trailingSpace.length) : sel.original;
+    let spacer = trailingSpace;
+    if (spacer.length == 0) {
+      const nextChar = editor.getRange(sel.to, { line: sel.to.line, ch: sel.to.ch + 1 });
+      if (nextChar && !/\s/.test(nextChar)) {
+        spacer = " ";
+      }
+    }
+    const encoded = this.encodeSLTerm(response);
+    const newText = `\xAB${baseOriginal}\xBB (SL64:${encoded})${spacer}`;
     editor.replaceRange(newText, sel.from, sel.to);
     const fromOffset = editor.posToOffset(sel.from);
     sel.to = editor.offsetToPos(fromOffset + newText.length);

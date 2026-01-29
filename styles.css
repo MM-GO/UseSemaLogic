@@ -10,3 +10,20 @@ If your plugin does not need CSS, delete this file.
 .debuginline {
     white-space: pre
 }
+
+.sl-term-hint {
+    display: inline-block;
+    margin-left: 4px;
+    font-size: 0.9em;
+    line-height: 1;
+    color: #b97900;
+    cursor: help;
+    user-select: none;
+}
+
+.sl-term-origin {
+    text-decoration: underline;
+    text-decoration-color: #b97900;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 2px;
+}

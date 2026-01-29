@@ -552,6 +552,30 @@ export default class SemaLogicPlugin extends Plugin {
 			}
 		}));
 
+		this.registerDomEvent(document as any, "sl-interpreter" as any, () => {
+			if (!this.activated || this.pauseAllRequests) { return }
+			const view = this.app.workspace.getActiveViewOfType(MarkdownView)
+			if (!view) { return }
+			const selection = view.editor.getSelection()
+			if (!selection || selection.length == 0) { return }
+			this.startSLInterpreter(view, selection)
+		});
+
+		this.registerDomEvent(document, "dblclick", (evt: MouseEvent) => {
+			if (!this.activated || this.pauseAllRequests) { return }
+			const view = this.app.workspace.getActiveViewOfType(MarkdownView)
+			if (!view) { return }
+			const target = evt.target as HTMLElement | null
+			if (!target || !view.contentEl.contains(target)) { return }
+			if (this.parseDebounce != undefined) {
+				window.clearTimeout(this.parseDebounce)
+			}
+			this.parseDebounce = window.setTimeout(() => {
+				this.lastParsedHash = ""
+				this.semaLogicUpdate()
+			}, 200)
+		});
+
 		this.registerMarkdownPostProcessor((element, context) => {
 			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, element)
 			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, context)
@@ -706,6 +730,7 @@ export default class SemaLogicPlugin extends Plugin {
 
 
 		bodytext = this.view_utils.cleanCommands(bodytext)
+		bodytext = this.normalizeSLInterpreterTerms(bodytext)
 		if (dialectID == "") { dialectID = "default" }
 
 		const newHash = `${dialectID}|${bodytext}`
@@ -764,6 +789,35 @@ export default class SemaLogicPlugin extends Plugin {
 		}
 
 		return results
+	}
+
+	private normalizeSLInterpreterTerms(text: string): string {
+		const re = /«(.+?)»\s*\((SL64|SL):([^)]+)\)/g;
+		return text.replace(re, (_m, _orig, mode, rawTerm) => {
+			if (mode == "SL64") {
+				return this.decodeSLTerm(String(rawTerm ?? ""));
+			}
+			let term = String(rawTerm ?? "");
+			term = term.replace(/\\\)/g, ")").replace(/\\\(/g, "(").replace(/\\\\/g, "\\");
+			return term;
+		});
+	}
+
+	private encodeSLTerm(text: string): string {
+		const utf8 = encodeURIComponent(text).replace(/%([0-9A-F]{2})/g, (_m, p1) => {
+			return String.fromCharCode(parseInt(p1, 16));
+		});
+		return btoa(utf8);
+	}
+
+	private decodeSLTerm(b64: string): string {
+		try {
+			const bin = atob(b64);
+			const pct = Array.from(bin, (c) => "%" + c.charCodeAt(0).toString(16).padStart(2, "0")).join("");
+			return decodeURIComponent(pct);
+		} catch (e) {
+			return "";
+		}
 	}
 
 	async activateASPView() {
@@ -1167,7 +1221,18 @@ export default class SemaLogicPlugin extends Plugin {
 			return
 		}
 
-		const newText = `[${sel.original}] (SL:${response})`
+		const trailingMatch = sel.original.match(/\s+$/)
+		const trailingSpace = trailingMatch ? trailingMatch[0] : ""
+		const baseOriginal = trailingSpace.length > 0 ? sel.original.slice(0, -trailingSpace.length) : sel.original
+		let spacer = trailingSpace
+		if (spacer.length == 0) {
+			const nextChar = editor.getRange(sel.to, { line: sel.to.line, ch: sel.to.ch + 1 })
+			if (nextChar && !/\s/.test(nextChar)) {
+				spacer = " "
+			}
+		}
+		const encoded = this.encodeSLTerm(response)
+		const newText = `«${baseOriginal}» (SL64:${encoded})${spacer}`
 		editor.replaceRange(newText, sel.from, sel.to)
 		const fromOffset = editor.posToOffset(sel.from)
 		sel.to = editor.offsetToPos(fromOffset + newText.length)
