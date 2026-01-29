@@ -8,7 +8,7 @@ import { API_Defaults, Value_Defaults, semaLogicCommand, RulesettypesCommands, R
 import { ViewUtils } from 'src/view_utils';
 import { createTemplateFolder } from 'src/template';
 import { createExamples } from 'src/examples';
-import { createTestCanvas } from 'src/test_canvas';
+import { createTestCanvas, createTemplateCanvas } from 'src/test_canvas';
 import { slTermHider } from "src/sl_term_hider";
 //import { Rstypes_SemanticTree } from 'src/const only for UP';
 
@@ -429,8 +429,9 @@ export default class SemaLogicPlugin extends Plugin {
 	parseDebounce: number | undefined
 	lastParsedHash: string = ""
 	canvasTooltipEl: HTMLElement | undefined
+	canvasTooltipCleanup: (() => void) | undefined
 	canvasTooltipObservers: WeakMap<WorkspaceLeaf, MutationObserver> = new WeakMap()
-	canvasNodeFileCache: Map<string, { mtime: number; map: Map<string, string>; textMap: Map<string, string> }> = new Map()
+	canvasNodeFileCache: Map<string, { mtime: number; map: Map<string, string>; textMap: Map<string, string>; dataMap: Map<string, string>; dataTextMap: Map<string, string>; idTextMap: Map<string, string>; dataIdTextMap: Map<string, string> }> = new Map()
 	knowledgeCanvasPath: string = "SemaLogic/KnowledgeGraph.canvas"
 	knowledgeLastRequestTime: number = 0
 	knowledgeLeaf: WorkspaceLeaf | undefined
@@ -662,9 +663,16 @@ export default class SemaLogicPlugin extends Plugin {
 
 		this.addCommand({
 			id: "sl_create_test_canvas",
-			name: "SemaLogic create test canvas",
+			name: "UseSemaLogic: test canvas simple",
 			callback: () => {
 				createTestCanvas(app.vault);
+			},
+		});
+		this.addCommand({
+			id: "sl_create_template_canvas",
+			name: "UseSemaLogic: test canvas komplex",
+			callback: () => {
+				createTemplateCanvas(app.vault);
 			},
 		});
 
@@ -900,12 +908,14 @@ export default class SemaLogicPlugin extends Plugin {
 			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, "Canvas DOM mutation")
 			this.refreshCanvasTooltips(leaf)
 			this.addCanvasInfoButton(leaf)
+			this.updateCanvasInfoButton(leaf)
 		})
-		observer.observe(container, { childList: true, subtree: true })
+		observer.observe(container, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] })
 		this.canvasTooltipObservers.set(leaf, observer)
 		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, "Attach canvas tooltips: initial refresh")
 		this.refreshCanvasTooltips(leaf)
 		this.addCanvasInfoButton(leaf)
+		this.updateCanvasInfoButton(leaf)
 	}
 
 	private attachCanvasTooltipsToAllLeaves(): void {
@@ -956,7 +966,8 @@ export default class SemaLogicPlugin extends Plugin {
 					slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas node text="${nodeText}"`)
 				}
 				if (nodeText.length > 0) {
-					filePath = maps.textMap.get(nodeText)
+					const normalized = this.extractNodeIdText(nodeText)
+					filePath = maps.textMap.get(nodeText) ?? maps.idTextMap.get(normalized)
 				}
 			}
 			if (!filePath && singleFilePath) {
@@ -979,45 +990,63 @@ export default class SemaLogicPlugin extends Plugin {
 		}
 	}
 
-	private async loadCanvasNodeFileMaps(canvasFile: TFile): Promise<{ idMap: Map<string, string>; textMap: Map<string, string> }> {
+	private async loadCanvasNodeFileMaps(canvasFile: TFile): Promise<{ idMap: Map<string, string>; textMap: Map<string, string>; dataIdMap: Map<string, string>; dataTextMap: Map<string, string>; idTextMap: Map<string, string>; dataIdTextMap: Map<string, string> }> {
 		const cache = this.canvasNodeFileCache.get(canvasFile.path)
 		const stat = await this.app.vault.adapter.stat(canvasFile.path)
 		if (cache && stat && cache.mtime == stat.mtime) {
-			return { idMap: cache.map, textMap: cache.textMap ?? new Map() }
+			return { idMap: cache.map, textMap: cache.textMap ?? new Map(), dataIdMap: cache.dataMap ?? new Map(), dataTextMap: cache.dataTextMap ?? new Map(), idTextMap: cache.idTextMap ?? new Map(), dataIdTextMap: cache.dataIdTextMap ?? new Map() }
 		}
 		let raw = ""
 		try {
 			raw = await this.app.vault.cachedRead(canvasFile)
 		} catch (e) {
-			return { idMap: new Map(), textMap: new Map() }
+			return { idMap: new Map(), textMap: new Map(), dataIdMap: new Map(), dataTextMap: new Map(), idTextMap: new Map(), dataIdTextMap: new Map() }
 		}
 		let parsed: any
 		try {
 			parsed = JSON.parse(raw)
 		} catch (e) {
-			return { idMap: new Map(), textMap: new Map() }
+			return { idMap: new Map(), textMap: new Map(), dataIdMap: new Map(), dataTextMap: new Map(), idTextMap: new Map(), dataIdTextMap: new Map() }
 		}
 		const map = new Map<string, string>()
 		const textMap = new Map<string, string>()
+		const dataMap = new Map<string, string>()
+		const dataTextMap = new Map<string, string>()
+		const idTextMap = new Map<string, string>()
+		const dataIdTextMap = new Map<string, string>()
 		if (parsed && Array.isArray(parsed.nodes)) {
 			for (const n of parsed.nodes) {
 				const id = String(n?.id ?? "")
 				if (!id) { continue }
 				const meta = n?.meta ?? {}
 				const linked = meta?.SL_LinkedFile ?? n?.SL_LinkedFile
+				const data = meta?.SL_DataFile ?? n?.SL_DataFile
+				const rawText = String(n?.text ?? "").trim()
+				const nodeIdText = this.extractNodeIdText(rawText)
 				if (linked) {
 					map.set(id, String(linked))
-					const text = String(n?.text ?? "").trim()
-					if (text.length > 0 && !textMap.has(text)) {
-						textMap.set(text, String(linked))
+					if (rawText.length > 0 && !textMap.has(rawText)) {
+						textMap.set(rawText, String(linked))
+					}
+					if (nodeIdText.length > 0 && !idTextMap.has(nodeIdText)) {
+						idTextMap.set(nodeIdText, String(linked))
+					}
+				}
+				if (data) {
+					dataMap.set(id, String(data))
+					if (rawText.length > 0 && !dataTextMap.has(rawText)) {
+						dataTextMap.set(rawText, String(data))
+					}
+					if (nodeIdText.length > 0 && !dataIdTextMap.has(nodeIdText)) {
+						dataIdTextMap.set(nodeIdText, String(data))
 					}
 				}
 			}
 		}
 		if (stat) {
-			this.canvasNodeFileCache.set(canvasFile.path, { mtime: stat.mtime, map, textMap })
+			this.canvasNodeFileCache.set(canvasFile.path, { mtime: stat.mtime, map, textMap, dataMap, dataTextMap, idTextMap, dataIdTextMap })
 		}
-		return { idMap: map, textMap }
+		return { idMap: map, textMap, dataIdMap: dataMap, dataTextMap, idTextMap, dataIdTextMap }
 	}
 
 	private async safeReadFile(path: string): Promise<string> {
@@ -1052,12 +1081,37 @@ export default class SemaLogicPlugin extends Plugin {
 		const y = evt.clientY + 12
 		tooltip.style.left = `${x}px`
 		tooltip.style.top = `${y}px`
+		const onDocClick = (e: MouseEvent) => {
+			const target = e.target as Node | null
+			if (this.canvasTooltipEl && target && this.canvasTooltipEl.contains(target)) { return }
+			this.hideCanvasTooltip()
+		}
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === "Escape") {
+				this.hideCanvasTooltip()
+			}
+		}
+		const onWheel = () => {
+			this.hideCanvasTooltip()
+		}
+		document.addEventListener("click", onDocClick, true)
+		document.addEventListener("keydown", onKey, true)
+		document.addEventListener("wheel", onWheel, true)
+		this.canvasTooltipCleanup = () => {
+			document.removeEventListener("click", onDocClick, true)
+			document.removeEventListener("keydown", onKey, true)
+			document.removeEventListener("wheel", onWheel, true)
+		}
 	}
 
 	private hideCanvasTooltip(): void {
 		if (this.canvasTooltipEl) {
 			this.canvasTooltipEl.remove()
 			this.canvasTooltipEl = undefined
+		}
+		if (this.canvasTooltipCleanup) {
+			this.canvasTooltipCleanup()
+			this.canvasTooltipCleanup = undefined
 		}
 	}
 
@@ -1078,31 +1132,35 @@ export default class SemaLogicPlugin extends Plugin {
 		btn.addEventListener("click", async (evt) => {
 			evt.preventDefault()
 			evt.stopPropagation()
+			if (this.canvasTooltipEl) {
+				this.hideCanvasTooltip()
+				return
+			}
 			const maps = await this.loadCanvasNodeFileMaps(canvasFile)
 			let filePath: string | undefined
 			let nodeText = ""
+			let fallbackPath: string | undefined
 
-			const focused = container.querySelector<HTMLElement>(".canvas-node.is-focused")
+			const focused = this.getFocusedCanvasNode(container)
 			if (focused) {
-				const id = focused.getAttribute("data-node-id") || focused.getAttribute("data-id") || focused.dataset.nodeId || focused.dataset.id
-				if (id) {
-					filePath = maps.idMap.get(id)
+				const res = this.resolveCanvasNodeFiles(focused, maps)
+				if (res.dataPath) {
+					filePath = res.dataPath
+					fallbackPath = undefined
+				} else {
+					filePath = undefined
+					fallbackPath = res.linkedPath
 				}
-				if (!filePath) {
-					const textEl = focused.querySelector<HTMLElement>(".canvas-node-content .markdown-preview-view p, .canvas-node-content textarea, .canvas-node-content")
-					nodeText = textEl?.textContent?.trim() ?? ""
-					if (!nodeText) {
-						const iframe = focused.querySelector<HTMLIFrameElement>("iframe.embed-iframe")
-						const doc = iframe?.contentDocument
-						const p = doc?.querySelector("p")
-						nodeText = p?.textContent?.trim() ?? ""
-					}
-					if (nodeText.length > 0) {
-						filePath = maps.textMap.get(nodeText)
-					}
-				}
+				nodeText = res.nodeText
 			}
 
+			if (!filePath && maps.dataIdMap.size + maps.dataTextMap.size == 1) {
+				for (const v of maps.dataIdMap.values()) { filePath = v }
+				for (const v of maps.dataTextMap.values()) { filePath = v }
+			}
+			if (!filePath && fallbackPath) {
+				filePath = fallbackPath
+			}
 			if (!filePath && maps.idMap.size + maps.textMap.size == 1) {
 				for (const v of maps.idMap.values()) { filePath = v }
 				for (const v of maps.textMap.values()) { filePath = v }
@@ -1122,6 +1180,73 @@ export default class SemaLogicPlugin extends Plugin {
 		})
 
 		menu.appendChild(btn)
+		this.updateCanvasInfoButton(leaf)
+	}
+
+	private async updateCanvasInfoButton(leaf: WorkspaceLeaf): Promise<void> {
+		const view: any = leaf.view
+		const canvasFile: TFile | undefined = view?.file
+		if (!canvasFile) { return }
+		const container: HTMLElement | null = view?.containerEl ?? null
+		if (!container) { return }
+		const btn = container.querySelector<HTMLElement>(".sl-node-info-btn")
+		if (!btn) { return }
+		const focused = this.getFocusedCanvasNode(container)
+		if (!focused) {
+			btn.style.display = "none"
+			return
+		}
+		const maps = await this.loadCanvasNodeFileMaps(canvasFile)
+		const res = this.resolveCanvasNodeFiles(focused, maps)
+		btn.style.display = res.dataPath ? "" : "none"
+	}
+
+	private resolveCanvasNodeFiles(
+		focused: HTMLElement,
+		maps: { idMap: Map<string, string>; textMap: Map<string, string>; dataIdMap: Map<string, string>; dataTextMap: Map<string, string>; idTextMap: Map<string, string>; dataIdTextMap: Map<string, string> }
+	): { dataPath?: string; linkedPath?: string; nodeText: string } {
+		let dataPath: string | undefined
+		let linkedPath: string | undefined
+		let nodeText = ""
+		const id = focused.getAttribute("data-node-id") || focused.getAttribute("data-id") || focused.dataset.nodeId || focused.dataset.id
+		if (id) {
+			dataPath = maps.dataIdMap.get(id)
+			linkedPath = maps.idMap.get(id)
+		}
+		if (!dataPath && !linkedPath) {
+			const textEl = focused.querySelector<HTMLElement>(".canvas-node-content .markdown-preview-view h1, .canvas-node-content .markdown-preview-view h2, .canvas-node-content .markdown-preview-view h3, .canvas-node-content .markdown-preview-view h4, .canvas-node-content .markdown-preview-view h5, .canvas-node-content .markdown-preview-view h6, .canvas-node-content .markdown-preview-view p, .canvas-node-content textarea, .canvas-node-content")
+			nodeText = textEl?.textContent?.trim() ?? ""
+			if (!nodeText) {
+				const iframe = focused.querySelector<HTMLIFrameElement>("iframe.embed-iframe")
+				const doc = iframe?.contentDocument
+				const heading = doc?.querySelector("h1, h2, h3, h4, h5, h6")
+				const p = doc?.querySelector("p")
+				nodeText = (heading?.textContent || p?.textContent || "").trim()
+			}
+			if (nodeText.length > 0) {
+				const normalized = this.extractNodeIdText(nodeText)
+				dataPath = maps.dataTextMap.get(nodeText) ?? maps.dataIdTextMap.get(normalized)
+				linkedPath = maps.textMap.get(nodeText) ?? maps.idTextMap.get(normalized)
+			}
+		}
+		return { dataPath, linkedPath, nodeText }
+	}
+
+	private extractNodeIdText(raw: string): string {
+		if (!raw) { return "" }
+		const match = raw.match(/NodeID:\s*([^\n\r]+)/i)
+		if (match && match[1]) {
+			const chunk = match[1].trim()
+			const stop = chunk.split(/CONCEPT:|ERROR:|OR_MIN:|OR_MAX:/i)[0].trim()
+			return stop
+		}
+		return raw.split(/[\r\n]/)[0].trim()
+	}
+
+	private getFocusedCanvasNode(container: HTMLElement): HTMLElement | null {
+		return container.querySelector<HTMLElement>(
+			".canvas-node.is-focused, .canvas-node.is-selected, .canvas-node.is-editing"
+		)
 	}
 
 	async activateASPView() {
@@ -1604,17 +1729,15 @@ export default class SemaLogicPlugin extends Plugin {
 				slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, `Canvas2SL invalid JSON: ${e}`)
 				return ""
 			}
-			const bodyObj = {
-				nodes: Array.isArray(parsed?.nodes) ? parsed.nodes : [],
-				edges: Array.isArray(parsed?.edges) ? parsed.edges : []
-			}
-			body = JSON.stringify(bodyObj)
-			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas2SL request len=${body.length} nodes=${bodyObj.nodes.length} edges=${bodyObj.edges.length}`)
+			body = JSON.stringify(parsed)
+			const nodesCount = Array.isArray(parsed?.nodes) ? parsed.nodes.length : 0
+			const edgesCount = Array.isArray(parsed?.edges) ? parsed.edges.length : 0
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas2SL request len=${body.length} nodes=${nodesCount} edges=${edgesCount}`)
 			const response = await requestUrl({
 				url: apiUrl,
 				method: "POST",
 				headers: {
-					"content-type": "application/json",
+					"content-type": "text/plain",
 					"accept": "text/plain, application/json"
 				},
 				body
@@ -1636,13 +1759,13 @@ export default class SemaLogicPlugin extends Plugin {
 				return ""
 			}
 			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, `Canvas2SL status ${response.status}`)
-			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, { url: apiUrl, headers: { "content-type": "application/json", "accept": "text/plain, application/json" }, body })
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, { url: apiUrl, headers: { "content-type": "text/plain", "accept": "text/plain, application/json" }, body })
 		} catch (e) {
 			const err: any = e
 			const status = err?.status ?? err?.response?.status
 			const respText = err?.response?.text ?? err?.text ?? ""
 			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, `Canvas2SL failed: status=${status} text=${respText}`)
-			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, { url: apiUrl, headers: { "content-type": "application/json", "accept": "text/plain, application/json" }, body })
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, { url: apiUrl, headers: { "content-type": "text/plain", "accept": "text/plain, application/json" }, body })
 		}
 		return ""
 	}

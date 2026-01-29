@@ -1514,8 +1514,9 @@ async function createExamples(vault) {
 var import_obsidian7 = require("obsidian");
 async function createTestCanvas(vault) {
   const canvasFolder = "SemaLogic";
-  const hiddenInfoFolder = ".SemaLogic/nodeinfos";
+  const hiddenInfoFolder = ".SemaLogic/test_nodeinfos";
   const infoFilePath = (0, import_obsidian7.normalizePath)(`${hiddenInfoFolder}/test-node.md`);
+  const dataFilePath = (0, import_obsidian7.normalizePath)(`${hiddenInfoFolder}/test-node-data.md`);
   const canvasPath = (0, import_obsidian7.normalizePath)(`${canvasFolder}/TestCanvas.canvas`);
   await vault.createFolder(canvasFolder).catch(() => {
   });
@@ -1530,6 +1531,15 @@ async function createTestCanvas(vault) {
     await vault.modify(existingInfo, infoContent).catch(() => {
     });
   }
+  const dataContent = "# Test Data\n- Detail A\n- Detail B\n";
+  const existingData = vault.getAbstractFileByPath(dataFilePath);
+  if (existingData == null) {
+    await vault.create(dataFilePath, dataContent).catch(() => {
+    });
+  } else {
+    await vault.modify(existingData, dataContent).catch(() => {
+    });
+  }
   const canvasJson = {
     nodes: [
       {
@@ -1541,11 +1551,150 @@ async function createTestCanvas(vault) {
         width: 240,
         height: 80,
         meta: {
-          SL_LinkedFile: infoFilePath
+          SL_LinkedFile: infoFilePath,
+          SL_DataFile: dataFilePath
+        }
+      },
+      {
+        id: "n2",
+        type: "text",
+        text: "Hello Data",
+        x: 300,
+        y: 0,
+        width: 240,
+        height: 80,
+        meta: {
+          SL_DataFile: dataFilePath
         }
       }
     ],
     edges: []
+  };
+  const existingCanvas = vault.getAbstractFileByPath(canvasPath);
+  const canvasContent = JSON.stringify(canvasJson, null, 2);
+  if (existingCanvas == null) {
+    await vault.create(canvasPath, canvasContent).catch(() => {
+    });
+  } else {
+    await vault.modify(existingCanvas, canvasContent).catch(() => {
+    });
+  }
+}
+async function createTemplateCanvas(vault) {
+  const canvasFolder = "SemaLogic";
+  const hiddenInfoFolder = ".SemaLogic/test_nodeinfos";
+  const canvasPath = (0, import_obsidian7.normalizePath)(`${canvasFolder}/TemplateCanvas.canvas`);
+  await vault.createFolder(canvasFolder).catch(() => {
+  });
+  await vault.createFolder(hiddenInfoFolder).catch(() => {
+  });
+  const files = [
+    {
+      path: ".SemaLogic/test_nodeinfos/kitchen-note.md",
+      content: "# Kitchen Note (FILE)\n\nThis content is from the linked file, not the node text.\n\n## Errors\n- ERROR: Mock: missing TYPE for Stove\n- ERROR: Mock: duplicate NODEID in Rooms list\n\n## Hints\n- Check OR_MIN/OR_MAX for Liquid\u2218OR\n"
+    },
+    {
+      path: ".SemaLogic/test_nodeinfos/liquid-note.md",
+      content: "# Liquid OR (FILE)\n\nThis content is from the linked file, not the node text.\n\n## Errors\n- ERROR: Mock: OR_MAX missing\n- ERROR: Mock: OR_MIN must be >= 1\n"
+    },
+    {
+      path: ".SemaLogic/test_nodeinfos/price-note.md",
+      content: "# Price Assignment (FILE)\n\nThis content is from the linked file, not the node text.\n\n## Errors\n- ERROR: Mock: VALUE_TYPE missing\n- ERROR: Mock: negative VALUE not allowed\n"
+    },
+    {
+      path: ".SemaLogic/test_nodeinfos/house-data.json",
+      content: '{\n  "FILE_ONLY": "house-data.json",\n  "DATA": {\n    "SYMBOL": [\n      {\n        "ID": "ID-MyHouse-1",\n        "NODEID": "MyHouse",\n        "SYMBOL": "MyHouse",\n        "VALUE": "detached",\n        "VALUE_TYPE": "string",\n        "UNIT": "n/a",\n        "SOURCE": "template",\n        "CONFIDENCE": "0.84",\n        "ASSERTED_BY": "demo",\n        "TIMESTAMP": "2026-01-29T00:00:00Z"\n      }\n    ],\n    "TYPE": [\n      {\n        "ID": "ID-MyHouse-TYPE-1",\n        "TARGET_ID": "Building",\n        "TYPE": "Building",\n        "AS_DEFINED": "true"\n      }\n    ],\n    "PART_OF": [\n      {\n        "ID": "ID-MyHouse-PART-1",\n        "TARGET_ID": "Neighborhood",\n        "PART_OF": "Neighborhood"\n      }\n    ],\n    "RELATED_TO": [\n      {\n        "ID": "ID-MyHouse-REL-1",\n        "TARGET_ID": "Garage",\n        "RELATION": "near"\n      }\n    ],\n    "CONFIDENCE": [\n      {\n        "ID": "ID-MyHouse-CONF-1",\n        "CONFIDENCE": "0.84",\n        "SOURCE": "template"\n      }\n    ]\n  },\n  "FORWARD": {\n    "AND": [\n      {\n        "MyHouse\u2218AND": "NODE_PTR:0x0",\n        "ROLE": "subject",\n        "ORDER": "1",\n        "AS_DEFINED": "true"\n      }\n    ]\n  },\n  "BACKWARD": {\n    "SYMBOL": [\n      {\n        "Kitchen": "NODE_PTR:0x0",\n        "ROLE": "operand"\n      }\n    ]\n  },\n  "ERROR": {\n    "CONCEPT": [\n      {\n        "ERROR": "Mock: missing required TYPE for Garage",\n        "STATUS": "invalid",\n        "SOURCE": "validator"\n      }\n    ]\n  }\n}\n'
+    },
+    {
+      path: ".SemaLogic/test_nodeinfos/car-data.json",
+      content: '{\n  "FILE_ONLY": "car-data.json",\n  "DATA": {\n    "SYMBOL": [\n      {\n        "ID": "ID-Car-1",\n        "NODEID": "Addition",\n        "SYMBOL": "Car",\n        "VALUE": "4",\n        "VALUE_TYPE": "int",\n        "UNIT": "count",\n        "SOURCE": "template",\n        "TIMESTAMP": "2026-01-29T00:00:00Z"\n      }\n    ],\n    "MATH": [\n      {\n        "ID": "ID-Car-MATH-1",\n        "OPERATOR": "+",\n        "VALUE": "4",\n        "VALUE_TYPE": "int"\n      }\n    ]\n  },\n  "FORWARD": {\n    "SYMBOL": [\n      {\n        "Vehicle": "NODE_PTR:0x0",\n        "AS_DEFINED": "true"\n      }\n    ]\n  },\n  "BACKWARD": {\n    "TYPE": [\n      {\n        "Car\u2218TYPE": "NODE_PTR:0x0",\n        "ROLE": "subject"\n      }\n    ]\n  },\n  "ERROR": {\n    "CONCEPT": [\n      {\n        "ERROR": "Mock: value out of range",\n        "STATUS": "warning",\n        "SOURCE": "validator"\n      }\n    ]\n  }\n}\n'
+    }
+  ];
+  for (const f of files) {
+    const p = (0, import_obsidian7.normalizePath)(f.path);
+    const existing = vault.getAbstractFileByPath(p);
+    if (existing == null) {
+      await vault.create(p, f.content).catch(() => {
+      });
+    } else {
+      await vault.modify(existing, f.content).catch(() => {
+      });
+    }
+  }
+  const dataFiles = [
+    { id: "Kitchen", file: ".SemaLogic/test_nodeinfos/kitchen-data.json" },
+    { id: "Rooms", file: ".SemaLogic/test_nodeinfos/rooms-data.json" },
+    { id: "Stairs", file: ".SemaLogic/test_nodeinfos/stairs-data.json" },
+    { id: "Car", file: ".SemaLogic/test_nodeinfos/car-node-data.json" },
+    { id: "Car\u2218TYPE", file: ".SemaLogic/test_nodeinfos/car-data.json" },
+    { id: "Vehicle", file: ".SemaLogic/test_nodeinfos/vehicle-data.json" },
+    { id: "House", file: ".SemaLogic/test_nodeinfos/house-data.json" },
+    { id: "House\u2218AND", file: ".SemaLogic/test_nodeinfos/house-and-data.json" },
+    { id: "084a3dde02011466", file: ".SemaLogic/test_nodeinfos/value2-data.json" },
+    { id: "Price\u2218ASSIGNMENT", file: ".SemaLogic/test_nodeinfos/price-data.json" },
+    { id: "Liquid", file: ".SemaLogic/test_nodeinfos/liquid-data.json" },
+    { id: "Liquid\u2218OR", file: ".SemaLogic/test_nodeinfos/liquid-or-data.json" },
+    { id: "Milk", file: ".SemaLogic/test_nodeinfos/milk-data.json" },
+    { id: "581275de0cfc8acb", file: ".SemaLogic/test_nodeinfos/team-data.json" },
+    { id: "2d2146e3b47553b2", file: ".SemaLogic/test_nodeinfos/team-group-data.json" },
+    { id: "9a60b2e40aa59e5c", file: ".SemaLogic/test_nodeinfos/member-b-data.json" },
+    { id: "8d55e0c369378e10", file: ".SemaLogic/test_nodeinfos/member-a-data.json" },
+    { id: "92f71bd69b9476af", file: ".SemaLogic/test_nodeinfos/team-leaf-data.json" }
+  ];
+  for (const df of dataFiles) {
+    const payload = JSON.stringify(
+      { FILE_ONLY: df.file, NODE_ID: df.id, SOURCE: "template" },
+      null,
+      2
+    ) + "\n";
+    const existing = vault.getAbstractFileByPath(df.file);
+    if (existing == null) {
+      await vault.create(df.file, payload).catch(() => {
+      });
+    } else {
+      await vault.modify(existing, payload).catch(() => {
+      });
+    }
+  }
+  const canvasJson = {
+    nodes: [
+      { id: "Kitchen", type: "text", text: "## NodeID: Kitchen\nCONCEPT: SYMBOL\nERROR: Mock: missing TYPE for Stove", x: -1140, y: 440, width: 260, height: 120, color: "#6FA8DC", meta: { SL_LinkedFile: ".SemaLogic/test_nodeinfos/kitchen-note.md", SL_DataFile: ".SemaLogic/test_nodeinfos/kitchen-data.json" } },
+      { id: "Rooms", type: "text", text: "## NodeID: Rooms\nCONCEPT: SYMBOL", x: -900, y: 440, width: 260, height: 120, color: "#6FA8DC", meta: { SL_DataFile: ".SemaLogic/test_nodeinfos/rooms-data.json" } },
+      { id: "Stairs", type: "text", text: "## NodeID: Stairs\nCONCEPT: SYMBOL", x: -660, y: 440, width: 260, height: 120, color: "#6FA8DC", meta: { SL_DataFile: ".SemaLogic/test_nodeinfos/stairs-data.json" } },
+      { id: "Car", type: "text", text: "## NodeID: Addition\nCONCEPT: SYMBOL", x: 360, y: 0, width: 260, height: 120, color: "#6FA8DC", meta: { SL_DataFile: ".SemaLogic/test_nodeinfos/car-node-data.json" } },
+      { id: "Car\u2218TYPE", type: "text", text: "## NodeID: Car\u2218MATH\nCONCEPT: MATH\nOPERATOR: +", x: 360, y: 200, width: 260, height: 140, color: "#93C47D", meta: { SL_DataFile: ".SemaLogic/test_nodeinfos/car-data.json" } },
+      { id: "Vehicle", type: "text", text: "## NodeID: Value1\nCONCEPT: SYMBOL\nVALUE: 4", x: 360, y: 420, width: 260, height: 200, color: "#6FA8DC", meta: { SL_DataFile: ".SemaLogic/test_nodeinfos/vehicle-data.json" } },
+      { id: "House", type: "text", text: "## NodeID: MyHouse\nCONCEPT: SYMBOL", x: -1030, y: -600, width: 300, height: 120, color: "#6FA8DC", meta: { SL_DataFile: ".SemaLogic/test_nodeinfos/house-data.json" } },
+      { id: "House\u2218AND", type: "text", text: "## NodeID: MyHouse\u2218AND\nCONCEPT: AND", x: -1010, y: -320, width: 370, height: 120, color: "#F6B26B", meta: { SL_DataFile: ".SemaLogic/test_nodeinfos/house-and-data.json" } },
+      { id: "084a3dde02011466", type: "text", text: "## NodeID: Value2\nCONCEPT: SYMBOL", x: 660, y: 420, width: 260, height: 200, color: "#6FA8DC", meta: { SL_DataFile: ".SemaLogic/test_nodeinfos/value2-data.json" } },
+      { id: "Price\u2218ASSIGNMENT", type: "text", text: "## NodeID: Price\u2218ASSIGNMENT\nCONCEPT: ASSIGNMENT\nVALUE: 5\nERROR: Mock: VALUE_TYPE missing", x: 660, y: 720, width: 320, height: 180, color: "#B4A7D6", meta: { SL_LinkedFile: ".SemaLogic/test_nodeinfos/price-note.md", SL_DataFile: ".SemaLogic/test_nodeinfos/price-data.json" } },
+      { id: "Liquid", type: "text", text: "## NodeID: Liquid\nCONCEPT: SYMBOL", x: -120, y: -220, width: 300, height: 140, color: "#6FA8DC", meta: { SL_DataFile: ".SemaLogic/test_nodeinfos/liquid-data.json" } },
+      { id: "Liquid\u2218OR", type: "text", text: "## NodeID: Liquid\u2218OR\nCONCEPT: OR\nOR_MIN: <int>\nOR_MAX: <int>\nERROR: Mock: OR_MAX missing", x: -120, y: 0, width: 300, height: 160, color: "#FFD966", meta: { SL_LinkedFile: ".SemaLogic/test_nodeinfos/liquid-note.md", SL_DataFile: ".SemaLogic/test_nodeinfos/liquid-or-data.json" } },
+      { id: "Water", type: "text", text: "## NodeID: Water\nCONCEPT: SYMBOL", x: 0, y: 240, width: 220, height: 120, color: "#6FA8DC" },
+      { id: "Milk", type: "text", text: "## NodeID: Milk\nCONCEPT: SYMBOL", x: -300, y: 240, width: 220, height: 120, color: "#6FA8DC", meta: { SL_DataFile: ".SemaLogic/test_nodeinfos/milk-data.json" } },
+      { id: "581275de0cfc8acb", type: "text", text: "## NodeID: Team\nCONCEPT: SYMBOL", x: 1100, y: -320, width: 300, height: 140, color: "#6FA8DC", meta: { SL_DataFile: ".SemaLogic/test_nodeinfos/team-data.json" } },
+      { id: "2d2146e3b47553b2", type: "text", text: "## NodeID: Team\u2218GROUP\nCONCEPT: GROUP", x: 1100, y: -100, width: 300, height: 160, color: "#FFD966", meta: { SL_DataFile: ".SemaLogic/test_nodeinfos/team-group-data.json" } },
+      { id: "9a60b2e40aa59e5c", type: "text", text: "## NodeID: MEMBER B\nCONCEPT: SYMBOL", x: 1220, y: 140, width: 300, height: 120, color: "#6FA8DC", meta: { SL_DataFile: ".SemaLogic/test_nodeinfos/member-b-data.json" } },
+      { id: "8d55e0c369378e10", type: "text", text: "## NodeID: Member A\nCONCEPT: SYMBOL", x: 820, y: 140, width: 320, height: 120, color: "#6FA8DC", meta: { SL_DataFile: ".SemaLogic/test_nodeinfos/member-a-data.json" } },
+      { id: "92f71bd69b9476af", type: "text", text: "## NodeID: Team\u2218LEAF\nCONCEPT: LEAF", x: 1560, y: -100, width: 300, height: 140, color: "#6FA8DC", meta: { SL_DataFile: ".SemaLogic/test_nodeinfos/team-leaf-data.json" } }
+    ],
+    edges: [
+      { id: "House->House\u2218AND", fromNode: "House", fromSide: "bottom", toNode: "House\u2218AND", toSide: "top" },
+      { id: "House\u2218AND->Kitchen", fromNode: "House\u2218AND", fromSide: "bottom", toNode: "Kitchen", toSide: "top" },
+      { id: "House\u2218AND->Rooms", fromNode: "House\u2218AND", fromSide: "bottom", toNode: "Rooms", toSide: "top" },
+      { id: "House\u2218AND->Stairs", fromNode: "House\u2218AND", fromSide: "bottom", toNode: "Stairs", toSide: "top" },
+      { id: "Liquid->Liquid\u2218OR", fromNode: "Liquid", fromSide: "bottom", toNode: "Liquid\u2218OR", toSide: "top" },
+      { id: "Liquid\u2218OR->Milk", fromNode: "Liquid\u2218OR", fromSide: "bottom", toNode: "Milk", toSide: "top" },
+      { id: "Liquid\u2218OR->Water", fromNode: "Liquid\u2218OR", fromSide: "bottom", toNode: "Water", toSide: "top" },
+      { id: "Car->Car\u2218TYPE", fromNode: "Car", fromSide: "bottom", toNode: "Car\u2218TYPE", toSide: "top" },
+      { id: "Car\u2218TYPE->Vehicle", fromNode: "Car\u2218TYPE", fromSide: "bottom", toNode: "Vehicle", toSide: "top" },
+      { id: "04d8896a15577c08", fromNode: "Car\u2218TYPE", fromSide: "bottom", toNode: "084a3dde02011466", toSide: "top" },
+      { id: "653be9449f30aac1", fromNode: "084a3dde02011466", fromSide: "bottom", toNode: "Price\u2218ASSIGNMENT", toSide: "top" },
+      { id: "1f598ed5a361ea28", fromNode: "581275de0cfc8acb", fromSide: "bottom", toNode: "2d2146e3b47553b2", toSide: "top" },
+      { id: "fd4430f4602cdb55", fromNode: "2d2146e3b47553b2", fromSide: "bottom", toNode: "8d55e0c369378e10", toSide: "top" },
+      { id: "355ee84b5a367f91", fromNode: "2d2146e3b47553b2", fromSide: "bottom", toNode: "9a60b2e40aa59e5c", toSide: "top" },
+      { id: "46958cf1a30f7212", fromNode: "581275de0cfc8acb", fromSide: "bottom", toNode: "92f71bd69b9476af", toSide: "top" }
+    ]
   };
   const existingCanvas = vault.getAbstractFileByPath(canvasPath);
   const canvasContent = JSON.stringify(canvasJson, null, 2);
@@ -2076,9 +2225,16 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     this.attachCanvasTooltipsToAllLeaves();
     this.addCommand({
       id: "sl_create_test_canvas",
-      name: "SemaLogic create test canvas",
+      name: "UseSemaLogic: test canvas simple",
       callback: () => {
         createTestCanvas(app.vault);
+      }
+    });
+    this.addCommand({
+      id: "sl_create_template_canvas",
+      name: "UseSemaLogic: test canvas komplex",
+      callback: () => {
+        createTemplateCanvas(app.vault);
       }
     });
     if (this.statusSL) {
@@ -2291,12 +2447,14 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
       slconsolelog(DebugLevMap.DebugLevel_Informative, (_a2 = this.slComm) == null ? void 0 : _a2.slview, "Canvas DOM mutation");
       this.refreshCanvasTooltips(leaf);
       this.addCanvasInfoButton(leaf);
+      this.updateCanvasInfoButton(leaf);
     });
-    observer.observe(container, { childList: true, subtree: true });
+    observer.observe(container, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
     this.canvasTooltipObservers.set(leaf, observer);
     slconsolelog(DebugLevMap.DebugLevel_Informative, (_c = this.slComm) == null ? void 0 : _c.slview, "Attach canvas tooltips: initial refresh");
     this.refreshCanvasTooltips(leaf);
     this.addCanvasInfoButton(leaf);
+    this.updateCanvasInfoButton(leaf);
   }
   attachCanvasTooltipsToAllLeaves() {
     var _a;
@@ -2312,7 +2470,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     slconsolelog(DebugLevMap.DebugLevel_Informative, (_a = this.slComm) == null ? void 0 : _a.slview, `Attach canvas tooltips: total ${count}`);
   }
   async refreshCanvasTooltips(leaf) {
-    var _a, _b, _c, _d, _e, _f, _g, _h;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i;
     const view = leaf.view;
     const canvasFile = view == null ? void 0 : view.file;
     if (!canvasFile) {
@@ -2360,14 +2518,15 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
           slconsolelog(DebugLevMap.DebugLevel_Informative, (_g = this.slComm) == null ? void 0 : _g.slview, `Canvas node text="${nodeText}"`);
         }
         if (nodeText.length > 0) {
-          filePath = maps.textMap.get(nodeText);
+          const normalized = this.extractNodeIdText(nodeText);
+          filePath = (_h = maps.textMap.get(nodeText)) != null ? _h : maps.idTextMap.get(normalized);
         }
       }
       if (!filePath && singleFilePath) {
         filePath = singleFilePath;
       }
       if (filePath) {
-        slconsolelog(DebugLevMap.DebugLevel_Informative, (_h = this.slComm) == null ? void 0 : _h.slview, `Canvas tooltip file=${filePath}`);
+        slconsolelog(DebugLevMap.DebugLevel_Informative, (_i = this.slComm) == null ? void 0 : _i.slview, `Canvas tooltip file=${filePath}`);
       }
       if (!filePath) {
         continue;
@@ -2387,47 +2546,65 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     }
   }
   async loadCanvasNodeFileMaps(canvasFile) {
-    var _a, _b, _c, _d, _e;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
     const cache = this.canvasNodeFileCache.get(canvasFile.path);
     const stat = await this.app.vault.adapter.stat(canvasFile.path);
     if (cache && stat && cache.mtime == stat.mtime) {
-      return { idMap: cache.map, textMap: (_a = cache.textMap) != null ? _a : /* @__PURE__ */ new Map() };
+      return { idMap: cache.map, textMap: (_a = cache.textMap) != null ? _a : /* @__PURE__ */ new Map(), dataIdMap: (_b = cache.dataMap) != null ? _b : /* @__PURE__ */ new Map(), dataTextMap: (_c = cache.dataTextMap) != null ? _c : /* @__PURE__ */ new Map(), idTextMap: (_d = cache.idTextMap) != null ? _d : /* @__PURE__ */ new Map(), dataIdTextMap: (_e = cache.dataIdTextMap) != null ? _e : /* @__PURE__ */ new Map() };
     }
     let raw = "";
     try {
       raw = await this.app.vault.cachedRead(canvasFile);
     } catch (e) {
-      return { idMap: /* @__PURE__ */ new Map(), textMap: /* @__PURE__ */ new Map() };
+      return { idMap: /* @__PURE__ */ new Map(), textMap: /* @__PURE__ */ new Map(), dataIdMap: /* @__PURE__ */ new Map(), dataTextMap: /* @__PURE__ */ new Map(), idTextMap: /* @__PURE__ */ new Map(), dataIdTextMap: /* @__PURE__ */ new Map() };
     }
     let parsed;
     try {
       parsed = JSON.parse(raw);
     } catch (e) {
-      return { idMap: /* @__PURE__ */ new Map(), textMap: /* @__PURE__ */ new Map() };
+      return { idMap: /* @__PURE__ */ new Map(), textMap: /* @__PURE__ */ new Map(), dataIdMap: /* @__PURE__ */ new Map(), dataTextMap: /* @__PURE__ */ new Map(), idTextMap: /* @__PURE__ */ new Map(), dataIdTextMap: /* @__PURE__ */ new Map() };
     }
     const map = /* @__PURE__ */ new Map();
     const textMap = /* @__PURE__ */ new Map();
+    const dataMap = /* @__PURE__ */ new Map();
+    const dataTextMap = /* @__PURE__ */ new Map();
+    const idTextMap = /* @__PURE__ */ new Map();
+    const dataIdTextMap = /* @__PURE__ */ new Map();
     if (parsed && Array.isArray(parsed.nodes)) {
       for (const n of parsed.nodes) {
-        const id = String((_b = n == null ? void 0 : n.id) != null ? _b : "");
+        const id = String((_f = n == null ? void 0 : n.id) != null ? _f : "");
         if (!id) {
           continue;
         }
-        const meta = (_c = n == null ? void 0 : n.meta) != null ? _c : {};
-        const linked = (_d = meta == null ? void 0 : meta.SL_LinkedFile) != null ? _d : n == null ? void 0 : n.SL_LinkedFile;
+        const meta = (_g = n == null ? void 0 : n.meta) != null ? _g : {};
+        const linked = (_h = meta == null ? void 0 : meta.SL_LinkedFile) != null ? _h : n == null ? void 0 : n.SL_LinkedFile;
+        const data = (_i = meta == null ? void 0 : meta.SL_DataFile) != null ? _i : n == null ? void 0 : n.SL_DataFile;
+        const rawText = String((_j = n == null ? void 0 : n.text) != null ? _j : "").trim();
+        const nodeIdText = this.extractNodeIdText(rawText);
         if (linked) {
           map.set(id, String(linked));
-          const text = String((_e = n == null ? void 0 : n.text) != null ? _e : "").trim();
-          if (text.length > 0 && !textMap.has(text)) {
-            textMap.set(text, String(linked));
+          if (rawText.length > 0 && !textMap.has(rawText)) {
+            textMap.set(rawText, String(linked));
+          }
+          if (nodeIdText.length > 0 && !idTextMap.has(nodeIdText)) {
+            idTextMap.set(nodeIdText, String(linked));
+          }
+        }
+        if (data) {
+          dataMap.set(id, String(data));
+          if (rawText.length > 0 && !dataTextMap.has(rawText)) {
+            dataTextMap.set(rawText, String(data));
+          }
+          if (nodeIdText.length > 0 && !dataIdTextMap.has(nodeIdText)) {
+            dataIdTextMap.set(nodeIdText, String(data));
           }
         }
       }
     }
     if (stat) {
-      this.canvasNodeFileCache.set(canvasFile.path, { mtime: stat.mtime, map, textMap });
+      this.canvasNodeFileCache.set(canvasFile.path, { mtime: stat.mtime, map, textMap, dataMap, dataTextMap, idTextMap, dataIdTextMap });
     }
-    return { idMap: map, textMap };
+    return { idMap: map, textMap, dataIdMap: dataMap, dataTextMap, idTextMap, dataIdTextMap };
   }
   async safeReadFile(path) {
     const norm = (0, import_obsidian8.normalizePath)(path);
@@ -2460,11 +2637,38 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     const y = evt.clientY + 12;
     tooltip.style.left = `${x}px`;
     tooltip.style.top = `${y}px`;
+    const onDocClick = (e) => {
+      const target = e.target;
+      if (this.canvasTooltipEl && target && this.canvasTooltipEl.contains(target)) {
+        return;
+      }
+      this.hideCanvasTooltip();
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        this.hideCanvasTooltip();
+      }
+    };
+    const onWheel = () => {
+      this.hideCanvasTooltip();
+    };
+    document.addEventListener("click", onDocClick, true);
+    document.addEventListener("keydown", onKey, true);
+    document.addEventListener("wheel", onWheel, true);
+    this.canvasTooltipCleanup = () => {
+      document.removeEventListener("click", onDocClick, true);
+      document.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("wheel", onWheel, true);
+    };
   }
   hideCanvasTooltip() {
     if (this.canvasTooltipEl) {
       this.canvasTooltipEl.remove();
       this.canvasTooltipEl = void 0;
+    }
+    if (this.canvasTooltipCleanup) {
+      this.canvasTooltipCleanup();
+      this.canvasTooltipCleanup = void 0;
     }
   }
   addCanvasInfoButton(leaf) {
@@ -2488,31 +2692,39 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     btn.textContent = "\u24D8";
     slconsolelog(DebugLevMap.DebugLevel_Informative, (_b = this.slComm) == null ? void 0 : _b.slview, "Canvas info button attached");
     btn.addEventListener("click", async (evt) => {
-      var _a2, _b2, _c, _d, _e, _f;
+      var _a2, _b2;
       evt.preventDefault();
       evt.stopPropagation();
+      if (this.canvasTooltipEl) {
+        this.hideCanvasTooltip();
+        return;
+      }
       const maps = await this.loadCanvasNodeFileMaps(canvasFile);
       let filePath;
       let nodeText = "";
-      const focused = container.querySelector(".canvas-node.is-focused");
+      let fallbackPath;
+      const focused = this.getFocusedCanvasNode(container);
       if (focused) {
-        const id = focused.getAttribute("data-node-id") || focused.getAttribute("data-id") || focused.dataset.nodeId || focused.dataset.id;
-        if (id) {
-          filePath = maps.idMap.get(id);
+        const res = this.resolveCanvasNodeFiles(focused, maps);
+        if (res.dataPath) {
+          filePath = res.dataPath;
+          fallbackPath = void 0;
+        } else {
+          filePath = void 0;
+          fallbackPath = res.linkedPath;
         }
-        if (!filePath) {
-          const textEl = focused.querySelector(".canvas-node-content .markdown-preview-view p, .canvas-node-content textarea, .canvas-node-content");
-          nodeText = (_b2 = (_a2 = textEl == null ? void 0 : textEl.textContent) == null ? void 0 : _a2.trim()) != null ? _b2 : "";
-          if (!nodeText) {
-            const iframe = focused.querySelector("iframe.embed-iframe");
-            const doc = iframe == null ? void 0 : iframe.contentDocument;
-            const p = doc == null ? void 0 : doc.querySelector("p");
-            nodeText = (_d = (_c = p == null ? void 0 : p.textContent) == null ? void 0 : _c.trim()) != null ? _d : "";
-          }
-          if (nodeText.length > 0) {
-            filePath = maps.textMap.get(nodeText);
-          }
+        nodeText = res.nodeText;
+      }
+      if (!filePath && maps.dataIdMap.size + maps.dataTextMap.size == 1) {
+        for (const v of maps.dataIdMap.values()) {
+          filePath = v;
         }
+        for (const v of maps.dataTextMap.values()) {
+          filePath = v;
+        }
+      }
+      if (!filePath && fallbackPath) {
+        filePath = fallbackPath;
       }
       if (!filePath && maps.idMap.size + maps.textMap.size == 1) {
         for (const v of maps.idMap.values()) {
@@ -2524,9 +2736,9 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
       }
       let content = "";
       if (filePath) {
-        slconsolelog(DebugLevMap.DebugLevel_Informative, (_e = this.slComm) == null ? void 0 : _e.slview, `Canvas info button: filePath=${filePath}`);
+        slconsolelog(DebugLevMap.DebugLevel_Informative, (_a2 = this.slComm) == null ? void 0 : _a2.slview, `Canvas info button: filePath=${filePath}`);
         content = await this.safeReadFile(filePath);
-        slconsolelog(DebugLevMap.DebugLevel_Informative, (_f = this.slComm) == null ? void 0 : _f.slview, `Canvas info button: file content len=${content.length}`);
+        slconsolelog(DebugLevMap.DebugLevel_Informative, (_b2 = this.slComm) == null ? void 0 : _b2.slview, `Canvas info button: file content len=${content.length}`);
       }
       if (content.length == 0 && nodeText.length > 0) {
         content = nodeText;
@@ -2537,6 +2749,76 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
       this.showCanvasTooltip(content, evt);
     });
     menu.appendChild(btn);
+    this.updateCanvasInfoButton(leaf);
+  }
+  async updateCanvasInfoButton(leaf) {
+    var _a;
+    const view = leaf.view;
+    const canvasFile = view == null ? void 0 : view.file;
+    if (!canvasFile) {
+      return;
+    }
+    const container = (_a = view == null ? void 0 : view.containerEl) != null ? _a : null;
+    if (!container) {
+      return;
+    }
+    const btn = container.querySelector(".sl-node-info-btn");
+    if (!btn) {
+      return;
+    }
+    const focused = this.getFocusedCanvasNode(container);
+    if (!focused) {
+      btn.style.display = "none";
+      return;
+    }
+    const maps = await this.loadCanvasNodeFileMaps(canvasFile);
+    const res = this.resolveCanvasNodeFiles(focused, maps);
+    btn.style.display = res.dataPath ? "" : "none";
+  }
+  resolveCanvasNodeFiles(focused, maps) {
+    var _a, _b, _c, _d;
+    let dataPath;
+    let linkedPath;
+    let nodeText = "";
+    const id = focused.getAttribute("data-node-id") || focused.getAttribute("data-id") || focused.dataset.nodeId || focused.dataset.id;
+    if (id) {
+      dataPath = maps.dataIdMap.get(id);
+      linkedPath = maps.idMap.get(id);
+    }
+    if (!dataPath && !linkedPath) {
+      const textEl = focused.querySelector(".canvas-node-content .markdown-preview-view h1, .canvas-node-content .markdown-preview-view h2, .canvas-node-content .markdown-preview-view h3, .canvas-node-content .markdown-preview-view h4, .canvas-node-content .markdown-preview-view h5, .canvas-node-content .markdown-preview-view h6, .canvas-node-content .markdown-preview-view p, .canvas-node-content textarea, .canvas-node-content");
+      nodeText = (_b = (_a = textEl == null ? void 0 : textEl.textContent) == null ? void 0 : _a.trim()) != null ? _b : "";
+      if (!nodeText) {
+        const iframe = focused.querySelector("iframe.embed-iframe");
+        const doc = iframe == null ? void 0 : iframe.contentDocument;
+        const heading = doc == null ? void 0 : doc.querySelector("h1, h2, h3, h4, h5, h6");
+        const p = doc == null ? void 0 : doc.querySelector("p");
+        nodeText = ((heading == null ? void 0 : heading.textContent) || (p == null ? void 0 : p.textContent) || "").trim();
+      }
+      if (nodeText.length > 0) {
+        const normalized = this.extractNodeIdText(nodeText);
+        dataPath = (_c = maps.dataTextMap.get(nodeText)) != null ? _c : maps.dataIdTextMap.get(normalized);
+        linkedPath = (_d = maps.textMap.get(nodeText)) != null ? _d : maps.idTextMap.get(normalized);
+      }
+    }
+    return { dataPath, linkedPath, nodeText };
+  }
+  extractNodeIdText(raw) {
+    if (!raw) {
+      return "";
+    }
+    const match = raw.match(/NodeID:\s*([^\n\r]+)/i);
+    if (match && match[1]) {
+      const chunk = match[1].trim();
+      const stop = chunk.split(/CONCEPT:|ERROR:|OR_MIN:|OR_MAX:/i)[0].trim();
+      return stop;
+    }
+    return raw.split(/[\r\n]/)[0].trim();
+  }
+  getFocusedCanvasNode(container) {
+    return container.querySelector(
+      ".canvas-node.is-focused, .canvas-node.is-selected, .canvas-node.is-editing"
+    );
   }
   async activateASPView() {
     if (this.slComm.slaspview == void 0) {
@@ -2995,17 +3277,15 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
         slconsolelog(DebugLevMap.DebugLevel_Error, (_a = this.slComm) == null ? void 0 : _a.slview, `Canvas2SL invalid JSON: ${e}`);
         return "";
       }
-      const bodyObj = {
-        nodes: Array.isArray(parsed == null ? void 0 : parsed.nodes) ? parsed.nodes : [],
-        edges: Array.isArray(parsed == null ? void 0 : parsed.edges) ? parsed.edges : []
-      };
-      body = JSON.stringify(bodyObj);
-      slconsolelog(DebugLevMap.DebugLevel_Informative, (_b = this.slComm) == null ? void 0 : _b.slview, `Canvas2SL request len=${body.length} nodes=${bodyObj.nodes.length} edges=${bodyObj.edges.length}`);
+      body = JSON.stringify(parsed);
+      const nodesCount = Array.isArray(parsed == null ? void 0 : parsed.nodes) ? parsed.nodes.length : 0;
+      const edgesCount = Array.isArray(parsed == null ? void 0 : parsed.edges) ? parsed.edges.length : 0;
+      slconsolelog(DebugLevMap.DebugLevel_Informative, (_b = this.slComm) == null ? void 0 : _b.slview, `Canvas2SL request len=${body.length} nodes=${nodesCount} edges=${edgesCount}`);
       const response = await (0, import_obsidian8.requestUrl)({
         url: apiUrl,
         method: "POST",
         headers: {
-          "content-type": "application/json",
+          "content-type": "text/plain",
           "accept": "text/plain, application/json"
         },
         body
@@ -3027,13 +3307,13 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
         return "";
       }
       slconsolelog(DebugLevMap.DebugLevel_Error, (_f = this.slComm) == null ? void 0 : _f.slview, `Canvas2SL status ${response.status}`);
-      slconsolelog(DebugLevMap.DebugLevel_Error, (_g = this.slComm) == null ? void 0 : _g.slview, { url: apiUrl, headers: { "content-type": "application/json", "accept": "text/plain, application/json" }, body });
+      slconsolelog(DebugLevMap.DebugLevel_Error, (_g = this.slComm) == null ? void 0 : _g.slview, { url: apiUrl, headers: { "content-type": "text/plain", "accept": "text/plain, application/json" }, body });
     } catch (e) {
       const err = e;
       const status = (_i = err == null ? void 0 : err.status) != null ? _i : (_h = err == null ? void 0 : err.response) == null ? void 0 : _h.status;
       const respText = (_l = (_k = (_j = err == null ? void 0 : err.response) == null ? void 0 : _j.text) != null ? _k : err == null ? void 0 : err.text) != null ? _l : "";
       slconsolelog(DebugLevMap.DebugLevel_Error, (_m = this.slComm) == null ? void 0 : _m.slview, `Canvas2SL failed: status=${status} text=${respText}`);
-      slconsolelog(DebugLevMap.DebugLevel_Error, (_n = this.slComm) == null ? void 0 : _n.slview, { url: apiUrl, headers: { "content-type": "application/json", "accept": "text/plain, application/json" }, body });
+      slconsolelog(DebugLevMap.DebugLevel_Error, (_n = this.slComm) == null ? void 0 : _n.slview, { url: apiUrl, headers: { "content-type": "text/plain", "accept": "text/plain, application/json" }, body });
     }
     return "";
   }

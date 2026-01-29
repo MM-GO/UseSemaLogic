@@ -1,0 +1,362 @@
+﻿{
+  "nodes": [
+    {
+      "id": "Kitchen",
+      "type": "text",
+      "text": "## NodeID: Kitchen\nCONCEPT: SYMBOL\nERROR: Mock: missing TYPE for Stove",
+      "x": -1140,
+      "y": 440,
+      "width": 260,
+      "height": 120,
+      "color": "#6FA8DC",
+      "meta": {
+        "SL_LinkedFile": ".SemaLogic/nodeinfos/kitchen-note.md",
+        "SL_DataFile": ".SemaLogic/nodeinfos/kitchen-data.json"
+      }
+    },
+    {
+      "id": "Rooms",
+      "type": "text",
+      "text": "## NodeID: Rooms\nCONCEPT: SYMBOL",
+      "x": -900,
+      "y": 440,
+      "width": 260,
+      "height": 120,
+      "color": "#6FA8DC",
+      "meta": {
+        "SL_DataFile": ".SemaLogic/nodeinfos/rooms-data.json"
+      }
+    },
+    {
+      "id": "Stairs",
+      "type": "text",
+      "text": "## NodeID: Stairs\nCONCEPT: SYMBOL",
+      "x": -660,
+      "y": 440,
+      "width": 260,
+      "height": 120,
+      "color": "#6FA8DC",
+      "meta": {
+        "SL_DataFile": ".SemaLogic/nodeinfos/stairs-data.json"
+      }
+    },
+    {
+      "id": "Car",
+      "type": "text",
+      "text": "## NodeID: Addition\nCONCEPT: SYMBOL",
+      "x": 360,
+      "y": 0,
+      "width": 260,
+      "height": 120,
+      "color": "#6FA8DC",
+      "meta": {
+        "SL_DataFile": ".SemaLogic/nodeinfos/car-node-data.json"
+      }
+    },
+    {
+      "id": "Car∘TYPE",
+      "type": "text",
+      "text": "## NodeID: Car∘MATH\nCONCEPT: MATH\nOPERATOR: +",
+      "x": 360,
+      "y": 200,
+      "width": 260,
+      "height": 140,
+      "color": "#93C47D",
+      "meta": {
+        "SL_DataFile": ".SemaLogic/nodeinfos/car-data.json"
+      }
+    },
+    {
+      "id": "Vehicle",
+      "type": "text",
+      "text": "## NodeID: Value1\nCONCEPT: SYMBOL\nVALUE: 4",
+      "x": 360,
+      "y": 420,
+      "width": 260,
+      "height": 200,
+      "color": "#6FA8DC",
+      "meta": {
+        "SL_DataFile": ".SemaLogic/nodeinfos/vehicle-data.json"
+      }
+    },
+    {
+      "id": "House",
+      "type": "text",
+      "text": "## NodeID: MyHouse\nCONCEPT: SYMBOL",
+      "x": -1030,
+      "y": -600,
+      "width": 300,
+      "height": 120,
+      "color": "#6FA8DC",
+      "meta": {
+        "SL_DataFile": ".SemaLogic/nodeinfos/house-data.json"
+      }
+    },
+    {
+      "id": "House∘AND",
+      "type": "text",
+      "text": "## NodeID: MyHouse∘AND\nCONCEPT: AND",
+      "x": -1010,
+      "y": -320,
+      "width": 370,
+      "height": 120,
+      "color": "#F6B26B",
+      "meta": {
+        "SL_DataFile": ".SemaLogic/nodeinfos/house-and-data.json"
+      }
+    },
+    {
+      "id": "084a3dde02011466",
+      "type": "text",
+      "text": "## NodeID: Value2\nCONCEPT: SYMBOL",
+      "x": 660,
+      "y": 420,
+      "width": 260,
+      "height": 200,
+      "color": "#6FA8DC",
+      "meta": {
+        "SL_DataFile": ".SemaLogic/nodeinfos/value2-data.json"
+      }
+    },
+    {
+      "id": "Price∘ASSIGNMENT",
+      "type": "text",
+      "text": "## NodeID: Price∘ASSIGNMENT\nCONCEPT: ASSIGNMENT\nVALUE: 5\nERROR: Mock: VALUE_TYPE missing",
+      "x": 660,
+      "y": 720,
+      "width": 320,
+      "height": 180,
+      "color": "#B4A7D6",
+      "meta": {
+        "SL_LinkedFile": ".SemaLogic/nodeinfos/price-note.md",
+        "SL_DataFile": ".SemaLogic/nodeinfos/price-data.json"
+      }
+    },
+    {
+      "id": "Liquid",
+      "type": "text",
+      "text": "## NodeID: Liquid\nCONCEPT: SYMBOL",
+      "x": -120,
+      "y": -220,
+      "width": 300,
+      "height": 140,
+      "color": "#6FA8DC",
+      "meta": {
+        "SL_DataFile": ".SemaLogic/nodeinfos/liquid-data.json"
+      }
+    },
+    {
+      "id": "Liquid∘OR",
+      "type": "text",
+      "text": "## NodeID: Liquid∘OR\nCONCEPT: OR\nOR_MIN: <int>\nOR_MAX: <int>\nERROR: Mock: OR_MAX missing",
+      "x": -120,
+      "y": 0,
+      "width": 300,
+      "height": 160,
+      "color": "#FFD966",
+      "meta": {
+        "SL_LinkedFile": ".SemaLogic/nodeinfos/liquid-note.md",
+        "SL_DataFile": ".SemaLogic/nodeinfos/liquid-or-data.json"
+      }
+    },
+    {
+      "id": "Water",
+      "type": "text",
+      "text": "## NodeID: Water\nCONCEPT: SYMBOL",
+      "x": 0,
+      "y": 240,
+      "width": 220,
+      "height": 120,
+      "color": "#6FA8DC"
+    },
+    {
+      "id": "Milk",
+      "type": "text",
+      "text": "## NodeID: Milk\nCONCEPT: SYMBOL",
+      "x": -300,
+      "y": 240,
+      "width": 220,
+      "height": 120,
+      "color": "#6FA8DC",
+      "meta": {
+        "SL_DataFile": ".SemaLogic/nodeinfos/milk-data.json"
+      }
+    },
+    {
+      "id": "581275de0cfc8acb",
+      "type": "text",
+      "text": "## NodeID: Team\nCONCEPT: SYMBOL",
+      "x": 1100,
+      "y": -320,
+      "width": 300,
+      "height": 140,
+      "color": "#6FA8DC",
+      "meta": {
+        "SL_DataFile": ".SemaLogic/nodeinfos/team-data.json"
+      }
+    },
+    {
+      "id": "2d2146e3b47553b2",
+      "type": "text",
+      "text": "## NodeID: Team∘GROUP\nCONCEPT: GROUP",
+      "x": 1100,
+      "y": -100,
+      "width": 300,
+      "height": 160,
+      "color": "#FFD966",
+      "meta": {
+        "SL_DataFile": ".SemaLogic/nodeinfos/team-group-data.json"
+      }
+    },
+    {
+      "id": "9a60b2e40aa59e5c",
+      "type": "text",
+      "text": "## NodeID: MEMBER B\nCONCEPT: SYMBOL",
+      "x": 1220,
+      "y": 140,
+      "width": 300,
+      "height": 120,
+      "color": "#6FA8DC",
+      "meta": {
+        "SL_DataFile": ".SemaLogic/nodeinfos/member-b-data.json"
+      }
+    },
+    {
+      "id": "8d55e0c369378e10",
+      "type": "text",
+      "text": "## NodeID: Member A\nCONCEPT: SYMBOL",
+      "x": 820,
+      "y": 140,
+      "width": 320,
+      "height": 120,
+      "color": "#6FA8DC",
+      "meta": {
+        "SL_DataFile": ".SemaLogic/nodeinfos/member-a-data.json"
+      }
+    },
+    {
+      "id": "92f71bd69b9476af",
+      "type": "text",
+      "text": "## NodeID: Team∘LEAF\nCONCEPT: LEAF",
+      "x": 1560,
+      "y": -100,
+      "width": 300,
+      "height": 140,
+      "color": "#6FA8DC",
+      "meta": {
+        "SL_DataFile": ".SemaLogic/nodeinfos/team-leaf-data.json"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "House->House∘AND",
+      "fromNode": "House",
+      "fromSide": "bottom",
+      "toNode": "House∘AND",
+      "toSide": "top"
+    },
+    {
+      "id": "House∘AND->Kitchen",
+      "fromNode": "House∘AND",
+      "fromSide": "bottom",
+      "toNode": "Kitchen",
+      "toSide": "top"
+    },
+    {
+      "id": "House∘AND->Rooms",
+      "fromNode": "House∘AND",
+      "fromSide": "bottom",
+      "toNode": "Rooms",
+      "toSide": "top"
+    },
+    {
+      "id": "House∘AND->Stairs",
+      "fromNode": "House∘AND",
+      "fromSide": "bottom",
+      "toNode": "Stairs",
+      "toSide": "top"
+    },
+    {
+      "id": "Liquid->Liquid∘OR",
+      "fromNode": "Liquid",
+      "fromSide": "bottom",
+      "toNode": "Liquid∘OR",
+      "toSide": "top"
+    },
+    {
+      "id": "Liquid∘OR->Milk",
+      "fromNode": "Liquid∘OR",
+      "fromSide": "bottom",
+      "toNode": "Milk",
+      "toSide": "top"
+    },
+    {
+      "id": "Liquid∘OR->Water",
+      "fromNode": "Liquid∘OR",
+      "fromSide": "bottom",
+      "toNode": "Water",
+      "toSide": "top"
+    },
+    {
+      "id": "Car->Car∘TYPE",
+      "fromNode": "Car",
+      "fromSide": "bottom",
+      "toNode": "Car∘TYPE",
+      "toSide": "top"
+    },
+    {
+      "id": "Car∘TYPE->Vehicle",
+      "fromNode": "Car∘TYPE",
+      "fromSide": "bottom",
+      "toNode": "Vehicle",
+      "toSide": "top"
+    },
+    {
+      "id": "04d8896a15577c08",
+      "fromNode": "Car∘TYPE",
+      "fromSide": "bottom",
+      "toNode": "084a3dde02011466",
+      "toSide": "top"
+    },
+    {
+      "id": "653be9449f30aac1",
+      "fromNode": "084a3dde02011466",
+      "fromSide": "bottom",
+      "toNode": "Price∘ASSIGNMENT",
+      "toSide": "top"
+    },
+    {
+      "id": "1f598ed5a361ea28",
+      "fromNode": "581275de0cfc8acb",
+      "fromSide": "bottom",
+      "toNode": "2d2146e3b47553b2",
+      "toSide": "top"
+    },
+    {
+      "id": "fd4430f4602cdb55",
+      "fromNode": "2d2146e3b47553b2",
+      "fromSide": "bottom",
+      "toNode": "8d55e0c369378e10",
+      "toSide": "top"
+    },
+    {
+      "id": "355ee84b5a367f91",
+      "fromNode": "2d2146e3b47553b2",
+      "fromSide": "bottom",
+      "toNode": "9a60b2e40aa59e5c",
+      "toSide": "top"
+    },
+    {
+      "id": "46958cf1a30f7212",
+      "fromNode": "581275de0cfc8acb",
+      "fromSide": "bottom",
+      "toNode": "92f71bd69b9476af",
+      "toSide": "top"
+    }
+  ]
+}
+
+
+
+
