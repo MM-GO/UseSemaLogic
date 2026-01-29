@@ -2,6 +2,18 @@
 
 The PlugIn for SemaLogic is under development.
 
+### 2.2.0 / 2026-01-29 - Knowledge Canvas + UI stability
+
+Enhancements:
+
+* KnowledgeGraph output can be opened as an Obsidian Canvas (auto-creates/updates `SemaLogic/KnowledgeGraph.canvas`)
+* Ribbon toggle for Knowledge view
+
+Bugfixes:
+
+* SemaLogic.View controls are no longer re-created on update (Dropdown stays open)
+* Error output in SemaLogic.View is consolidated into a single refreshed error area
+
 ### 2.1.2 / 2024-05-09 - Qucik-Bugfix-release SemaLogic Output-Button
 
 Bugfixes:
