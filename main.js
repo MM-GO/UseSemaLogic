@@ -2671,6 +2671,60 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
       this.canvasTooltipCleanup = void 0;
     }
   }
+  showInterpreterResponseModal(content) {
+    this.hideInterpreterResponseModal();
+    const wrapper = document.createElement("div");
+    wrapper.className = "sl-interpreter-modal";
+    const box = document.createElement("div");
+    box.className = "sl-interpreter-modal-box";
+    const header = document.createElement("div");
+    header.className = "sl-interpreter-modal-header";
+    header.textContent = "SL-Interpreter";
+    const body = document.createElement("div");
+    body.className = "sl-interpreter-modal-body";
+    body.textContent = "The generative AI could not find logical expressions that were clear and unambiguous enough to translate into SemaLogic.";
+    const response = document.createElement("div");
+    response.className = "sl-interpreter-modal-response";
+    response.textContent = content;
+    const closeBtn = document.createElement("button");
+    closeBtn.className = "sl-interpreter-modal-close";
+    closeBtn.textContent = "Close";
+    closeBtn.addEventListener("click", () => this.hideInterpreterResponseModal());
+    box.appendChild(header);
+    box.appendChild(body);
+    box.appendChild(response);
+    box.appendChild(closeBtn);
+    wrapper.appendChild(box);
+    document.body.appendChild(wrapper);
+    this.interpreterModalEl = wrapper;
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        this.hideInterpreterResponseModal();
+      }
+    };
+    document.addEventListener("keydown", onKey, true);
+    this.interpreterModalCleanup = () => {
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }
+  hideInterpreterResponseModal() {
+    if (this.interpreterModalEl) {
+      this.interpreterModalEl.remove();
+      this.interpreterModalEl = void 0;
+    }
+    if (this.interpreterModalCleanup) {
+      this.interpreterModalCleanup();
+      this.interpreterModalCleanup = void 0;
+    }
+  }
+  isCanvasJsonResponse(raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed == null ? void 0 : parsed.nodes) && Array.isArray(parsed == null ? void 0 : parsed.edges);
+    } catch (e) {
+      return false;
+    }
+  }
   addCanvasInfoButton(leaf) {
     var _a, _b;
     const view = leaf.view;
@@ -3104,7 +3158,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     const from = view.editor.getCursor("from");
     const to = view.editor.getCursor("to");
     this.knowledgeEditSelection = { view, from, to, original: selection };
-    const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
+    const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID + "&NLP=true";
     const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", selection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1]);
     await this.processCanvasResponse(response, this.knowledgeEditCanvasPath, false);
     await this.openKnowledgeEditCanvas();
@@ -3241,8 +3295,21 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     this.interpreterSelection = { view, from, to, original: selection, lastRendered: selection };
     const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
     const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", selection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1]);
-    await this.processCanvasResponse(response, this.interpreterCanvasPath, false);
-    await this.openInterpreterCanvas();
+    if (response && this.isCanvasJsonResponse(response)) {
+      await this.processCanvasResponse(response, this.interpreterCanvasPath, false);
+      await this.openInterpreterCanvas();
+    } else if (response && response.trim().length > 0) {
+      this.showInterpreterResponseModal(response);
+      this.interpreterSelection = void 0;
+      this.interpreterLastCanvas = "";
+      this.pauseAllRequests = false;
+      return;
+    } else {
+      this.interpreterSelection = void 0;
+      this.interpreterLastCanvas = "";
+      this.pauseAllRequests = false;
+      return;
+    }
     if (this.interpreterInterval != void 0) {
       window.clearInterval(this.interpreterInterval);
       this.interpreterInterval = void 0;

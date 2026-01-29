@@ -431,6 +431,8 @@ export default class SemaLogicPlugin extends Plugin {
 	canvasTooltipEl: HTMLElement | undefined
 	canvasTooltipCleanup: (() => void) | undefined
 	canvasTooltipObservers: WeakMap<WorkspaceLeaf, MutationObserver> = new WeakMap()
+	interpreterModalEl: HTMLElement | undefined
+	interpreterModalCleanup: (() => void) | undefined
 	canvasNodeFileCache: Map<string, { mtime: number; map: Map<string, string>; textMap: Map<string, string>; dataMap: Map<string, string>; dataTextMap: Map<string, string>; idTextMap: Map<string, string>; dataIdTextMap: Map<string, string> }> = new Map()
 	knowledgeCanvasPath: string = "SemaLogic/KnowledgeGraph.canvas"
 	knowledgeLastRequestTime: number = 0
@@ -1115,6 +1117,64 @@ export default class SemaLogicPlugin extends Plugin {
 		}
 	}
 
+	private showInterpreterResponseModal(content: string): void {
+		this.hideInterpreterResponseModal()
+		const wrapper = document.createElement("div")
+		wrapper.className = "sl-interpreter-modal"
+		const box = document.createElement("div")
+		box.className = "sl-interpreter-modal-box"
+		const header = document.createElement("div")
+		header.className = "sl-interpreter-modal-header"
+		header.textContent = "SL-Interpreter"
+		const body = document.createElement("div")
+		body.className = "sl-interpreter-modal-body"
+		body.textContent =
+			"The generative AI could not find logical expressions that were clear and unambiguous enough to translate into SemaLogic."
+		const response = document.createElement("div")
+		response.className = "sl-interpreter-modal-response"
+		response.textContent = content
+		const closeBtn = document.createElement("button")
+		closeBtn.className = "sl-interpreter-modal-close"
+		closeBtn.textContent = "Close"
+		closeBtn.addEventListener("click", () => this.hideInterpreterResponseModal())
+		box.appendChild(header)
+		box.appendChild(body)
+		box.appendChild(response)
+		box.appendChild(closeBtn)
+		wrapper.appendChild(box)
+		document.body.appendChild(wrapper)
+		this.interpreterModalEl = wrapper
+		const onKey = (e: KeyboardEvent) => {
+			if (e.key === "Escape") {
+				this.hideInterpreterResponseModal()
+			}
+		}
+		document.addEventListener("keydown", onKey, true)
+		this.interpreterModalCleanup = () => {
+			document.removeEventListener("keydown", onKey, true)
+		}
+	}
+
+	private hideInterpreterResponseModal(): void {
+		if (this.interpreterModalEl) {
+			this.interpreterModalEl.remove()
+			this.interpreterModalEl = undefined
+		}
+		if (this.interpreterModalCleanup) {
+			this.interpreterModalCleanup()
+			this.interpreterModalCleanup = undefined
+		}
+	}
+
+	private isCanvasJsonResponse(raw: string): boolean {
+		try {
+			const parsed = JSON.parse(raw)
+			return Array.isArray(parsed?.nodes) && Array.isArray(parsed?.edges)
+		} catch (e) {
+			return false
+		}
+	}
+
 	private addCanvasInfoButton(leaf: WorkspaceLeaf): void {
 		const view: any = leaf.view
 		const canvasFile: TFile | undefined = view?.file
@@ -1550,7 +1610,7 @@ export default class SemaLogicPlugin extends Plugin {
 		const to = view.editor.getCursor("to")
 		this.knowledgeEditSelection = { view, from, to, original: selection }
 
-		const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
+		const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID + "&NLP=true";
 		const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", selection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1])
 		await this.processCanvasResponse(response, this.knowledgeEditCanvasPath, false)
 		await this.openKnowledgeEditCanvas()
@@ -1690,8 +1750,21 @@ export default class SemaLogicPlugin extends Plugin {
 
 		const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
 		const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", selection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1])
-		await this.processCanvasResponse(response, this.interpreterCanvasPath, false)
-		await this.openInterpreterCanvas()
+		if (response && this.isCanvasJsonResponse(response)) {
+			await this.processCanvasResponse(response, this.interpreterCanvasPath, false)
+			await this.openInterpreterCanvas()
+		} else if (response && response.trim().length > 0) {
+			this.showInterpreterResponseModal(response)
+			this.interpreterSelection = undefined
+			this.interpreterLastCanvas = ""
+			this.pauseAllRequests = false
+			return
+		} else {
+			this.interpreterSelection = undefined
+			this.interpreterLastCanvas = ""
+			this.pauseAllRequests = false
+			return
+		}
 
 		if (this.interpreterInterval != undefined) {
 			window.clearInterval(this.interpreterInterval)
