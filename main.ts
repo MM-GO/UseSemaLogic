@@ -977,9 +977,12 @@ export default class SemaLogicPlugin extends Plugin {
 
 	private async tickKnowledgeEdit(): Promise<void> {
 		if (!this.pauseAllRequests || this.knowledgeEditSelection == undefined) { return }
+		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, "KnowledgeEdit tick")
 		const file = await this.ensureKnowledgeEditCanvasFile()
-		const content = await this.app.vault.cachedRead(file as TFile)
+		const content = await this.app.vault.adapter.read((file as TFile).path)
+		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `KnowledgeEdit canvas len=${content.length}`)
 		if (content == this.knowledgeEditLastCanvas) { return }
+		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, "KnowledgeEdit canvas changed")
 		this.knowledgeEditLastCanvas = content
 
 		const vAPI_URL = getHostPort(this.settings) + "/canvas/convert";
@@ -1006,10 +1009,12 @@ export default class SemaLogicPlugin extends Plugin {
 
 	public async startKnowledgeEdit(view: MarkdownView, selection: string): Promise<void> {
 		if (!this.activated || selection.length == 0) { return }
+		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, "Start KnowledgeEdit")
 		this.pauseAllRequests = true
 		this.updateOutstanding = false
 		this.updateTransferOutstanding = false
 
+		this.knowledgeEditLastCanvas = ""
 		const from = view.editor.getCursor("from")
 		const to = view.editor.getCursor("to")
 		this.knowledgeEditSelection = { view, from, to, original: selection }
@@ -1043,21 +1048,54 @@ export default class SemaLogicPlugin extends Plugin {
 	}
 
 	private async requestCanvasConvert(apiUrl: string, canvasJson: string): Promise<string> {
+		let body = ""
 		try {
+			let parsed: any
+			try {
+				parsed = JSON.parse(canvasJson)
+			} catch (e) {
+				slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, `Canvas2SL invalid JSON: ${e}`)
+				return ""
+			}
+			const bodyObj = {
+				nodes: Array.isArray(parsed?.nodes) ? parsed.nodes : [],
+				edges: Array.isArray(parsed?.edges) ? parsed.edges : []
+			}
+			body = JSON.stringify(bodyObj)
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas2SL request len=${body.length} nodes=${bodyObj.nodes.length} edges=${bodyObj.edges.length}`)
 			const response = await requestUrl({
 				url: apiUrl,
 				method: "POST",
 				headers: {
-					"content-type": "application/json"
+					"content-type": "application/json",
+					"accept": "text/plain, application/json"
 				},
-				body: canvasJson
+				body
 			})
 			if (response.status == 200) {
-				return response.text
+				const text = response.text ?? ""
+				slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas2SL ok len=${text.length}`)
+				if (text.trim().length > 0) {
+					return text
+				}
+				const jsonValue: any = (response as any).json
+				if (jsonValue != undefined) {
+					slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas2SL json type=${typeof jsonValue}`)
+					if (typeof jsonValue === "string") {
+						return jsonValue
+					}
+					return JSON.stringify(jsonValue)
+				}
+				return ""
 			}
 			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, `Canvas2SL status ${response.status}`)
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, { url: apiUrl, headers: { "content-type": "application/json", "accept": "text/plain, application/json" }, body })
 		} catch (e) {
-			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, `Canvas2SL failed: ${e}`)
+			const err: any = e
+			const status = err?.status ?? err?.response?.status
+			const respText = err?.response?.text ?? err?.text ?? ""
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, `Canvas2SL failed: status=${status} text=${respText}`)
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, { url: apiUrl, headers: { "content-type": "application/json", "accept": "text/plain, application/json" }, body })
 		}
 		return ""
 	}

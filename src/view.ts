@@ -305,6 +305,7 @@ export class SemaLogicView extends ItemView {
       }
     }
     slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, 'Parsingsstring')
+    slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, semaLogicJsonRequestBody)
     slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, request)
     return request
   }

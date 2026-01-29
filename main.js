@@ -779,6 +779,7 @@ var SemaLogicView2 = class extends import_obsidian3.ItemView {
       };
     }
     slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, "Parsingsstring");
+    slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, semaLogicJsonRequestBody);
     slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, request);
     return request;
   }
@@ -2212,14 +2213,18 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
     await leaf.openFile(file, { active: false });
   }
   async tickKnowledgeEdit() {
+    var _a, _b, _c;
     if (!this.pauseAllRequests || this.knowledgeEditSelection == void 0) {
       return;
     }
+    slconsolelog(DebugLevMap.DebugLevel_Informative, (_a = this.slComm) == null ? void 0 : _a.slview, "KnowledgeEdit tick");
     const file = await this.ensureKnowledgeEditCanvasFile();
-    const content = await this.app.vault.cachedRead(file);
+    const content = await this.app.vault.adapter.read(file.path);
+    slconsolelog(DebugLevMap.DebugLevel_Informative, (_b = this.slComm) == null ? void 0 : _b.slview, `KnowledgeEdit canvas len=${content.length}`);
     if (content == this.knowledgeEditLastCanvas) {
       return;
     }
+    slconsolelog(DebugLevMap.DebugLevel_Informative, (_c = this.slComm) == null ? void 0 : _c.slview, "KnowledgeEdit canvas changed");
     this.knowledgeEditLastCanvas = content;
     const vAPI_URL = getHostPort(this.settings) + "/canvas/convert";
     const response = await this.requestCanvasConvert(vAPI_URL, content);
@@ -2242,12 +2247,15 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
     this.pauseAllRequests = true;
   }
   async startKnowledgeEdit(view, selection) {
+    var _a;
     if (!this.activated || selection.length == 0) {
       return;
     }
+    slconsolelog(DebugLevMap.DebugLevel_Informative, (_a = this.slComm) == null ? void 0 : _a.slview, "Start KnowledgeEdit");
     this.pauseAllRequests = true;
     this.updateOutstanding = false;
     this.updateTransferOutstanding = false;
+    this.knowledgeEditLastCanvas = "";
     const from = view.editor.getCursor("from");
     const to = view.editor.getCursor("to");
     this.knowledgeEditSelection = { view, from, to, original: selection };
@@ -2277,22 +2285,55 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
     this.pauseAllRequests = false;
   }
   async requestCanvasConvert(apiUrl, canvasJson) {
-    var _a, _b;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l, _m, _n;
+    let body = "";
     try {
+      let parsed;
+      try {
+        parsed = JSON.parse(canvasJson);
+      } catch (e) {
+        slconsolelog(DebugLevMap.DebugLevel_Error, (_a = this.slComm) == null ? void 0 : _a.slview, `Canvas2SL invalid JSON: ${e}`);
+        return "";
+      }
+      const bodyObj = {
+        nodes: Array.isArray(parsed == null ? void 0 : parsed.nodes) ? parsed.nodes : [],
+        edges: Array.isArray(parsed == null ? void 0 : parsed.edges) ? parsed.edges : []
+      };
+      body = JSON.stringify(bodyObj);
+      slconsolelog(DebugLevMap.DebugLevel_Informative, (_b = this.slComm) == null ? void 0 : _b.slview, `Canvas2SL request len=${body.length} nodes=${bodyObj.nodes.length} edges=${bodyObj.edges.length}`);
       const response = await (0, import_obsidian7.requestUrl)({
         url: apiUrl,
         method: "POST",
         headers: {
-          "content-type": "application/json"
+          "content-type": "application/json",
+          "accept": "text/plain, application/json"
         },
-        body: canvasJson
+        body
       });
       if (response.status == 200) {
-        return response.text;
+        const text = (_c = response.text) != null ? _c : "";
+        slconsolelog(DebugLevMap.DebugLevel_Informative, (_d = this.slComm) == null ? void 0 : _d.slview, `Canvas2SL ok len=${text.length}`);
+        if (text.trim().length > 0) {
+          return text;
+        }
+        const jsonValue = response.json;
+        if (jsonValue != void 0) {
+          slconsolelog(DebugLevMap.DebugLevel_Informative, (_e = this.slComm) == null ? void 0 : _e.slview, `Canvas2SL json type=${typeof jsonValue}`);
+          if (typeof jsonValue === "string") {
+            return jsonValue;
+          }
+          return JSON.stringify(jsonValue);
+        }
+        return "";
       }
-      slconsolelog(DebugLevMap.DebugLevel_Error, (_a = this.slComm) == null ? void 0 : _a.slview, `Canvas2SL status ${response.status}`);
+      slconsolelog(DebugLevMap.DebugLevel_Error, (_f = this.slComm) == null ? void 0 : _f.slview, `Canvas2SL status ${response.status}`);
+      slconsolelog(DebugLevMap.DebugLevel_Error, (_g = this.slComm) == null ? void 0 : _g.slview, { url: apiUrl, headers: { "content-type": "application/json", "accept": "text/plain, application/json" }, body });
     } catch (e) {
-      slconsolelog(DebugLevMap.DebugLevel_Error, (_b = this.slComm) == null ? void 0 : _b.slview, `Canvas2SL failed: ${e}`);
+      const err = e;
+      const status = (_i = err == null ? void 0 : err.status) != null ? _i : (_h = err == null ? void 0 : err.response) == null ? void 0 : _h.status;
+      const respText = (_l = (_k = (_j = err == null ? void 0 : err.response) == null ? void 0 : _j.text) != null ? _k : err == null ? void 0 : err.text) != null ? _l : "";
+      slconsolelog(DebugLevMap.DebugLevel_Error, (_m = this.slComm) == null ? void 0 : _m.slview, `Canvas2SL failed: status=${status} text=${respText}`);
+      slconsolelog(DebugLevMap.DebugLevel_Error, (_n = this.slComm) == null ? void 0 : _n.slview, { url: apiUrl, headers: { "content-type": "application/json", "accept": "text/plain, application/json" }, body });
     }
     return "";
   }
