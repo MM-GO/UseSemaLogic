@@ -26,6 +26,7 @@ export class SemaLogicView extends ItemView {
   controlsEl: HTMLElement
   scaleControlsEl: HTMLElement
   resultEl: HTMLElement
+  errorEl: HTMLElement
 
   public debugInline: boolean
 
@@ -122,10 +123,7 @@ export class SemaLogicView extends ItemView {
         const responseForView = this.getSemaLogicParse(this.slComm.slPlugin.settings, this.apiURL, this.dialectID, this.bodytext, false, value)
         if (value == RulesettypesCommands[Rstypes_KnowledgeGraph][1]) {
           responseForView.then(result => {
-            if (this.slComm.slknowledgeview != undefined) {
-              this.slComm.slknowledgeview.LastRequestTime = Date.now()
-              this.slComm.slknowledgeview.renderKnowledge(this.getRequestEmbed(result), this.slComm.slknowledgeview.LastRequestTime)
-            }
+            this.slComm.slPlugin.updateKnowledgeCanvas(result)
           })
         }
         //this.updateView()
@@ -216,6 +214,7 @@ export class SemaLogicView extends ItemView {
   updateScaleControls(outputFormat: string): void {
     if (this.scaleControlsEl == undefined) {
       this.scaleControlsEl = this.controlsEl.createEl("span")
+      this.errorEl = this.contentEl.createEl("div", { cls: "semalogic-error" })
     }
     this.scaleControlsEl.empty()
     if (outputFormat == RulesettypesCommands[Rstypes_Picture][1]) {
@@ -229,6 +228,7 @@ export class SemaLogicView extends ItemView {
       this.headerEl = this.contentEl.createEl("h4", { text: slTexts['HeaderSL'] })
       this.controlsEl = this.contentEl.createEl("div")
       this.scaleControlsEl = this.controlsEl.createEl("span")
+      this.errorEl = this.contentEl.createEl("div", { cls: "semalogic-error" })
       this.resultEl = this.contentEl.createEl("div")
 
       this.createDropDownButtonForOutPutFormat(this.controlsEl, dropDownValue)
@@ -250,8 +250,11 @@ export class SemaLogicView extends ItemView {
   }
 
   showError(fragment: DocumentFragment) {
-    //   this.setInitial(RulesettypesCommands[Rstypes_Semalogic][1])
-    this.contentEl.appendChild(fragment)
+    if (this.errorEl == undefined) {
+      this.errorEl = this.contentEl.createEl("div", { cls: "semalogic-error" })
+    }
+    this.errorEl.empty()
+    this.errorEl.appendChild(fragment)
   }
   onunload(): void {
 
@@ -365,6 +368,9 @@ export class SemaLogicView extends ItemView {
       this.setNewInitial(this.getOutPutFormat(), false)
     }
     this.updateScaleControls(this.getOutPutFormat())
+    if (this.errorEl != undefined) {
+      this.errorEl.empty()
+    }
     if (this.resultEl != undefined) {
       this.resultEl.empty()
     }
@@ -406,6 +412,7 @@ export class SemaLogicView extends ItemView {
       });
     }
     catch (e) {
+      slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm.slview, `Request failed: ${semaLogicRequest.url}`)
       slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, `Catcherror of removing context ${vAPI_URL}`)
       slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, e.toString())
       let text = new DocumentFragment()

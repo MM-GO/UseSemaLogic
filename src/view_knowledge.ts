@@ -62,9 +62,7 @@ export class KnowledgeView extends ItemView {
   }
 
   onunload(): void {
-    if (this.slComm != undefined) {
-      this.slComm.slPlugin.myStatus.setText("Knowledge is off");
-    }
+    // no-op: status is managed by canvas activation
   }
 
   private async ensureCanvasFile(content: string): Promise<TFile> {

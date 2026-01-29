@@ -31,7 +31,7 @@ __export(main_exports, {
   mygSID: () => mygSID
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian8 = require("obsidian");
+var import_obsidian7 = require("obsidian");
 
 // src/view.ts
 var import_obsidian3 = require("obsidian");
@@ -626,10 +626,7 @@ var SemaLogicView2 = class extends import_obsidian3.ItemView {
       const responseForView = this.getSemaLogicParse(this.slComm.slPlugin.settings, this.apiURL, this.dialectID, this.bodytext, false, value);
       if (value == RulesettypesCommands[Rstypes_KnowledgeGraph][1]) {
         responseForView.then((result) => {
-          if (this.slComm.slknowledgeview != void 0) {
-            this.slComm.slknowledgeview.LastRequestTime = Date.now();
-            this.slComm.slknowledgeview.renderKnowledge(this.getRequestEmbed(result), this.slComm.slknowledgeview.LastRequestTime);
-          }
+          this.slComm.slPlugin.updateKnowledgeCanvas(result);
         });
       }
     });
@@ -704,6 +701,7 @@ var SemaLogicView2 = class extends import_obsidian3.ItemView {
   updateScaleControls(outputFormat) {
     if (this.scaleControlsEl == void 0) {
       this.scaleControlsEl = this.controlsEl.createEl("span");
+      this.errorEl = this.contentEl.createEl("div", { cls: "semalogic-error" });
     }
     this.scaleControlsEl.empty();
     if (outputFormat == RulesettypesCommands[Rstypes_Picture][1]) {
@@ -716,6 +714,7 @@ var SemaLogicView2 = class extends import_obsidian3.ItemView {
       this.headerEl = this.contentEl.createEl("h4", { text: slTexts["HeaderSL"] });
       this.controlsEl = this.contentEl.createEl("div");
       this.scaleControlsEl = this.controlsEl.createEl("span");
+      this.errorEl = this.contentEl.createEl("div", { cls: "semalogic-error" });
       this.resultEl = this.contentEl.createEl("div");
       this.createDropDownButtonForOutPutFormat(this.controlsEl, dropDownValue);
       this.createCopyToClipboardButton(this.controlsEl);
@@ -731,7 +730,11 @@ var SemaLogicView2 = class extends import_obsidian3.ItemView {
   async onClose() {
   }
   showError(fragment) {
-    this.contentEl.appendChild(fragment);
+    if (this.errorEl == void 0) {
+      this.errorEl = this.contentEl.createEl("div", { cls: "semalogic-error" });
+    }
+    this.errorEl.empty();
+    this.errorEl.appendChild(fragment);
   }
   onunload() {
     if (this.slComm.slPlugin != void 0) {
@@ -829,6 +832,9 @@ var SemaLogicView2 = class extends import_obsidian3.ItemView {
       this.setNewInitial(this.getOutPutFormat(), false);
     }
     this.updateScaleControls(this.getOutPutFormat());
+    if (this.errorEl != void 0) {
+      this.errorEl.empty();
+    }
     if (this.resultEl != void 0) {
       this.resultEl.empty();
     }
@@ -866,6 +872,7 @@ var SemaLogicView2 = class extends import_obsidian3.ItemView {
         resolve(resulthttp);
       });
     } catch (e) {
+      slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm.slview, `Request failed: ${semaLogicRequest.url}`);
       slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, `Catcherror of removing context ${vAPI_URL}`);
       slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, e.toString());
       let text = new DocumentFragment();
@@ -1119,80 +1126,11 @@ var ASPView = class extends import_obsidian4.ItemView {
   }
 };
 
-// src/view_knowledge.ts
-var import_obsidian5 = require("obsidian");
-var KnowledgeViewType = "KnowledgeView";
-var KnowledgeView = class extends import_obsidian5.ItemView {
-  constructor(leaf) {
-    super(leaf);
-    this.LastRequestTime = 0;
-    this.canvasPath = "SemaLogic/KnowledgeGraph.canvas";
-    this.navigation = true;
-    this.setNewKnowledgeInitial(true);
-  }
-  setComm(comm) {
-    this.slComm = comm;
-    this.setNewKnowledgeInitial(false);
-  }
-  getViewType() {
-    return KnowledgeViewType;
-  }
-  getDisplayText() {
-    return KnowledgeViewType;
-  }
-  onload() {
-    this.navigation = true;
-    this.contentEl.contentEditable = "true";
-  }
-  setNewKnowledgeInitial(now) {
-    if (now || this.headerEl == void 0) {
-      this.contentEl.empty();
-      this.headerEl = this.contentEl.createEl("h4", { text: slTexts["HeaderKnowledge"] });
-      this.resultEl = this.contentEl.createEl("div");
-    }
-  }
-  async renderKnowledge(result, requestTime) {
-    var _a;
-    if (this.LastRequestTime != requestTime) {
-      slconsolelog(DebugLevMap.DebugLevel_Current_Dev, (_a = this.slComm) == null ? void 0 : _a.slview, `Old_Knowledge-Request: ${requestTime} vs ${this.LastRequestTime}`);
-      return;
-    }
-    const file = await this.ensureCanvasFile(result);
-    await this.ensureCanvasLeaf(file);
-  }
-  async onOpen() {
-  }
-  async onClose() {
-  }
-  onunload() {
-    if (this.slComm != void 0) {
-      this.slComm.slPlugin.myStatus.setText("Knowledge is off");
-    }
-  }
-  async ensureCanvasFile(content) {
-    const path = (0, import_obsidian5.normalizePath)(this.canvasPath);
-    const folder = path.split("/").slice(0, -1).join("/");
-    if (folder.length > 0 && this.app.vault.getAbstractFileByPath(folder) == null) {
-      await this.app.vault.createFolder(folder);
-    }
-    let file = this.app.vault.getAbstractFileByPath(path);
-    if (file == null) {
-      file = await this.app.vault.create(path, content);
-    } else {
-      await this.app.vault.modify(file, content);
-    }
-    return file;
-  }
-  async ensureCanvasLeaf(file) {
-    await this.leaf.openFile(file, { active: false });
-  }
-};
-
 // main.ts
 var import_view3 = require("@codemirror/view");
 
 // src/template.ts
-var import_obsidian6 = require("obsidian");
+var import_obsidian5 = require("obsidian");
 async function createTemplateFolder(vault) {
   const templ = {
     folder: [
@@ -1501,7 +1439,7 @@ async function createTemplateFolder(vault) {
     for (var myfile = 0; myfile < templ.folder[myfolder].files.length; myfile++) {
       vault.createFolder(templ.folder[myfolder].name).catch((error) => console.log(error));
       vault.create(
-        (0, import_obsidian6.normalizePath)(templ.folder[myfolder].name + "/" + templ.folder[myfolder].files[myfile].name + ".md"),
+        (0, import_obsidian5.normalizePath)(templ.folder[myfolder].name + "/" + templ.folder[myfolder].files[myfile].name + ".md"),
         templ.folder[myfolder].files[myfile].content
       ).catch((error) => console.log(error));
     }
@@ -1509,7 +1447,7 @@ async function createTemplateFolder(vault) {
 }
 
 // src/examples.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian6 = require("obsidian");
 async function createExamples(vault) {
   const templ = {
     folder: [
@@ -1564,7 +1502,7 @@ async function createExamples(vault) {
     for (var myfile = 0; myfile < templ.folder[myfolder].files.length; myfile++) {
       vault.createFolder(templ.folder[myfolder].name).catch((error) => console.log(error));
       vault.create(
-        (0, import_obsidian7.normalizePath)(templ.folder[myfolder].name + "/" + templ.folder[myfolder].files[myfile].name + ".md"),
+        (0, import_obsidian6.normalizePath)(templ.folder[myfolder].name + "/" + templ.folder[myfolder].files[myfile].name + ".md"),
         templ.folder[myfolder].files[myfile].content
       ).catch((error) => console.log(error));
     }
@@ -1631,7 +1569,7 @@ var Default_profile = {
   mySetting: 0,
   myDebugLevel: 0
 };
-var SemaLogicSettingTab = class extends import_obsidian8.PluginSettingTab {
+var SemaLogicSettingTab = class extends import_obsidian7.PluginSettingTab {
   constructor(app2, plugin) {
     super(app2, plugin);
     this.plugin = plugin;
@@ -1640,20 +1578,20 @@ var SemaLogicSettingTab = class extends import_obsidian8.PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h2", { text: "Settings for SemaLogic:" });
-    new import_obsidian8.Setting(containerEl).setName("General DebugLevel").setDesc("You can set a DebugLevel for Developmentinformation").addDropdown((dropDown) => dropDown.addOption("0", DebugLevelNames[0]).addOption("1", DebugLevelNames[1]).addOption("2", DebugLevelNames[2]).addOption("3", DebugLevelNames[3]).addOption("4", DebugLevelNames[4]).addOption("5", DebugLevelNames[5]).setValue(String(this.plugin.settings.myDebugLevel)).onChange(async (value) => {
+    new import_obsidian7.Setting(containerEl).setName("General DebugLevel").setDesc("You can set a DebugLevel for Developmentinformation").addDropdown((dropDown) => dropDown.addOption("0", DebugLevelNames[0]).addOption("1", DebugLevelNames[1]).addOption("2", DebugLevelNames[2]).addOption("3", DebugLevelNames[3]).addOption("4", DebugLevelNames[4]).addOption("5", DebugLevelNames[5]).setValue(String(this.plugin.settings.myDebugLevel)).onChange(async (value) => {
       slconsolelog(DebugLevMap.DebugLevel_High, void 0, "Set DebugLevel: " + DebugLevelNames[parseInt(value)]);
       this.plugin.settings.myDebugLevel = parseInt(value);
       DebugLevel = parseInt(value);
       await this.plugin.saveSettings();
       this.display();
     }));
-    new import_obsidian8.Setting(containerEl).setName("Change your setting profile").setDesc("You can define different profiles for your SemaLogicService").addDropdown((dropDown) => dropDown.addOption("0", "Profile 1").addOption("1", "Profile 2").addOption("2", "Profile 3").setValue(this.plugin.settings.mySetting.toString()).onChange(async (value) => {
+    new import_obsidian7.Setting(containerEl).setName("Change your setting profile").setDesc("You can define different profiles for your SemaLogicService").addDropdown((dropDown) => dropDown.addOption("0", "Profile 1").addOption("1", "Profile 2").addOption("2", "Profile 3").setValue(this.plugin.settings.mySetting.toString()).onChange(async (value) => {
       slconsolelog(DebugLevMap.DebugLevel_High, void 0, "Set Profile: " + value);
       this.plugin.settings.mySetting = parseInt(value);
       this.display();
       await this.plugin.saveSettings();
     }));
-    new import_obsidian8.Setting(containerEl).setName("Standard updateinterval").addText((setting) => setting.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUpdateInterval.toString()).onChange(async (value) => {
+    new import_obsidian7.Setting(containerEl).setName("Standard updateinterval").addText((setting) => setting.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUpdateInterval.toString()).onChange(async (value) => {
       slconsolelog(DebugLevMap.DebugLevel_Important, void 0, "Set Update Interval: " + value);
       this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUpdateInterval = parseInt(value);
       window.clearInterval(this.plugin.interval);
@@ -1662,74 +1600,74 @@ var SemaLogicSettingTab = class extends import_obsidian8.PluginSettingTab {
       );
       await this.plugin.saveSettings();
     }));
-    new import_obsidian8.Setting(containerEl).setName("BaseUrl").setDesc("BaseURL for reaching SemaLogicService").addText((text) => text.setPlaceholder(API_Defaults.Base_URL).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myBaseURL).onChange(async (value) => {
+    new import_obsidian7.Setting(containerEl).setName("BaseUrl").setDesc("BaseURL for reaching SemaLogicService").addText((text) => text.setPlaceholder(API_Defaults.Base_URL).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myBaseURL).onChange(async (value) => {
       slconsolelog(DebugLevMap.DebugLevel_Important, void 0, "Set BaseURL: " + value);
       this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myBaseURL = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian8.Setting(containerEl).setName("Path to Get-API-Endpoints").setDesc("Path to Get-API for more Information about the Endpoints of used APIs").addText((text) => text.setPlaceholder(API_Defaults.GetAPI).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myGetAPI).onChange(async (value) => {
+    new import_obsidian7.Setting(containerEl).setName("Path to Get-API-Endpoints").setDesc("Path to Get-API for more Information about the Endpoints of used APIs").addText((text) => text.setPlaceholder(API_Defaults.GetAPI).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myGetAPI).onChange(async (value) => {
       slconsolelog(DebugLevMap.DebugLevel_Important, void 0, "Set to Get-API-Endpoint: " + value);
       this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myGetAPI = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian8.Setting(containerEl).setName("Port SemaLogic").setDesc("Enter the Port").addText((text) => text.setPlaceholder(API_Defaults.Port).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myPort).onChange(async (value) => {
+    new import_obsidian7.Setting(containerEl).setName("Port SemaLogic").setDesc("Enter the Port").addText((text) => text.setPlaceholder(API_Defaults.Port).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myPort).onChange(async (value) => {
       slconsolelog(DebugLevMap.DebugLevel_Important, void 0, "Set to Port: " + value);
       this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myPort = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian8.Setting(containerEl).setName("OutputFormat").setDesc("Here you can set the outputformat for SemaLogic, which could be get from SemaLogicService").addDropdown((dropDown) => dropDown.addOption(RulesettypesCommands[Rstypes_Semalogic][1], RulesettypesCommands[Rstypes_Semalogic][0]).addOption(RulesettypesCommands[Rstypes_ASP][1], RulesettypesCommands[Rstypes_ASP][0]).addOption(RulesettypesCommands[Rstypes_Picture][1], RulesettypesCommands[Rstypes_Picture][0]).addOption(RulesettypesCommands[Rstypes_SemanticTree][1], RulesettypesCommands[Rstypes_SemanticTree][0]).addOption(RulesettypesCommands[Rstypes_KnowledgeGraph][1], RulesettypesCommands[Rstypes_KnowledgeGraph][0]).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myOutputFormat).onChange(async (value) => {
+    new import_obsidian7.Setting(containerEl).setName("OutputFormat").setDesc("Here you can set the outputformat for SemaLogic, which could be get from SemaLogicService").addDropdown((dropDown) => dropDown.addOption(RulesettypesCommands[Rstypes_Semalogic][1], RulesettypesCommands[Rstypes_Semalogic][0]).addOption(RulesettypesCommands[Rstypes_ASP][1], RulesettypesCommands[Rstypes_ASP][0]).addOption(RulesettypesCommands[Rstypes_Picture][1], RulesettypesCommands[Rstypes_Picture][0]).addOption(RulesettypesCommands[Rstypes_SemanticTree][1], RulesettypesCommands[Rstypes_SemanticTree][0]).addOption(RulesettypesCommands[Rstypes_KnowledgeGraph][1], RulesettypesCommands[Rstypes_KnowledgeGraph][0]).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myOutputFormat).onChange(async (value) => {
       slconsolelog(DebugLevMap.DebugLevel_Important, void 0, "Set Outputformat: " + value);
       this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myOutputFormat = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian8.Setting(containerEl).setName("Secure HTTP-Request SemaLogic").setDesc("If you has to use User/Password for http-request to the semalogic service").addToggle((setting) => setting.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUseHttpsSL).onChange(async (value) => {
+    new import_obsidian7.Setting(containerEl).setName("Secure HTTP-Request SemaLogic").setDesc("If you has to use User/Password for http-request to the semalogic service").addToggle((setting) => setting.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUseHttpsSL).onChange(async (value) => {
       slconsolelog(DebugLevMap.DebugLevel_Important, void 0, "Set UserPasswordRequest: " + value);
       this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUseHttpsSL = value;
       await this.plugin.saveSettings();
       this.display();
     }));
     if (this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUseHttpsSL) {
-      new import_obsidian8.Setting(containerEl).setName("HTTP-Request-User").setDesc("User to reach transfer service").addText((text) => text.setPlaceholder(API_Defaults.HttpUserSL).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUserSL).onChange(async (value) => {
+      new import_obsidian7.Setting(containerEl).setName("HTTP-Request-User").setDesc("User to reach transfer service").addText((text) => text.setPlaceholder(API_Defaults.HttpUserSL).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUserSL).onChange(async (value) => {
         slconsolelog(DebugLevMap.DebugLevel_Important, void 0, "Set HTTP-Request-User...");
         this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUserSL = value;
         await this.plugin.saveSettings();
       }));
-      new import_obsidian8.Setting(containerEl).setName("HTTP-Request-Password").setDesc("Password to reach transfer service").addText((text) => text.setPlaceholder(API_Defaults.HttpPasswordSL).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myPasswordSL).onChange(async (value) => {
+      new import_obsidian7.Setting(containerEl).setName("HTTP-Request-Password").setDesc("Password to reach transfer service").addText((text) => text.setPlaceholder(API_Defaults.HttpPasswordSL).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myPasswordSL).onChange(async (value) => {
         slconsolelog(DebugLevMap.DebugLevel_Important, void 0, "Set HTTP-Request-Password...");
         this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myPasswordSL = value;
         await this.plugin.saveSettings();
       }));
     }
-    new import_obsidian8.Setting(containerEl).setName("Show Context in Reading View").addToggle((setting) => setting.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myContext).onChange(async (value) => {
+    new import_obsidian7.Setting(containerEl).setName("Show Context in Reading View").addToggle((setting) => setting.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myContext).onChange(async (value) => {
       slconsolelog(DebugLevMap.DebugLevel_Important, void 0, "Set Context of Reading View: " + value);
       this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myContext = value;
       await this.plugin.saveSettings();
     }));
     containerEl.createEl("h1", { text: "_______________________________" });
     containerEl.createEl("h2", { text: "Settings for Transfer/ASP-View:" });
-    new import_obsidian8.Setting(containerEl).setName("BaseUrl for Transfer/ASP").setDesc("BaseURL for reaching Transfer/ASP-Service").addText((text) => text.setPlaceholder(API_Defaults.AspUrl).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myAspUrl).onChange(async (value) => {
+    new import_obsidian7.Setting(containerEl).setName("BaseUrl for Transfer/ASP").setDesc("BaseURL for reaching Transfer/ASP-Service").addText((text) => text.setPlaceholder(API_Defaults.AspUrl).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myAspUrl).onChange(async (value) => {
       slconsolelog(DebugLevMap.DebugLevel_Important, void 0, "Set Transfer/ASP-BaseURL: " + value);
       this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myAspUrl = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian8.Setting(containerEl).setName("Path to Get-Transfer/ASP-StandardAPI-Endpoint").setDesc("Path to Transfer/ASP-Standard-API ").addText((text) => text.setPlaceholder(API_Defaults.AspEndpoint).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myAspEndpoint).onChange(async (value) => {
+    new import_obsidian7.Setting(containerEl).setName("Path to Get-Transfer/ASP-StandardAPI-Endpoint").setDesc("Path to Transfer/ASP-Standard-API ").addText((text) => text.setPlaceholder(API_Defaults.AspEndpoint).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myAspEndpoint).onChange(async (value) => {
       slconsolelog(DebugLevMap.DebugLevel_Important, void 0, "Set to Transfer/ASP-Standard-API-Endpoint: " + value);
       this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myAspEndpoint = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian8.Setting(containerEl).setName("Secure HTTP-Request").setDesc("If you has to use User/Password for http-request to the transfer service").addToggle((setting) => setting.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUseHttps).onChange(async (value) => {
+    new import_obsidian7.Setting(containerEl).setName("Secure HTTP-Request").setDesc("If you has to use User/Password for http-request to the transfer service").addToggle((setting) => setting.setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUseHttps).onChange(async (value) => {
       slconsolelog(DebugLevMap.DebugLevel_Important, void 0, "Set UserPasswordRequest: " + value);
       this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUseHttps = value;
       await this.plugin.saveSettings();
       this.display();
     }));
     if (this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUseHttps) {
-      new import_obsidian8.Setting(containerEl).setName("HTTP-Request-User").setDesc("User to reach transfer service").addText((text) => text.setPlaceholder(API_Defaults.HttpUser).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUser).onChange(async (value) => {
+      new import_obsidian7.Setting(containerEl).setName("HTTP-Request-User").setDesc("User to reach transfer service").addText((text) => text.setPlaceholder(API_Defaults.HttpUser).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUser).onChange(async (value) => {
         slconsolelog(DebugLevMap.DebugLevel_Important, void 0, "Set HTTP-Request-User...");
         this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myUser = value;
         await this.plugin.saveSettings();
       }));
-      new import_obsidian8.Setting(containerEl).setName("HTTP-Request-Password").setDesc("Password to reach transfer service").addText((text) => text.setPlaceholder(API_Defaults.HttpPassword).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myPassword).onChange(async (value) => {
+      new import_obsidian7.Setting(containerEl).setName("HTTP-Request-Password").setDesc("Password to reach transfer service").addText((text) => text.setPlaceholder(API_Defaults.HttpPassword).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myPassword).onChange(async (value) => {
         slconsolelog(DebugLevMap.DebugLevel_Important, void 0, "Set HTTP-Request-Password...");
         this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myPassword = value;
         await this.plugin.saveSettings();
@@ -1752,7 +1690,7 @@ var SemaLogicPluginComm2 = class {
     return a + b;
   }
 };
-var SemaLogicPlugin = class extends import_obsidian8.Plugin {
+var SemaLogicPlugin = class extends import_obsidian7.Plugin {
   constructor() {
     super(...arguments);
     this.activated = false;
@@ -1764,6 +1702,8 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     this.waitingForResponse = false;
     this.UpdateProcessing = false;
     this.view_utils = new ViewUtils();
+    this.knowledgeCanvasPath = "SemaLogic/KnowledgeGraph.canvas";
+    this.knowledgeLastRequestTime = 0;
     this.handleUpdate = (update) => {
       if (this.statusSL) {
         const text = "Updatetime/" + String(Date.now()) + "/" + String(this.lastUpdate) + "/" + String(Date.now() - this.lastUpdate) + "/" + String(this.updateOutstanding) + "/" + String(this.waitingForResponse);
@@ -1800,7 +1740,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     return { mydialectID };
   }
   getActiveView() {
-    const activeView = app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
+    const activeView = app.workspace.getActiveViewOfType(import_obsidian7.MarkdownView);
     if (activeView === null) {
       if (this.lastactiveView === null) {
         slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, "ActiveView could not be defined through SemaLogic");
@@ -1814,8 +1754,8 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     return this.lastactiveView;
   }
   setViews() {
+    var _a;
     this.slComm.activatedASP = false;
-    this.slComm.activatedKnowledge = false;
     this.app.workspace.iterateAllLeaves((leaf) => {
       switch (leaf.view.getViewType()) {
         case SemaLogicViewType: {
@@ -1836,16 +1776,10 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
           this.statusTransfer = true;
           break;
         }
-        case KnowledgeViewType: {
-          this.slComm.slknowledgeview = leaf.view;
-          this.slComm.slknowledgeview.setComm(this.slComm);
-          this.slComm.slknowledgeview.slComm.setSlView(this.slComm.slview);
-          this.slComm.slknowledgeview.slComm.slPlugin = this.slComm.slPlugin;
-          this.slComm.activatedKnowledge = true;
-          break;
-        }
       }
     });
+    this.slComm.activatedKnowledge = this.knowledgeLeaf != void 0 || this.findKnowledgeCanvasLeaf() != void 0;
+    slconsolelog(DebugLevMap.DebugLevel_Current_Dev, (_a = this.slComm) == null ? void 0 : _a.slview, "Knowledge active: " + String(this.slComm.activatedKnowledge));
     this.getActiveView();
   }
   async onload() {
@@ -2002,11 +1936,15 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
       }
     }
     if (this.slComm.activatedKnowledge) {
-      if (Date.now() - this.slComm.slknowledgeview.LastRequestTime >= this.settings.mySLSettings[this.settings.mySetting].myUpdateInterval) {
-        this.slComm.slknowledgeview.LastRequestTime = Date.now();
+      if (Date.now() - this.knowledgeLastRequestTime >= this.settings.mySLSettings[this.settings.mySetting].myUpdateInterval) {
+        this.knowledgeLastRequestTime = Date.now();
+        const requestTime = this.knowledgeLastRequestTime;
+        slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, `Knowledge request (sid=${mygSID}) url=${vAPI_URL}`);
         const responseForKnowledge = this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, dialectID, bodytext, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1]);
         responseForKnowledge.then((value) => {
-          this.slComm.slknowledgeview.renderKnowledge(value, this.slComm.slknowledgeview.LastRequestTime);
+          if (this.knowledgeLastRequestTime == requestTime) {
+            this.updateKnowledgeCanvas(value);
+          }
         });
       }
     }
@@ -2037,23 +1975,9 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     this.myStatus.setText("ASP is on");
   }
   async activateKnowledgeView() {
-    if (this.slComm.slknowledgeview == void 0) {
-      this.registerView(
-        KnowledgeViewType,
-        (leaf2) => new KnowledgeView(leaf2)
-      );
-    }
-    const leaf = this.GetKnowledgeLeaf();
-    if (leaf != void 0) {
-      leaf.setViewState({
-        type: KnowledgeViewType,
-        active: false
-      });
-      await this.semaLogicReset();
-      this.app.workspace.revealLeaf(leaf);
-    } else {
-      slconsolelog(DebugLevMap.DebugLevel_Chatty, void 0, "Knowledge-Leaf not created");
-    }
+    var _a;
+    slconsolelog(DebugLevMap.DebugLevel_Current_Dev, (_a = this.slComm) == null ? void 0 : _a.slview, "Activate KnowledgeView");
+    await this.openKnowledgeCanvas();
     this.setViews();
     this.handlePing();
     this.semaLogicUpdate();
@@ -2089,7 +2013,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     this.myStatus.setText("ASP is off");
   }
   async deactivateKnowledgeView() {
-    this.app.workspace.detachLeavesOfType(KnowledgeViewType);
+    this.detachKnowledgeCanvasLeaves();
     this.slComm.activatedKnowledge = false;
     this.myStatus.setText("Knowledge is off");
   }
@@ -2139,29 +2063,76 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     }
     return slv;
   }
-  GetKnowledgeLeaf() {
-    let found = false;
-    let slv = void 0;
+  async ensureKnowledgeCanvasFile(content) {
+    const path = (0, import_obsidian7.normalizePath)(this.knowledgeCanvasPath);
+    const folder = path.split("/").slice(0, -1).join("/");
+    if (folder.length > 0 && this.app.vault.getAbstractFileByPath(folder) == null) {
+      await this.app.vault.createFolder(folder);
+    }
+    let file = this.app.vault.getAbstractFileByPath(path);
+    if (file == null) {
+      file = await this.app.vault.create(path, content != null ? content : '{ "nodes": [], "edges": [] }');
+    } else if (content != void 0) {
+      await this.app.vault.adapter.write(path, content);
+      await this.app.vault.modify(file, content);
+    }
+    return file;
+  }
+  findKnowledgeCanvasLeaf() {
+    let found = void 0;
     this.app.workspace.iterateAllLeaves((leaf) => {
-      if (!found) {
-        switch (leaf.view.getViewType()) {
-          case KnowledgeViewType: {
-            found = true;
-            slv = leaf;
-          }
+      if (found != void 0) {
+        return;
+      }
+      if (leaf.view.getViewType() == "canvas") {
+        const file = leaf.view.file;
+        if (file != void 0 && (0, import_obsidian7.normalizePath)(file.path) == (0, import_obsidian7.normalizePath)(this.knowledgeCanvasPath)) {
+          found = leaf;
         }
       }
     });
-    if (!found) {
-      slconsolelog(DebugLevMap.DebugLevel_All, void 0, "Split");
-      slv = this.app.workspace.getLeaf("split");
-      slconsolelog(DebugLevMap.DebugLevel_All, void 0, slv);
+    if (found != void 0) {
+      this.knowledgeLeaf = found;
     }
-    return slv;
+    return found;
+  }
+  detachKnowledgeCanvasLeaves() {
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (leaf.view.getViewType() == "canvas") {
+        const file = leaf.view.file;
+        if (file != void 0 && (0, import_obsidian7.normalizePath)(file.path) == (0, import_obsidian7.normalizePath)(this.knowledgeCanvasPath)) {
+          leaf.detach();
+        }
+      }
+    });
+    this.knowledgeLeaf = void 0;
+  }
+  async openKnowledgeCanvas() {
+    const file = await this.ensureKnowledgeCanvasFile();
+    let leaf = this.findKnowledgeCanvasLeaf();
+    if (leaf == void 0) {
+      leaf = this.app.workspace.getLeaf("split");
+    }
+    this.knowledgeLeaf = leaf;
+    await leaf.openFile(file, { active: false });
+    this.slComm.activatedKnowledge = true;
+  }
+  async updateKnowledgeCanvas(content) {
+    var _a;
+    slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, `Update KnowledgeCanvas (len=${(_a = content == null ? void 0 : content.length) != null ? _a : 0})`);
+    const file = await this.ensureKnowledgeCanvasFile(content);
+    let leaf = this.knowledgeLeaf;
+    if (leaf == void 0) {
+      leaf = this.findKnowledgeCanvasLeaf();
+    }
+    if (leaf != void 0) {
+      this.knowledgeLeaf = leaf;
+      await leaf.openFile(file, { active: false });
+    }
   }
   async onunload() {
     this.app.workspace.detachLeavesOfType(ASPViewType);
-    this.app.workspace.detachLeavesOfType(KnowledgeViewType);
+    this.detachKnowledgeCanvasLeaves();
   }
   async loadSettings() {
     this.settings = Object.assign({}, Default_profile, await this.loadData());
@@ -2223,7 +2194,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     }
     slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, optionsReset);
     try {
-      const responseReset = await (0, import_obsidian8.requestUrl)(optionsReset);
+      const responseReset = await (0, import_obsidian7.requestUrl)(optionsReset);
       slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm.slview, `SemaLogic: Reset with http-status ${responseReset.status.toString()}`);
     } catch (e) {
       slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm.slview, `Catcherror by reset ${vAPI_URL_Reset}`);

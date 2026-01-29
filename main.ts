@@ -1,8 +1,7 @@
-import { App, MarkdownView, Plugin, PluginSettingTab, requestUrl, Setting, WorkspaceLeaf, renderResults, RequestUrlParam, RequestUrlResponse, RequestUrlResponsePromise, ButtonComponent, MarkdownRenderChild, MarkdownPreviewView, View }
+import { App, MarkdownView, Plugin, PluginSettingTab, requestUrl, Setting, WorkspaceLeaf, renderResults, RequestUrlParam, RequestUrlResponse, RequestUrlResponsePromise, ButtonComponent, MarkdownRenderChild, MarkdownPreviewView, View, TFile, normalizePath }
 	from 'obsidian';
 import { SemaLogicView, SemaLogicViewType } from "./src/view";
 import { ASPView, ASPViewType } from "./src/view_asp";
-import { KnowledgeView, KnowledgeViewType } from "./src/view_knowledge";
 import { ViewUpdate, EditorView } from "@codemirror/view";
 import { SemaLogicRenderedElement, searchForSemaLogicCommands, getHostPort, semaLogicPing, slconsolelog } from "./src/utils";
 import { API_Defaults, Value_Defaults, semaLogicCommand, RulesettypesCommands, Rstypes_Semalogic, Rstypes_Picture, Rstypes_ASP, DebugLevMap, DebugLevelNames, Rstypes_KnowledgeGraph, Rstypes_SemanticTree } from "./src/const"
@@ -389,7 +388,6 @@ export class SemaLogicPluginComm {
 	slview: SemaLogicView
 	slPlugin: SemaLogicPlugin
 	slaspview: ASPView
-	slknowledgeview: KnowledgeView
 	activatedASP: boolean = false;
 	activatedKnowledge: boolean = false;
 	slUsedMDView: MarkdownView
@@ -426,6 +424,9 @@ export default class SemaLogicPlugin extends Plugin {
 	lastactiveView: MarkdownView;
 	view_utils = new ViewUtils
 	interval: number
+	knowledgeCanvasPath: string = "SemaLogic/KnowledgeGraph.canvas"
+	knowledgeLastRequestTime: number = 0
+	knowledgeLeaf: WorkspaceLeaf | undefined
 
 	// Due to change in Sprint 1/2023 to inline dialects, detection of contexts will be needed in later sprints 
 	private getContextFromLine(mydialectID: string) {
@@ -456,7 +457,6 @@ export default class SemaLogicPlugin extends Plugin {
 
 	setViews(): void {
 		this.slComm.activatedASP = false
-		this.slComm.activatedKnowledge = false
 		this.app.workspace.iterateAllLeaves((leaf) => {
 			switch (leaf.view.getViewType()) {
 				case SemaLogicViewType: {
@@ -478,16 +478,10 @@ export default class SemaLogicPlugin extends Plugin {
 
 					break
 				}
-				case KnowledgeViewType: {
-					this.slComm.slknowledgeview = (leaf.view as KnowledgeView)
-					this.slComm.slknowledgeview.setComm(this.slComm)
-					this.slComm.slknowledgeview.slComm.setSlView(this.slComm.slview)
-					this.slComm.slknowledgeview.slComm.slPlugin = this.slComm.slPlugin
-					this.slComm.activatedKnowledge = true
-					break
-				}
 			}
 		})
+		this.slComm.activatedKnowledge = (this.knowledgeLeaf != undefined) || (this.findKnowledgeCanvasLeaf() != undefined)
+		slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm?.slview, 'Knowledge active: ' + String(this.slComm.activatedKnowledge))
 		this.getActiveView()
 		//this.semaLogicUpdate(false)
 	}
@@ -685,11 +679,15 @@ export default class SemaLogicPlugin extends Plugin {
 		}
 
 		if (this.slComm.activatedKnowledge) {
-			if (Date.now() - this.slComm.slknowledgeview.LastRequestTime >= this.settings.mySLSettings[this.settings.mySetting].myUpdateInterval) {
-				this.slComm.slknowledgeview.LastRequestTime = Date.now()
+			if (Date.now() - this.knowledgeLastRequestTime >= this.settings.mySLSettings[this.settings.mySetting].myUpdateInterval) {
+				this.knowledgeLastRequestTime = Date.now()
+				const requestTime = this.knowledgeLastRequestTime
+				slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, `Knowledge request (sid=${mygSID}) url=${vAPI_URL}`)
 				const responseForKnowledge = this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, dialectID, bodytext, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1])
 				responseForKnowledge.then(value => {
-					this.slComm.slknowledgeview.renderKnowledge(value, this.slComm.slknowledgeview.LastRequestTime)
+					if (this.knowledgeLastRequestTime == requestTime) {
+						this.updateKnowledgeCanvas(value)
+					}
 				})
 			}
 		}
@@ -726,24 +724,8 @@ export default class SemaLogicPlugin extends Plugin {
 	}
 
 	async activateKnowledgeView() {
-		if (this.slComm.slknowledgeview == undefined) {
-			this.registerView(
-				KnowledgeViewType,
-				leaf => new KnowledgeView(leaf)
-			);
-		}
-
-		const leaf = this.GetKnowledgeLeaf();
-		if (leaf != undefined) {
-			leaf.setViewState({
-				type: KnowledgeViewType,
-				active: false,
-			})
-			await this.semaLogicReset()
-			this.app.workspace.revealLeaf(leaf);
-		} else {
-			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, "Knowledge-Leaf not created")
-		}
+		slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm?.slview, 'Activate KnowledgeView')
+		await this.openKnowledgeCanvas()
 		this.setViews()
 		this.handlePing()
 		this.semaLogicUpdate()
@@ -784,7 +766,7 @@ export default class SemaLogicPlugin extends Plugin {
 	}
 
 	async deactivateKnowledgeView() {
-		this.app.workspace.detachLeavesOfType(KnowledgeViewType);
+		this.detachKnowledgeCanvasLeaves()
 		this.slComm.activatedKnowledge = false
 		this.myStatus.setText('Knowledge is off');
 	}
@@ -842,33 +824,79 @@ export default class SemaLogicPlugin extends Plugin {
 		return slv
 	}
 
-	GetKnowledgeLeaf(): WorkspaceLeaf | undefined {
-		let found: boolean = false
-		let slv: WorkspaceLeaf | undefined = undefined
+	private async ensureKnowledgeCanvasFile(content?: string): Promise<TFile> {
+		const path = normalizePath(this.knowledgeCanvasPath)
+		const folder = path.split("/").slice(0, -1).join("/")
+		if (folder.length > 0 && this.app.vault.getAbstractFileByPath(folder) == null) {
+			await this.app.vault.createFolder(folder)
+		}
+		let file = this.app.vault.getAbstractFileByPath(path)
+		if (file == null) {
+			file = await this.app.vault.create(path, content ?? "{ \"nodes\": [], \"edges\": [] }")
+		} else if (content != undefined) {
+			await this.app.vault.adapter.write(path, content)
+			await this.app.vault.modify(file as TFile, content)
+		}
+		return file as TFile
+	}
 
+	private findKnowledgeCanvasLeaf(): WorkspaceLeaf | undefined {
+		let found: WorkspaceLeaf | undefined = undefined
 		this.app.workspace.iterateAllLeaves((leaf) => {
-			if (!found) {
-				switch (leaf.view.getViewType()) {
-					case KnowledgeViewType: {
-						found = true
-						slv = leaf
-					}
+			if (found != undefined) { return }
+			if (leaf.view.getViewType() == "canvas") {
+				const file = (leaf.view as any).file as TFile | undefined
+				if (file != undefined && normalizePath(file.path) == normalizePath(this.knowledgeCanvasPath)) {
+					found = leaf
 				}
 			}
 		})
-		if (!found) {
-			slconsolelog(DebugLevMap.DebugLevel_All, undefined, 'Split')
-			slv = this.app.workspace.getLeaf('split');
-			slconsolelog(DebugLevMap.DebugLevel_All, undefined, slv)
+		if (found != undefined) {
+			this.knowledgeLeaf = found
 		}
-		return slv
+		return found
 	}
 
+	private detachKnowledgeCanvasLeaves(): void {
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (leaf.view.getViewType() == "canvas") {
+				const file = (leaf.view as any).file as TFile | undefined
+				if (file != undefined && normalizePath(file.path) == normalizePath(this.knowledgeCanvasPath)) {
+					leaf.detach()
+				}
+			}
+		})
+		this.knowledgeLeaf = undefined
+	}
+
+	private async openKnowledgeCanvas(): Promise<void> {
+		const file = await this.ensureKnowledgeCanvasFile()
+		let leaf = this.findKnowledgeCanvasLeaf()
+		if (leaf == undefined) {
+			leaf = this.app.workspace.getLeaf('split')
+		}
+		this.knowledgeLeaf = leaf
+		await leaf.openFile(file, { active: false })
+		this.slComm.activatedKnowledge = true
+	}
+
+	public async updateKnowledgeCanvas(content: string): Promise<void> {
+		slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, `Update KnowledgeCanvas (len=${content?.length ?? 0})`)
+		const file = await this.ensureKnowledgeCanvasFile(content)
+		let leaf = this.knowledgeLeaf
+		if (leaf == undefined) {
+			leaf = this.findKnowledgeCanvasLeaf()
+		}
+		if (leaf != undefined) {
+			this.knowledgeLeaf = leaf
+			await leaf.openFile(file, { active: false })
+		}
+	}
 
 	async onunload() {
 		// commented out due to publishing process - see PlugInGuideline - could be deleted
 		this.app.workspace.detachLeavesOfType(ASPViewType);
-		this.app.workspace.detachLeavesOfType(KnowledgeViewType);
+		this.detachKnowledgeCanvasLeaves();
 		//this.slComm.slaspview.unload()
 		//this.app.workspace.detachLeavesOfType(SemaLogicViewType);
 	}
