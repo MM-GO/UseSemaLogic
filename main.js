@@ -1704,7 +1704,13 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
     this.view_utils = new ViewUtils();
     this.knowledgeCanvasPath = "SemaLogic/KnowledgeGraph.canvas";
     this.knowledgeLastRequestTime = 0;
+    this.knowledgeEditCanvasPath = "SemaLogic/KnowledgeEdit.canvas";
+    this.knowledgeEditLastCanvas = "";
+    this.pauseAllRequests = false;
     this.handleUpdate = (update) => {
+      if (this.pauseAllRequests) {
+        return;
+      }
       if (this.statusSL) {
         const text = "Updatetime/" + String(Date.now()) + "/" + String(this.lastUpdate) + "/" + String(Date.now() - this.lastUpdate) + "/" + String(this.updateOutstanding) + "/" + String(this.waitingForResponse);
         slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, text);
@@ -1783,6 +1789,25 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
     this.getActiveView();
   }
   async onload() {
+    this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor, view) => {
+      if (!this.activated) {
+        return;
+      }
+      const selection = editor.getSelection();
+      if (!selection || selection.length == 0) {
+        return;
+      }
+      menu.addItem((item) => {
+        item.setTitle("Edit in SL-Graph").onClick(() => {
+          this.startKnowledgeEdit(view, selection);
+        });
+      });
+    }));
+    this.registerEvent(this.app.workspace.on("layout-change", () => {
+      if (this.knowledgeEditLeaf != void 0 && this.findKnowledgeEditLeaf() == void 0) {
+        this.stopKnowledgeEdit();
+      }
+    }));
     this.registerMarkdownPostProcessor((element, context) => {
       slconsolelog(DebugLevMap.DebugLevel_Chatty, void 0, element);
       slconsolelog(DebugLevMap.DebugLevel_Chatty, void 0, context);
@@ -1853,6 +1878,9 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
     this.registerEditorExtension([import_view3.EditorView.updateListener.of(this.handleUpdate)]);
   }
   async semaLogicParse() {
+    if (this.pauseAllRequests) {
+      return [];
+    }
     this.setViews();
     slconsolelog(DebugLevMap.DebugLevel_, this.slComm.slview, "Start SemaLogicParse");
     let results = [];
@@ -2130,9 +2158,150 @@ var SemaLogicPlugin = class extends import_obsidian7.Plugin {
       await leaf.openFile(file, { active: false });
     }
   }
+  async ensureKnowledgeEditCanvasFile(content) {
+    const path = (0, import_obsidian7.normalizePath)(this.knowledgeEditCanvasPath);
+    const folder = path.split("/").slice(0, -1).join("/");
+    if (folder.length > 0 && this.app.vault.getAbstractFileByPath(folder) == null) {
+      await this.app.vault.createFolder(folder);
+    }
+    let file = this.app.vault.getAbstractFileByPath(path);
+    if (file == null) {
+      file = await this.app.vault.create(path, content != null ? content : '{ "nodes": [], "edges": [] }');
+    } else if (content != void 0) {
+      await this.app.vault.adapter.write(path, content);
+      await this.app.vault.modify(file, content);
+    }
+    return file;
+  }
+  findKnowledgeEditLeaf() {
+    let found = void 0;
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (found != void 0) {
+        return;
+      }
+      if (leaf.view.getViewType() == "canvas") {
+        const file = leaf.view.file;
+        if (file != void 0 && (0, import_obsidian7.normalizePath)(file.path) == (0, import_obsidian7.normalizePath)(this.knowledgeEditCanvasPath)) {
+          found = leaf;
+        }
+      }
+    });
+    if (found != void 0) {
+      this.knowledgeEditLeaf = found;
+    }
+    return found;
+  }
+  detachKnowledgeEditCanvasLeaves() {
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (leaf.view.getViewType() == "canvas") {
+        const file = leaf.view.file;
+        if (file != void 0 && (0, import_obsidian7.normalizePath)(file.path) == (0, import_obsidian7.normalizePath)(this.knowledgeEditCanvasPath)) {
+          leaf.detach();
+        }
+      }
+    });
+    this.knowledgeEditLeaf = void 0;
+  }
+  async openKnowledgeEditCanvas() {
+    const file = await this.ensureKnowledgeEditCanvasFile();
+    let leaf = this.findKnowledgeEditLeaf();
+    if (leaf == void 0) {
+      leaf = this.app.workspace.getLeaf("split");
+    }
+    this.knowledgeEditLeaf = leaf;
+    await leaf.openFile(file, { active: false });
+  }
+  async tickKnowledgeEdit() {
+    if (!this.pauseAllRequests || this.knowledgeEditSelection == void 0) {
+      return;
+    }
+    const file = await this.ensureKnowledgeEditCanvasFile();
+    const content = await this.app.vault.cachedRead(file);
+    if (content == this.knowledgeEditLastCanvas) {
+      return;
+    }
+    this.knowledgeEditLastCanvas = content;
+    const vAPI_URL = getHostPort(this.settings) + "/canvas/convert";
+    const response = await this.requestCanvasConvert(vAPI_URL, content);
+    if (response == void 0 || response.length == 0) {
+      return;
+    }
+    const sel = this.knowledgeEditSelection;
+    const editor = sel.view.editor;
+    const current = editor.getRange(sel.from, sel.to);
+    if (current != sel.original) {
+      slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, "KnowledgeEdit: selection changed, skip replace");
+      return;
+    }
+    editor.replaceRange(response, sel.from, sel.to);
+    const fromOffset = editor.posToOffset(sel.from);
+    sel.to = editor.offsetToPos(fromOffset + response.length);
+    sel.original = response;
+    this.pauseAllRequests = false;
+    this.semaLogicUpdate();
+    this.pauseAllRequests = true;
+  }
+  async startKnowledgeEdit(view, selection) {
+    if (!this.activated || selection.length == 0) {
+      return;
+    }
+    this.pauseAllRequests = true;
+    this.updateOutstanding = false;
+    this.updateTransferOutstanding = false;
+    const from = view.editor.getCursor("from");
+    const to = view.editor.getCursor("to");
+    this.knowledgeEditSelection = { view, from, to, original: selection };
+    const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
+    const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", selection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1]);
+    await this.ensureKnowledgeEditCanvasFile(response);
+    await this.openKnowledgeEditCanvas();
+    if (this.knowledgeEditInterval != void 0) {
+      window.clearInterval(this.knowledgeEditInterval);
+    }
+    this.knowledgeEditInterval = window.setInterval(() => {
+      this.tickKnowledgeEdit();
+    }, 1e3);
+  }
+  async stopKnowledgeEdit() {
+    if (this.knowledgeEditInterval != void 0) {
+      window.clearInterval(this.knowledgeEditInterval);
+      this.knowledgeEditInterval = void 0;
+    }
+    this.detachKnowledgeEditCanvasLeaves();
+    const file = this.app.vault.getAbstractFileByPath((0, import_obsidian7.normalizePath)(this.knowledgeEditCanvasPath));
+    if (file != void 0) {
+      await this.app.vault.delete(file);
+    }
+    this.knowledgeEditLastCanvas = "";
+    this.knowledgeEditSelection = void 0;
+    this.pauseAllRequests = false;
+  }
+  async requestCanvasConvert(apiUrl, canvasJson) {
+    var _a, _b;
+    try {
+      const response = await (0, import_obsidian7.requestUrl)({
+        url: apiUrl,
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: canvasJson
+      });
+      if (response.status == 200) {
+        return response.text;
+      }
+      slconsolelog(DebugLevMap.DebugLevel_Error, (_a = this.slComm) == null ? void 0 : _a.slview, `Canvas2SL status ${response.status}`);
+    } catch (e) {
+      slconsolelog(DebugLevMap.DebugLevel_Error, (_b = this.slComm) == null ? void 0 : _b.slview, `Canvas2SL failed: ${e}`);
+    }
+    return "";
+  }
   async onunload() {
+    this.app.workspace.detachLeavesOfType(SemaLogicViewType);
     this.app.workspace.detachLeavesOfType(ASPViewType);
     this.detachKnowledgeCanvasLeaves();
+    this.detachKnowledgeEditCanvasLeaves();
+    await this.stopKnowledgeEdit();
   }
   async loadSettings() {
     this.settings = Object.assign({}, Default_profile, await this.loadData());

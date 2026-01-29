@@ -427,6 +427,12 @@ export default class SemaLogicPlugin extends Plugin {
 	knowledgeCanvasPath: string = "SemaLogic/KnowledgeGraph.canvas"
 	knowledgeLastRequestTime: number = 0
 	knowledgeLeaf: WorkspaceLeaf | undefined
+	knowledgeEditCanvasPath: string = "SemaLogic/KnowledgeEdit.canvas"
+	knowledgeEditLeaf: WorkspaceLeaf | undefined
+	knowledgeEditInterval: number | undefined
+	knowledgeEditLastCanvas: string = ""
+	knowledgeEditSelection: { view: MarkdownView; from: { line: number; ch: number }; to: { line: number; ch: number }; original: string } | undefined
+	pauseAllRequests: boolean = false
 
 	// Due to change in Sprint 1/2023 to inline dialects, detection of contexts will be needed in later sprints 
 	private getContextFromLine(mydialectID: string) {
@@ -487,6 +493,24 @@ export default class SemaLogicPlugin extends Plugin {
 	}
 
 	async onload(): Promise<void> {
+		this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor, view) => {
+			if (!this.activated) { return }
+			const selection = editor.getSelection()
+			if (!selection || selection.length == 0) { return }
+			menu.addItem((item) => {
+				item.setTitle("Edit in SL-Graph")
+					.onClick(() => {
+						this.startKnowledgeEdit(view as MarkdownView, selection);
+					});
+			});
+		}));
+
+		this.registerEvent(this.app.workspace.on("layout-change", () => {
+			if (this.knowledgeEditLeaf != undefined && this.findKnowledgeEditLeaf() == undefined) {
+				this.stopKnowledgeEdit();
+			}
+		}));
+
 		this.registerMarkdownPostProcessor((element, context) => {
 			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, element)
 			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, context)
@@ -578,6 +602,9 @@ export default class SemaLogicPlugin extends Plugin {
 	}
 
 	async semaLogicParse(): Promise<Node[]> {
+		if (this.pauseAllRequests) {
+			return [];
+		}
 
 		this.setViews();
 
@@ -893,10 +920,155 @@ export default class SemaLogicPlugin extends Plugin {
 		}
 	}
 
+	private async ensureKnowledgeEditCanvasFile(content?: string): Promise<TFile> {
+		const path = normalizePath(this.knowledgeEditCanvasPath)
+		const folder = path.split("/").slice(0, -1).join("/")
+		if (folder.length > 0 && this.app.vault.getAbstractFileByPath(folder) == null) {
+			await this.app.vault.createFolder(folder)
+		}
+		let file = this.app.vault.getAbstractFileByPath(path)
+		if (file == null) {
+			file = await this.app.vault.create(path, content ?? "{ \"nodes\": [], \"edges\": [] }")
+		} else if (content != undefined) {
+			await this.app.vault.adapter.write(path, content)
+			await this.app.vault.modify(file as TFile, content)
+		}
+		return file as TFile
+	}
+
+	private findKnowledgeEditLeaf(): WorkspaceLeaf | undefined {
+		let found: WorkspaceLeaf | undefined = undefined
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (found != undefined) { return }
+			if (leaf.view.getViewType() == "canvas") {
+				const file = (leaf.view as any).file as TFile | undefined
+				if (file != undefined && normalizePath(file.path) == normalizePath(this.knowledgeEditCanvasPath)) {
+					found = leaf
+				}
+			}
+		})
+		if (found != undefined) {
+			this.knowledgeEditLeaf = found
+		}
+		return found
+	}
+
+	private detachKnowledgeEditCanvasLeaves(): void {
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (leaf.view.getViewType() == "canvas") {
+				const file = (leaf.view as any).file as TFile | undefined
+				if (file != undefined && normalizePath(file.path) == normalizePath(this.knowledgeEditCanvasPath)) {
+					leaf.detach()
+				}
+			}
+		})
+		this.knowledgeEditLeaf = undefined
+	}
+
+	private async openKnowledgeEditCanvas(): Promise<void> {
+		const file = await this.ensureKnowledgeEditCanvasFile()
+		let leaf = this.findKnowledgeEditLeaf()
+		if (leaf == undefined) {
+			leaf = this.app.workspace.getLeaf('split')
+		}
+		this.knowledgeEditLeaf = leaf
+		await leaf.openFile(file, { active: false })
+	}
+
+	private async tickKnowledgeEdit(): Promise<void> {
+		if (!this.pauseAllRequests || this.knowledgeEditSelection == undefined) { return }
+		const file = await this.ensureKnowledgeEditCanvasFile()
+		const content = await this.app.vault.cachedRead(file as TFile)
+		if (content == this.knowledgeEditLastCanvas) { return }
+		this.knowledgeEditLastCanvas = content
+
+		const vAPI_URL = getHostPort(this.settings) + "/canvas/convert";
+		const response = await this.requestCanvasConvert(vAPI_URL, content)
+		if (response == undefined || response.length == 0) { return }
+
+		const sel = this.knowledgeEditSelection
+		const editor = sel.view.editor
+		const current = editor.getRange(sel.from, sel.to)
+		if (current != sel.original) {
+			slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, "KnowledgeEdit: selection changed, skip replace")
+			return
+		}
+
+		editor.replaceRange(response, sel.from, sel.to)
+		const fromOffset = editor.posToOffset(sel.from)
+		sel.to = editor.offsetToPos(fromOffset + response.length)
+		sel.original = response
+
+		this.pauseAllRequests = false
+		this.semaLogicUpdate()
+		this.pauseAllRequests = true
+	}
+
+	public async startKnowledgeEdit(view: MarkdownView, selection: string): Promise<void> {
+		if (!this.activated || selection.length == 0) { return }
+		this.pauseAllRequests = true
+		this.updateOutstanding = false
+		this.updateTransferOutstanding = false
+
+		const from = view.editor.getCursor("from")
+		const to = view.editor.getCursor("to")
+		this.knowledgeEditSelection = { view, from, to, original: selection }
+
+		const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
+		const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", selection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1])
+		await this.ensureKnowledgeEditCanvasFile(response)
+		await this.openKnowledgeEditCanvas()
+
+		if (this.knowledgeEditInterval != undefined) {
+			window.clearInterval(this.knowledgeEditInterval)
+		}
+		this.knowledgeEditInterval = window.setInterval(() => {
+			this.tickKnowledgeEdit()
+		}, 1000)
+	}
+
+	public async stopKnowledgeEdit(): Promise<void> {
+		if (this.knowledgeEditInterval != undefined) {
+			window.clearInterval(this.knowledgeEditInterval)
+			this.knowledgeEditInterval = undefined
+		}
+		this.detachKnowledgeEditCanvasLeaves()
+		const file = this.app.vault.getAbstractFileByPath(normalizePath(this.knowledgeEditCanvasPath))
+		if (file != undefined) {
+			await this.app.vault.delete(file)
+		}
+		this.knowledgeEditLastCanvas = ""
+		this.knowledgeEditSelection = undefined
+		this.pauseAllRequests = false
+	}
+
+	private async requestCanvasConvert(apiUrl: string, canvasJson: string): Promise<string> {
+		try {
+			const response = await requestUrl({
+				url: apiUrl,
+				method: "POST",
+				headers: {
+					"content-type": "application/json"
+				},
+				body: canvasJson
+			})
+			if (response.status == 200) {
+				return response.text
+			}
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, `Canvas2SL status ${response.status}`)
+		} catch (e) {
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, `Canvas2SL failed: ${e}`)
+		}
+		return ""
+	}
+
 	async onunload() {
 		// commented out due to publishing process - see PlugInGuideline - could be deleted
+		this.app.workspace.detachLeavesOfType(SemaLogicViewType);
 		this.app.workspace.detachLeavesOfType(ASPViewType);
 		this.detachKnowledgeCanvasLeaves();
+		this.detachKnowledgeEditCanvasLeaves();
+		await this.stopKnowledgeEdit();
 		//this.slComm.slaspview.unload()
 		//this.app.workspace.detachLeavesOfType(SemaLogicViewType);
 	}
@@ -917,6 +1089,9 @@ export default class SemaLogicPlugin extends Plugin {
 	}
 
 	handleUpdate = (update: ViewUpdate) => {
+		if (this.pauseAllRequests) {
+			return;
+		}
 		if (this.statusSL) {
 			// To avoid to much parsing traffic for testing we tried to parse it only every 500 ms when there is an update
 			const text = 'Updatetime' + '/' + String(Date.now()) + '/' + String(this.lastUpdate) + '/' + String(Date.now() - this.lastUpdate) + '/' + String(this.updateOutstanding) + '/' + String(this.waitingForResponse)
