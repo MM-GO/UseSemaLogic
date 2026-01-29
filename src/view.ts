@@ -120,6 +120,7 @@ export class SemaLogicView extends ItemView {
         if (value == RulesettypesCommands[Rstypes_KnowledgeGraph][1]) {
           await this.slComm.slPlugin.activateKnowledgeView()
         }
+
         const responseForView = this.getSemaLogicParse(this.slComm.slPlugin.settings, this.apiURL, this.dialectID, this.bodytext, false, value)
         if (value == RulesettypesCommands[Rstypes_KnowledgeGraph][1]) {
           responseForView.then(result => {
