@@ -2017,6 +2017,9 @@ var SemaLogicPluginComm2 = class {
 var SemaLogicPlugin = class extends import_obsidian8.Plugin {
   constructor() {
     super(...arguments);
+    this.statusTransfer = false;
+    this.statusSL = true;
+    this.pluginEnabled = true;
     this.activated = false;
     this.updating = false;
     this.lastUpdate = 0;
@@ -2112,7 +2115,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
   }
   async onload() {
     this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor, view) => {
-      if (!this.activated) {
+      if (!this.pluginEnabled) {
         return;
       }
       const selection = editor.getSelection();
@@ -2165,7 +2168,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
       }
     }));
     this.registerDomEvent(document, "sl-interpreter", () => {
-      if (!this.activated || this.pauseAllRequests) {
+      if (!this.pluginEnabled || this.pauseAllRequests) {
         return;
       }
       const view = this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
@@ -2210,11 +2213,13 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     });
     this.addSettingTab(new SemaLogicSettingTab(this.app, this));
     await this.loadSettings();
+    this.pluginEnabled = true;
     DebugLevel = this.settings.myDebugLevel;
     this.myStatus = this.addStatusBarItem();
     this.slComm = new SemaLogicPluginComm2();
     this.slComm.setSLClass(this);
     this.activateView();
+    this.statusSL = true;
     await this.semaLogicReset();
     this.setViews();
     this.addRibbonIcon("book", "On/Off SemaLogic.View", () => {
@@ -2963,6 +2968,8 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     this.setViews();
     this.handlePing();
     this.semaLogicUpdate();
+    this.pluginEnabled = true;
+    this.statusSL = true;
     this.myStatus.setText("SemaLogic is on");
   }
   async deactivateASPView() {
@@ -2979,6 +2986,8 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
   async deactivateView() {
     this.app.workspace.detachLeavesOfType(SemaLogicViewType);
     this.activated = false;
+    this.pluginEnabled = false;
+    this.statusSL = false;
     this.slComm.slview.unload();
     this.myStatus.setText("SemaLogic is off");
   }
@@ -3146,6 +3155,14 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     await leaf.openFile(file, { active: false });
     this.attachCanvasTooltips(leaf);
   }
+  async ensureSemaLogicViewForRequest() {
+    var _a, _b;
+    if (((_a = this.slComm) == null ? void 0 : _a.slview) != void 0) {
+      return true;
+    }
+    await this.activateView();
+    return ((_b = this.slComm) == null ? void 0 : _b.slview) != void 0;
+  }
   async tickKnowledgeEdit() {
     var _a, _b, _c;
     if (!this.pauseAllRequests || this.knowledgeEditSelection == void 0) {
@@ -3182,7 +3199,10 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
   }
   async startKnowledgeEdit(view, selection) {
     var _a;
-    if (!this.activated || selection.length == 0) {
+    if (!this.pluginEnabled || selection.length == 0) {
+      return;
+    }
+    if (!await this.ensureSemaLogicViewForRequest()) {
       return;
     }
     slconsolelog(DebugLevMap.DebugLevel_Informative, (_a = this.slComm) == null ? void 0 : _a.slview, "Start KnowledgeEdit");
@@ -3193,7 +3213,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     const from = view.editor.getCursor("from");
     const to = view.editor.getCursor("to");
     this.knowledgeEditSelection = { view, from, to, original: selection };
-    const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID + "&NLP=true";
+    const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
     const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", selection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1]);
     await this.processCanvasResponse(response, this.knowledgeEditCanvasPath, false);
     await this.openKnowledgeEditCanvas();
@@ -3319,7 +3339,10 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
   }
   async startSLInterpreter(view, selection) {
     var _a;
-    if (!this.activated || selection.length == 0) {
+    if (!this.pluginEnabled || selection.length == 0) {
+      return;
+    }
+    if (!await this.ensureSemaLogicViewForRequest()) {
       return;
     }
     this.pauseAllRequests = true;

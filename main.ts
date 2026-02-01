@@ -411,8 +411,9 @@ export default class SemaLogicPlugin extends Plugin {
 	settings: SemaLogicPluginSettings;
 	semaLogicView: SemaLogicView;
 	myStatus: HTMLElement;
-	statusTransfer: boolean
-	statusSL: boolean;
+	statusTransfer: boolean = false
+	statusSL: boolean = true;
+	pluginEnabled: boolean = true;
 
 	activated: boolean = false;
 	updating: boolean = false;
@@ -511,7 +512,7 @@ export default class SemaLogicPlugin extends Plugin {
 
 	async onload(): Promise<void> {
 		this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor, view) => {
-			if (!this.activated) { return }
+			if (!this.pluginEnabled) { return }
 			const selection = editor.getSelection()
 			if (!selection || selection.length == 0) { return }
 			menu.addItem((item) => {
@@ -561,7 +562,7 @@ export default class SemaLogicPlugin extends Plugin {
 		}));
 
 		this.registerDomEvent(document as any, "sl-interpreter" as any, () => {
-			if (!this.activated || this.pauseAllRequests) { return }
+			if (!this.pluginEnabled || this.pauseAllRequests) { return }
 			const view = this.app.workspace.getActiveViewOfType(MarkdownView)
 			if (!view) { return }
 			const selection = view.editor.getSelection()
@@ -598,6 +599,7 @@ export default class SemaLogicPlugin extends Plugin {
 		// This adds a settings tab so the user can configure various aspects of the plugin
 		this.addSettingTab(new SemaLogicSettingTab(this.app, this));
 		await this.loadSettings();
+		this.pluginEnabled = true
 		DebugLevel = this.settings.myDebugLevel
 
 		// This adds a status bar for informations
@@ -607,6 +609,7 @@ export default class SemaLogicPlugin extends Plugin {
 		this.slComm.setSLClass(this)
 
 		this.activateView();
+		this.statusSL = true
 		// Clear SemaLogic to start with a clear service
 		await this.semaLogicReset();
 		this.setViews()
@@ -1369,6 +1372,8 @@ export default class SemaLogicPlugin extends Plugin {
 		this.setViews()
 		this.handlePing()
 		this.semaLogicUpdate()
+		this.pluginEnabled = true
+		this.statusSL = true
 		this.myStatus.setText('SemaLogic is on');
 	}
 
@@ -1388,6 +1393,8 @@ export default class SemaLogicPlugin extends Plugin {
 	async deactivateView() {
 		this.app.workspace.detachLeavesOfType(SemaLogicViewType);
 		this.activated = false
+		this.pluginEnabled = false
+		this.statusSL = false
 		this.slComm.slview.unload()
 		this.myStatus.setText('SemaLogic is off');
 	}
@@ -1566,6 +1573,14 @@ export default class SemaLogicPlugin extends Plugin {
 		this.attachCanvasTooltips(leaf)
 	}
 
+	private async ensureSemaLogicViewForRequest(): Promise<boolean> {
+		if (this.slComm?.slview != undefined) {
+			return true
+		}
+		await this.activateView()
+		return this.slComm?.slview != undefined
+	}
+
 	private async tickKnowledgeEdit(): Promise<void> {
 		if (!this.pauseAllRequests || this.knowledgeEditSelection == undefined) { return }
 		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, "KnowledgeEdit tick")
@@ -1599,7 +1614,8 @@ export default class SemaLogicPlugin extends Plugin {
 	}
 
 	public async startKnowledgeEdit(view: MarkdownView, selection: string): Promise<void> {
-		if (!this.activated || selection.length == 0) { return }
+		if (!this.pluginEnabled || selection.length == 0) { return }
+		if (!(await this.ensureSemaLogicViewForRequest())) { return }
 		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, "Start KnowledgeEdit")
 		this.pauseAllRequests = true
 		this.updateOutstanding = false
@@ -1738,7 +1754,8 @@ export default class SemaLogicPlugin extends Plugin {
 	}
 
 	public async startSLInterpreter(view: MarkdownView, selection: string): Promise<void> {
-		if (!this.activated || selection.length == 0) { return }
+		if (!this.pluginEnabled || selection.length == 0) { return }
+		if (!(await this.ensureSemaLogicViewForRequest())) { return }
 		this.pauseAllRequests = true
 		this.updateOutstanding = false
 		this.updateTransferOutstanding = false
