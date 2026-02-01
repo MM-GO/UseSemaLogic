@@ -1610,7 +1610,7 @@ export default class SemaLogicPlugin extends Plugin {
 		const to = view.editor.getCursor("to")
 		this.knowledgeEditSelection = { view, from, to, original: selection }
 
-		const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID + "&NLP=true";
+		const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
 		const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", selection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1])
 		await this.processCanvasResponse(response, this.knowledgeEditCanvasPath, false)
 		await this.openKnowledgeEditCanvas()
@@ -1748,12 +1748,13 @@ export default class SemaLogicPlugin extends Plugin {
 		const to = view.editor.getCursor("to")
 		this.interpreterSelection = { view, from, to, original: selection, lastRendered: selection }
 
-		const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
+		const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID + "&NLP=true";
 		const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", selection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1])
 		if (response && this.isCanvasJsonResponse(response)) {
 			await this.processCanvasResponse(response, this.interpreterCanvasPath, false)
 			await this.openInterpreterCanvas()
 		} else if (response && response.trim().length > 0) {
+			slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm?.slview, "SL-Interpreter response (modal)", response)
 			this.showInterpreterResponseModal(response)
 			this.interpreterSelection = undefined
 			this.interpreterLastCanvas = ""
