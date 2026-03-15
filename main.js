@@ -2181,6 +2181,31 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
       }
       this.startSLInterpreter(view, selection);
     });
+    this.registerDomEvent(document, "click", (evt) => {
+      var _a, _b, _c;
+      const target = evt.target;
+      const link = target == null ? void 0 : target.closest("a[data-sl-interpreter='1']");
+      if (!link) {
+        return;
+      }
+      evt.preventDefault();
+      evt.stopPropagation();
+      if (!this.pluginEnabled || this.pauseAllRequests) {
+        return;
+      }
+      const selection = (_a = link.textContent) != null ? _a : "";
+      if (selection.length == 0) {
+        return;
+      }
+      const view = this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
+      const slText = ((_b = link.getAttribute("data-sl-text")) == null ? void 0 : _b.trim()) || ((_c = link.getAttribute("title")) == null ? void 0 : _c.trim()) || "";
+      const trackSelection = view && slText.length > 0 ? this.findSLInterpreterSelectionForAnchor(view, selection, slText) : void 0;
+      if (slText.length > 0) {
+        this.startSLInterpreterFromSLText(selection, slText, trackSelection);
+        return;
+      }
+      this.startSLInterpreterFromText(selection);
+    });
     this.registerDomEvent(document, "dblclick", (evt) => {
       if (!this.activated || this.pauseAllRequests) {
         return;
@@ -2392,8 +2417,8 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     return results;
   }
   normalizeSLInterpreterTerms(text) {
-    const re = /«(.+?)»\s*\((SL64|SL):([^)]+)\)/g;
-    return text.replace(re, (_m, _orig, mode, rawTerm) => {
+    const re = /[\u00c2]?\u00ab(.+?)[\u00c2]?\u00bb\s*\((SL64|SL):([^)]+)\)/g;
+    const normalizedLegacy = text.replace(re, (_m, _orig, mode, rawTerm) => {
       if (mode == "SL64") {
         return this.decodeSLTerm(String(rawTerm != null ? rawTerm : ""));
       }
@@ -2401,6 +2426,8 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
       term = term.replace(/\\\)/g, ")").replace(/\\\(/g, "(").replace(/\\\\/g, "\\");
       return term;
     });
+    const anchorRe = /<a\b[^>]*\bdata-sl-interpreter\s*=\s*(['\"])1\1[^>]*>([\s\S]*?)<\/a>/gi;
+    return normalizedLegacy.replace(anchorRe, (_m, _quote, inner) => this.decodeHtmlEntities(String(inner != null ? inner : "")));
   }
   encodeSLTerm(text) {
     const utf8 = encodeURIComponent(text).replace(/%([0-9A-F]{2})/g, (_m, p1) => {
@@ -2416,6 +2443,129 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     } catch (e) {
       return "";
     }
+  }
+  escapeHtmlAttribute(text) {
+    return text.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  escapeHtmlText(text) {
+    return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }
+  decodeHtmlEntities(text) {
+    const textarea = document.createElement("textarea");
+    textarea.innerHTML = text;
+    return textarea.value;
+  }
+  buildSLInterpreterAnchor(originalText, interpretedText) {
+    const escapedTitle = this.escapeHtmlAttribute(interpretedText);
+    const escapedSLText = this.escapeHtmlAttribute(interpretedText);
+    const escapedText = this.escapeHtmlText(originalText);
+    const style = "color: black; text-decoration-color: blue; text-decoration-line: underline; text-decoration-style: dashed;";
+    return `<a href="#sl-interpreter" data-sl-interpreter="1" data-sl-text="${escapedSLText}" title="${escapedTitle}" style="${style}">${escapedText}</a>`;
+  }
+  extractHtmlAttributeValue(tagText, attributeName) {
+    var _a;
+    const escapedName = attributeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`\\b${escapedName}\\s*=\\s*(['"])([\\s\\S]*?)\\1`, "i");
+    const match = tagText.match(re);
+    return match ? this.decodeHtmlEntities((_a = match[2]) != null ? _a : "") : "";
+  }
+  extractSLInterpreterAnchorData(text) {
+    var _a, _b;
+    const match = text.match(/<a\b[^>]*\bdata-sl-interpreter\s*=\s*(['"])1\1[^>]*>([\s\S]*?)<\/a>/i);
+    if (!match) {
+      return void 0;
+    }
+    const tagText = (_a = match[0]) != null ? _a : "";
+    const innerText = this.decodeHtmlEntities((_b = match[2]) != null ? _b : "");
+    const slText = this.extractHtmlAttributeValue(tagText, "data-sl-text") || this.extractHtmlAttributeValue(tagText, "title");
+    return { visibleText: innerText, slText };
+  }
+  findNearestTextOccurrence(haystack, needle, preferredOffset) {
+    if (needle.length == 0) {
+      return -1;
+    }
+    let bestIndex = -1;
+    let bestDistance = Number.MAX_SAFE_INTEGER;
+    let searchFrom = 0;
+    while (searchFrom <= haystack.length) {
+      const idx = haystack.indexOf(needle, searchFrom);
+      if (idx < 0) {
+        break;
+      }
+      const distance = Math.abs(idx - preferredOffset);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = idx;
+      }
+      searchFrom = idx + 1;
+    }
+    return bestIndex;
+  }
+  findSLInterpreterSelectionForAnchor(view, originalText, interpretedText) {
+    const anchorText = this.buildSLInterpreterAnchor(originalText, interpretedText);
+    const docText = view.editor.getValue();
+    const cursor = view.editor.getCursor("from");
+    const preferredOffset = view.editor.posToOffset(cursor);
+    const fromOffset = this.findNearestTextOccurrence(docText, anchorText, preferredOffset);
+    if (fromOffset < 0) {
+      return void 0;
+    }
+    return {
+      view,
+      from: view.editor.offsetToPos(fromOffset),
+      to: view.editor.offsetToPos(fromOffset + anchorText.length)
+    };
+  }
+  async startSLInterpreterRequest(selection, requestText, useNlp, trackSelection) {
+    var _a;
+    if (!this.pluginEnabled || selection.length == 0) {
+      return;
+    }
+    if (!await this.ensureSemaLogicViewForRequest()) {
+      return;
+    }
+    const shouldTrackSelection = trackSelection != void 0;
+    if (this.interpreterInterval != void 0) {
+      window.clearInterval(this.interpreterInterval);
+      this.interpreterInterval = void 0;
+    }
+    if (shouldTrackSelection) {
+      this.pauseAllRequests = true;
+      this.updateOutstanding = false;
+      this.updateTransferOutstanding = false;
+      this.interpreterSelection = { ...trackSelection, sourceText: selection, original: selection };
+    } else {
+      this.interpreterSelection = void 0;
+    }
+    this.interpreterLastCanvas = "";
+    const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID + (useNlp ? "&NLP=true" : "");
+    const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", requestText, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1]);
+    if (response && this.isCanvasJsonResponse(response)) {
+      await this.processCanvasResponse(response, this.interpreterCanvasPath, false);
+      await this.openInterpreterCanvas();
+      if (shouldTrackSelection) {
+        await this.tickSLInterpreter();
+        this.interpreterInterval = window.setInterval(() => {
+          this.tickSLInterpreter();
+        }, 500);
+      }
+      return;
+    }
+    if (response && response.trim().length > 0) {
+      slconsolelog(DebugLevMap.DebugLevel_Chatty, (_a = this.slComm) == null ? void 0 : _a.slview, "SL-Interpreter response (modal)", response);
+      this.showInterpreterResponseModal(response);
+    }
+    this.interpreterSelection = void 0;
+    this.interpreterLastCanvas = "";
+    if (shouldTrackSelection) {
+      this.pauseAllRequests = false;
+    }
+  }
+  async startSLInterpreterFromText(selection, trackSelection) {
+    await this.startSLInterpreterRequest(selection, selection, true, trackSelection);
+  }
+  async startSLInterpreterFromSLText(selection, slText, trackSelection) {
+    await this.startSLInterpreterRequest(selection, slText, false, trackSelection);
   }
   async processCanvasResponse(raw, canvasPath, allowFiles) {
     if (!raw || raw.length == 0) {
@@ -3206,6 +3356,8 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
       return;
     }
     slconsolelog(DebugLevMap.DebugLevel_Informative, (_a = this.slComm) == null ? void 0 : _a.slview, "Start KnowledgeEdit");
+    const existingAnchor = this.extractSLInterpreterAnchorData(selection);
+    const normalizedSelection = (existingAnchor == null ? void 0 : existingAnchor.slText) || (existingAnchor == null ? void 0 : existingAnchor.visibleText) || selection;
     this.pauseAllRequests = true;
     this.updateOutstanding = false;
     this.updateTransferOutstanding = false;
@@ -3214,7 +3366,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     const to = view.editor.getCursor("to");
     this.knowledgeEditSelection = { view, from, to, original: selection };
     const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
-    const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", selection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1]);
+    const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", normalizedSelection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1]);
     await this.processCanvasResponse(response, this.knowledgeEditCanvasPath, false);
     await this.openKnowledgeEditCanvas();
     if (this.knowledgeEditInterval != void 0) {
@@ -3313,13 +3465,13 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     const sel = this.interpreterSelection;
     const editor = sel.view.editor;
     const current = editor.getRange(sel.from, sel.to);
-    if (current != sel.lastRendered && current != sel.original) {
+    if (current != sel.original) {
       slconsolelog(DebugLevMap.DebugLevel_Informative, (_a = this.slComm) == null ? void 0 : _a.slview, "SL-Interpreter: selection changed, skip replace");
       return;
     }
-    const trailingMatch = sel.original.match(/\s+$/);
+    const trailingMatch = sel.sourceText.match(/\s+$/);
     const trailingSpace = trailingMatch ? trailingMatch[0] : "";
-    const baseOriginal = trailingSpace.length > 0 ? sel.original.slice(0, -trailingSpace.length) : sel.original;
+    const baseOriginal = trailingSpace.length > 0 ? sel.sourceText.slice(0, -trailingSpace.length) : sel.sourceText;
     let spacer = trailingSpace;
     if (spacer.length == 0) {
       const nextChar = editor.getRange(sel.to, { line: sel.to.line, ch: sel.to.ch + 1 });
@@ -3327,53 +3479,27 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
         spacer = " ";
       }
     }
-    const encoded = this.encodeSLTerm(response);
-    const newText = `\xAB${baseOriginal}\xBB (SL64:${encoded})${spacer}`;
+    const newText = this.buildSLInterpreterAnchor(baseOriginal, response) + spacer;
     editor.replaceRange(newText, sel.from, sel.to);
     const fromOffset = editor.posToOffset(sel.from);
     sel.to = editor.offsetToPos(fromOffset + newText.length);
-    sel.lastRendered = newText;
+    sel.original = newText;
     this.pauseAllRequests = false;
     this.semaLogicUpdate();
     this.pauseAllRequests = true;
   }
   async startSLInterpreter(view, selection) {
-    var _a;
-    if (!this.pluginEnabled || selection.length == 0) {
-      return;
-    }
-    if (!await this.ensureSemaLogicViewForRequest()) {
-      return;
-    }
-    this.pauseAllRequests = true;
-    this.updateOutstanding = false;
-    this.updateTransferOutstanding = false;
-    this.interpreterLastCanvas = "";
+    var _a, _b;
+    const existingAnchor = this.extractSLInterpreterAnchorData(selection);
+    const normalizedSelection = (_a = existingAnchor == null ? void 0 : existingAnchor.visibleText) != null ? _a : selection;
+    const existingSLText = (_b = existingAnchor == null ? void 0 : existingAnchor.slText) != null ? _b : "";
     const from = view.editor.getCursor("from");
     const to = view.editor.getCursor("to");
-    this.interpreterSelection = { view, from, to, original: selection, lastRendered: selection };
-    const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID + "&NLP=true";
-    const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", selection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1]);
-    if (response && this.isCanvasJsonResponse(response)) {
-      await this.processCanvasResponse(response, this.interpreterCanvasPath, false);
-      await this.openInterpreterCanvas();
-    } else if (response && response.trim().length > 0) {
-      slconsolelog(DebugLevMap.DebugLevel_Chatty, (_a = this.slComm) == null ? void 0 : _a.slview, "SL-Interpreter response (modal)", response);
-      this.showInterpreterResponseModal(response);
-      this.interpreterSelection = void 0;
-      this.interpreterLastCanvas = "";
-      this.pauseAllRequests = false;
-      return;
-    } else {
-      this.interpreterSelection = void 0;
-      this.interpreterLastCanvas = "";
-      this.pauseAllRequests = false;
+    if (existingSLText.length > 0) {
+      await this.startSLInterpreterFromSLText(normalizedSelection, existingSLText, { view, from, to });
       return;
     }
-    if (this.interpreterInterval != void 0) {
-      window.clearInterval(this.interpreterInterval);
-      this.interpreterInterval = void 0;
-    }
+    await this.startSLInterpreterFromText(normalizedSelection, { view, from, to });
   }
   async stopSLInterpreter() {
     if (this.interpreterInterval != void 0) {
