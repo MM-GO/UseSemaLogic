@@ -1891,7 +1891,8 @@ var Default_profile = {
     }
   ],
   mySetting: 0,
-  myDebugLevel: 0
+  myDebugLevel: 0,
+  showSelectionActionButtons: false
 };
 var SemaLogicSettingTab = class extends import_obsidian8.PluginSettingTab {
   constructor(app2, plugin) {
@@ -1967,6 +1968,11 @@ var SemaLogicSettingTab = class extends import_obsidian8.PluginSettingTab {
       this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myContext = value;
       await this.plugin.saveSettings();
     }));
+    new import_obsidian8.Setting(containerEl).setName("Show selection action buttons").setDesc("Display SL-Edit and SL-Interpret buttons for text selections").addToggle((setting) => setting.setValue(this.plugin.settings.showSelectionActionButtons).onChange(async (value) => {
+      this.plugin.settings.showSelectionActionButtons = value;
+      await this.plugin.saveSettings();
+      this.plugin.updateSelectionActionButtonUi();
+    }));
     containerEl.createEl("h1", { text: "_______________________________" });
     containerEl.createEl("h2", { text: "Settings for Transfer/ASP-View:" });
     new import_obsidian8.Setting(containerEl).setName("BaseUrl for Transfer/ASP").setDesc("BaseURL for reaching Transfer/ASP-Service").addText((text) => text.setPlaceholder(API_Defaults.AspUrl).setValue(this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myAspUrl).onChange(async (value) => {
@@ -2031,6 +2037,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     this.view_utils = new ViewUtils();
     this.lastParsedHash = "";
     this.canvasTooltipObservers = /* @__PURE__ */ new WeakMap();
+    this.selectionActionHeaderButtons = /* @__PURE__ */ new WeakMap();
     this.canvasNodeFileCache = /* @__PURE__ */ new Map();
     this.knowledgeCanvasPath = "SemaLogic/KnowledgeGraph.canvas";
     this.knowledgeLastRequestTime = 0;
@@ -2135,6 +2142,8 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     }));
     this.registerEvent(this.app.workspace.on("layout-change", () => {
       this.attachCanvasTooltipsToAllLeaves();
+      this.syncSelectionActionHeaderButtons();
+      this.hideSelectionActionPopup();
       if (this.knowledgeEditLeaf != void 0 && this.findKnowledgeEditLeaf() == void 0) {
         this.stopKnowledgeEdit();
       }
@@ -2226,6 +2235,32 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
         this.semaLogicUpdate();
       }, 200);
     });
+    this.registerDomEvent(document, "selectionchange", () => {
+      this.scheduleSelectionActionPopupUpdate();
+    });
+    this.registerDomEvent(document, "mouseup", () => {
+      this.scheduleSelectionActionPopupUpdate();
+    });
+    this.registerDomEvent(document, "keyup", () => {
+      this.scheduleSelectionActionPopupUpdate();
+    });
+    this.registerDomEvent(document, "touchend", () => {
+      this.scheduleSelectionActionPopupUpdate(120);
+    });
+    this.registerDomEvent(document, "scroll", () => {
+      this.hideSelectionActionPopupSoon();
+    }, true);
+    this.registerDomEvent(window, "resize", () => {
+      this.hideSelectionActionPopup();
+    });
+    this.registerDomEvent(document, "pointerdown", (evt) => {
+      var _a;
+      const target = evt.target;
+      if (target != null && ((_a = this.selectionActionPopupEl) == null ? void 0 : _a.contains(target))) {
+        return;
+      }
+      this.hideSelectionActionPopup();
+    });
     this.registerMarkdownPostProcessor((element, context) => {
       slconsolelog(DebugLevMap.DebugLevel_Chatty, void 0, element);
       slconsolelog(DebugLevMap.DebugLevel_Chatty, void 0, context);
@@ -2240,6 +2275,9 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     await this.loadSettings();
     this.pluginEnabled = true;
     DebugLevel = this.settings.myDebugLevel;
+    this.app.workspace.onLayoutReady(() => {
+      this.syncSelectionActionHeaderButtons();
+    });
     this.myStatus = this.addStatusBarItem();
     this.slComm = new SemaLogicPluginComm2();
     this.slComm.setSLClass(this);
@@ -2522,6 +2560,215 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
       from: view.editor.offsetToPos(fromOffset),
       to: view.editor.offsetToPos(fromOffset + anchorText.length)
     };
+  }
+  createSelectionActionPopup() {
+    if (this.selectionActionPopupEl != void 0) {
+      return this.selectionActionPopupEl;
+    }
+    const popup = document.createElement("div");
+    popup.className = "sl-selection-actions";
+    popup.style.display = "none";
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.className = "sl-selection-action-btn";
+    editBtn.textContent = "SL-Edit";
+    editBtn.addEventListener("click", async (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      const selection = this.getSelectionActionContext();
+      if (selection == void 0) {
+        return;
+      }
+      this.hideSelectionActionPopup();
+      await this.startKnowledgeEdit(selection.view, selection.text);
+    });
+    const interpretBtn = document.createElement("button");
+    interpretBtn.type = "button";
+    interpretBtn.className = "sl-selection-action-btn";
+    interpretBtn.textContent = "SL-Interpret";
+    interpretBtn.addEventListener("click", async (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      const selection = this.getSelectionActionContext();
+      if (selection == void 0) {
+        return;
+      }
+      this.hideSelectionActionPopup();
+      await this.startSLInterpreter(selection.view, selection.text);
+    });
+    popup.appendChild(editBtn);
+    popup.appendChild(interpretBtn);
+    document.body.appendChild(popup);
+    this.selectionActionPopupEl = popup;
+    return popup;
+  }
+  updateSelectionActionButtonUi() {
+    this.syncSelectionActionHeaderButtons();
+    if (!this.settings.showSelectionActionButtons) {
+      this.hideSelectionActionPopup();
+      return;
+    }
+    this.scheduleSelectionActionPopupUpdate();
+  }
+  updateSelectionActionHeaderButton(button) {
+    const enabled = this.settings.showSelectionActionButtons;
+    button.classList.toggle("is-active", enabled);
+    button.setAttribute("aria-label", enabled ? "Hide SL selection actions" : "Show SL selection actions");
+    button.setAttribute("title", enabled ? "Hide SL selection actions" : "Show SL selection actions");
+    (0, import_obsidian8.setIcon)(button, enabled ? "toggle-right" : "toggle-left");
+  }
+  syncSelectionActionHeaderButtons() {
+    if (this.settings == void 0 || !this.app.workspace.layoutReady) {
+      return;
+    }
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (leaf.view.getViewType() != "markdown") {
+        return;
+      }
+      const container = leaf.view.containerEl;
+      if (container == void 0) {
+        return;
+      }
+      const actionsEl = container.querySelector(".view-actions");
+      if (!(actionsEl instanceof HTMLElement)) {
+        return;
+      }
+      let button = this.selectionActionHeaderButtons.get(leaf);
+      if (button == void 0 || !actionsEl.contains(button)) {
+        const existing = actionsEl.querySelector("[data-sl-selection-toggle='1']");
+        if (existing instanceof HTMLElement) {
+          button = existing;
+        } else {
+          const newButton = document.createElement("button");
+          newButton.type = "button";
+          button = newButton;
+          button.className = "clickable-icon";
+          button.setAttribute("data-sl-selection-toggle", "1");
+          button.addEventListener("click", async (evt) => {
+            evt.preventDefault();
+            evt.stopPropagation();
+            this.settings.showSelectionActionButtons = !this.settings.showSelectionActionButtons;
+            await this.saveSettings();
+            this.updateSelectionActionButtonUi();
+          });
+          actionsEl.insertBefore(button, actionsEl.firstChild);
+        }
+        this.selectionActionHeaderButtons.set(leaf, button);
+      }
+      this.updateSelectionActionHeaderButton(button);
+    });
+  }
+  hideSelectionActionPopup() {
+    if (this.selectionActionHideDebounce != void 0) {
+      window.clearTimeout(this.selectionActionHideDebounce);
+      this.selectionActionHideDebounce = void 0;
+    }
+    if (this.selectionActionPopupEl != void 0) {
+      this.selectionActionPopupEl.style.display = "none";
+    }
+  }
+  hideSelectionActionPopupSoon() {
+    if (this.selectionActionHideDebounce != void 0) {
+      window.clearTimeout(this.selectionActionHideDebounce);
+    }
+    this.selectionActionHideDebounce = window.setTimeout(() => {
+      this.hideSelectionActionPopup();
+    }, 120);
+  }
+  scheduleSelectionActionPopupUpdate(delay = 60) {
+    if (this.selectionActionUpdateDebounce != void 0) {
+      window.clearTimeout(this.selectionActionUpdateDebounce);
+    }
+    this.selectionActionUpdateDebounce = window.setTimeout(() => {
+      this.selectionActionUpdateDebounce = void 0;
+      this.updateSelectionActionPopup();
+    }, delay);
+  }
+  getTextSelectionRect(selection) {
+    if (selection.rangeCount == 0) {
+      return void 0;
+    }
+    const range = selection.getRangeAt(0);
+    const rects = range.getClientRects();
+    if (rects.length > 0) {
+      return rects[0];
+    }
+    const rect = range.getBoundingClientRect();
+    if (rect.width == 0 && rect.height == 0) {
+      return void 0;
+    }
+    return rect;
+  }
+  findTextSelectionRange(view, selectedText) {
+    const text = selectedText.trim();
+    if (text.length == 0) {
+      return void 0;
+    }
+    const docText = view.editor.getValue();
+    const cursor = view.editor.getCursor("from");
+    const preferredOffset = view.editor.posToOffset(cursor);
+    const fromOffset = this.findNearestTextOccurrence(docText, text, preferredOffset);
+    if (fromOffset < 0) {
+      return void 0;
+    }
+    return {
+      view,
+      from: view.editor.offsetToPos(fromOffset),
+      to: view.editor.offsetToPos(fromOffset + text.length)
+    };
+  }
+  getSelectionActionContext() {
+    var _a;
+    if (!this.pluginEnabled || this.pauseAllRequests || !this.settings.showSelectionActionButtons) {
+      return void 0;
+    }
+    const view = this.app.workspace.getActiveViewOfType(import_obsidian8.MarkdownView);
+    if (view == void 0) {
+      return void 0;
+    }
+    const domSelection = window.getSelection();
+    const domText = (_a = domSelection == null ? void 0 : domSelection.toString().trim()) != null ? _a : "";
+    const rect = domSelection != null ? this.getTextSelectionRect(domSelection) : void 0;
+    const editorSelection = view.editor.getSelection();
+    if (editorSelection.trim().length > 0) {
+      if (rect == void 0) {
+        return void 0;
+      }
+      return { view, text: editorSelection, rect };
+    }
+    if (domSelection == null || domText.length == 0 || rect == void 0) {
+      return void 0;
+    }
+    const anchorNode = domSelection.anchorNode;
+    const focusNode = domSelection.focusNode;
+    const anchorEl = anchorNode instanceof HTMLElement ? anchorNode : anchorNode == null ? void 0 : anchorNode.parentElement;
+    const focusEl = focusNode instanceof HTMLElement ? focusNode : focusNode == null ? void 0 : focusNode.parentElement;
+    if (anchorEl == void 0 || focusEl == void 0) {
+      return void 0;
+    }
+    if (!view.contentEl.contains(anchorEl) || !view.contentEl.contains(focusEl)) {
+      return void 0;
+    }
+    if (anchorEl.closest(".cm-editor") != null || focusEl.closest(".cm-editor") != null) {
+      return void 0;
+    }
+    if (this.findTextSelectionRange(view, domText) == void 0) {
+      return void 0;
+    }
+    return { view, text: domText, rect };
+  }
+  updateSelectionActionPopup() {
+    const selection = this.getSelectionActionContext();
+    if (selection == void 0) {
+      this.hideSelectionActionPopup();
+      return;
+    }
+    const popup = this.createSelectionActionPopup();
+    const top = Math.max(8, Math.round(selection.rect.bottom + window.scrollY + 10));
+    const left = Math.max(8, Math.round(selection.rect.left + window.scrollX));
+    popup.style.top = `${top}px`;
+    popup.style.left = `${left}px`;
+    popup.style.display = "flex";
   }
   async startSLInterpreterRequest(selection, requestText, useNlp, trackSelection) {
     var _a;
@@ -3357,7 +3604,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     this.pauseAllRequests = true;
   }
   async startKnowledgeEdit(view, selection) {
-    var _a;
+    var _a, _b, _c;
     if (!this.pluginEnabled || selection.length == 0) {
       return;
     }
@@ -3367,12 +3614,13 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     slconsolelog(DebugLevMap.DebugLevel_Informative, (_a = this.slComm) == null ? void 0 : _a.slview, "Start KnowledgeEdit");
     const existingAnchor = this.extractSLInterpreterAnchorData(selection);
     const normalizedSelection = (existingAnchor == null ? void 0 : existingAnchor.slText) || (existingAnchor == null ? void 0 : existingAnchor.visibleText) || selection;
+    const selectionRange = existingAnchor != void 0 ? this.findSLInterpreterSelectionForAnchor(view, existingAnchor.visibleText, existingAnchor.slText) : this.findTextSelectionRange(view, selection);
     this.pauseAllRequests = true;
     this.updateOutstanding = false;
     this.updateTransferOutstanding = false;
     this.knowledgeEditLastCanvas = "";
-    const from = view.editor.getCursor("from");
-    const to = view.editor.getCursor("to");
+    const from = (_b = selectionRange == null ? void 0 : selectionRange.from) != null ? _b : view.editor.getCursor("from");
+    const to = (_c = selectionRange == null ? void 0 : selectionRange.to) != null ? _c : view.editor.getCursor("to");
     this.knowledgeEditSelection = { view, from, to, original: selection };
     const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
     const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", normalizedSelection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1]);
@@ -3498,12 +3746,14 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     this.pauseAllRequests = true;
   }
   async startSLInterpreter(view, selection) {
-    var _a, _b;
+    var _a, _b, _c, _d, _e, _f;
     const existingAnchor = this.extractSLInterpreterAnchorData(selection);
     const normalizedSelection = (_a = existingAnchor == null ? void 0 : existingAnchor.visibleText) != null ? _a : selection;
     const existingSLText = (_b = existingAnchor == null ? void 0 : existingAnchor.slText) != null ? _b : "";
-    const from = view.editor.getCursor("from");
-    const to = view.editor.getCursor("to");
+    const anchorSelection = existingAnchor != void 0 ? this.findSLInterpreterSelectionForAnchor(view, existingAnchor.visibleText, existingAnchor.slText) : void 0;
+    const textSelection = anchorSelection == void 0 ? this.findTextSelectionRange(view, normalizedSelection) : void 0;
+    const from = (_d = (_c = anchorSelection == null ? void 0 : anchorSelection.from) != null ? _c : textSelection == null ? void 0 : textSelection.from) != null ? _d : view.editor.getCursor("from");
+    const to = (_f = (_e = anchorSelection == null ? void 0 : anchorSelection.to) != null ? _e : textSelection == null ? void 0 : textSelection.to) != null ? _f : view.editor.getCursor("to");
     if (existingSLText.length > 0) {
       await this.startSLInterpreterFromSLText(normalizedSelection, existingSLText, { view, from, to });
       return;
@@ -3580,6 +3830,17 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     return "";
   }
   async onunload() {
+    var _a;
+    if (this.selectionActionUpdateDebounce != void 0) {
+      window.clearTimeout(this.selectionActionUpdateDebounce);
+      this.selectionActionUpdateDebounce = void 0;
+    }
+    if (this.selectionActionHideDebounce != void 0) {
+      window.clearTimeout(this.selectionActionHideDebounce);
+      this.selectionActionHideDebounce = void 0;
+    }
+    (_a = this.selectionActionPopupEl) == null ? void 0 : _a.remove();
+    this.selectionActionPopupEl = void 0;
     this.app.workspace.detachLeavesOfType(SemaLogicViewType);
     this.app.workspace.detachLeavesOfType(ASPViewType);
     this.detachKnowledgeCanvasLeaves();
@@ -3589,7 +3850,12 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     await this.stopSLInterpreter();
   }
   async loadSettings() {
-    this.settings = Object.assign({}, Default_profile, await this.loadData());
+    const loadedData = await this.loadData();
+    this.settings = Object.assign({}, Default_profile, loadedData);
+    if ((loadedData == null ? void 0 : loadedData.showSelectionActionButtons) == void 0) {
+      this.settings.showSelectionActionButtons = import_obsidian8.Platform.isAndroidApp;
+      await this.saveData(this.settings);
+    }
   }
   async saveSettings() {
     await this.saveData(this.settings);

@@ -1,4 +1,4 @@
-import { App, MarkdownView, Plugin, PluginSettingTab, requestUrl, Setting, WorkspaceLeaf, renderResults, RequestUrlParam, RequestUrlResponse, RequestUrlResponsePromise, ButtonComponent, MarkdownRenderChild, MarkdownPreviewView, View, TFile, normalizePath, MarkdownRenderer }
+import { App, MarkdownView, Plugin, PluginSettingTab, requestUrl, Setting, WorkspaceLeaf, renderResults, RequestUrlParam, RequestUrlResponse, RequestUrlResponsePromise, ButtonComponent, MarkdownRenderChild, MarkdownPreviewView, View, TFile, normalizePath, MarkdownRenderer, setIcon, Platform }
 	from 'obsidian';
 import { SemaLogicView, SemaLogicViewType } from "./src/view";
 import { ASPView, ASPViewType } from "./src/view_asp";
@@ -38,6 +38,7 @@ export interface SemaLogicPluginSettings {
 	mySLSettings: SLSetting[];
 	mySetting: number;
 	myDebugLevel: number;
+	showSelectionActionButtons: boolean;
 }
 export const Default_profile: SemaLogicPluginSettings = {
 	mySLSettings: [{
@@ -94,6 +95,7 @@ export const Default_profile: SemaLogicPluginSettings = {
 	],
 	mySetting: 0,
 	myDebugLevel: 0,
+	showSelectionActionButtons: false,
 }
 
 
@@ -309,6 +311,17 @@ class SemaLogicSettingTab extends PluginSettingTab {
 					//this.display()
 				}));
 
+		new Setting(containerEl)
+			.setName('Show selection action buttons')
+			.setDesc('Display SL-Edit and SL-Interpret buttons for text selections')
+			.addToggle(setting => setting
+				.setValue(this.plugin.settings.showSelectionActionButtons)
+				.onChange(async (value) => {
+					this.plugin.settings.showSelectionActionButtons = value;
+					await this.plugin.saveSettings()
+					this.plugin.updateSelectionActionButtonUi()
+				}));
+
 		// Headline for SettingsTab
 		containerEl.createEl('h1', { text: '_______________________________' });
 		containerEl.createEl('h2', { text: 'Settings for Transfer/ASP-View:' });
@@ -434,6 +447,10 @@ export default class SemaLogicPlugin extends Plugin {
 	canvasTooltipObservers: WeakMap<WorkspaceLeaf, MutationObserver> = new WeakMap()
 	interpreterModalEl: HTMLElement | undefined
 	interpreterModalCleanup: (() => void) | undefined
+	selectionActionPopupEl: HTMLElement | undefined
+	selectionActionHideDebounce: number | undefined
+	selectionActionUpdateDebounce: number | undefined
+	selectionActionHeaderButtons: WeakMap<WorkspaceLeaf, HTMLElement> = new WeakMap()
 	canvasNodeFileCache: Map<string, { mtime: number; map: Map<string, string>; textMap: Map<string, string>; dataMap: Map<string, string>; dataTextMap: Map<string, string>; idTextMap: Map<string, string>; dataIdTextMap: Map<string, string> }> = new Map()
 	knowledgeCanvasPath: string = "SemaLogic/KnowledgeGraph.canvas"
 	knowledgeLastRequestTime: number = 0
@@ -531,6 +548,8 @@ export default class SemaLogicPlugin extends Plugin {
 
 		this.registerEvent(this.app.workspace.on("layout-change", () => {
 			this.attachCanvasTooltipsToAllLeaves()
+			this.syncSelectionActionHeaderButtons()
+			this.hideSelectionActionPopup()
 			if (this.knowledgeEditLeaf != undefined && this.findKnowledgeEditLeaf() == undefined) {
 				this.stopKnowledgeEdit();
 			}
@@ -602,6 +621,29 @@ export default class SemaLogicPlugin extends Plugin {
 				this.semaLogicUpdate()
 			}, 200)
 		});
+		this.registerDomEvent(document, "selectionchange", () => {
+			this.scheduleSelectionActionPopupUpdate()
+		});
+		this.registerDomEvent(document, "mouseup", () => {
+			this.scheduleSelectionActionPopupUpdate()
+		});
+		this.registerDomEvent(document, "keyup", () => {
+			this.scheduleSelectionActionPopupUpdate()
+		});
+		this.registerDomEvent(document, "touchend", () => {
+			this.scheduleSelectionActionPopupUpdate(120)
+		});
+		this.registerDomEvent(document, "scroll", () => {
+			this.hideSelectionActionPopupSoon()
+		}, true);
+		this.registerDomEvent(window, "resize", () => {
+			this.hideSelectionActionPopup()
+		});
+		this.registerDomEvent(document, "pointerdown", (evt: PointerEvent) => {
+			const target = evt.target as HTMLElement | null
+			if (target != null && this.selectionActionPopupEl?.contains(target)) { return }
+			this.hideSelectionActionPopup()
+		});
 
 		this.registerMarkdownPostProcessor((element, context) => {
 			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, element)
@@ -619,6 +661,9 @@ export default class SemaLogicPlugin extends Plugin {
 		await this.loadSettings();
 		this.pluginEnabled = true
 		DebugLevel = this.settings.myDebugLevel
+		this.app.workspace.onLayoutReady(() => {
+			this.syncSelectionActionHeaderButtons()
+		})
 
 		// This adds a status bar for informations
 		this.myStatus = this.addStatusBarItem()
@@ -948,6 +993,195 @@ export default class SemaLogicPlugin extends Plugin {
 			from: view.editor.offsetToPos(fromOffset),
 			to: view.editor.offsetToPos(fromOffset + anchorText.length)
 		}
+	}
+
+	private createSelectionActionPopup(): HTMLElement {
+		if (this.selectionActionPopupEl != undefined) {
+			return this.selectionActionPopupEl
+		}
+		const popup = document.createElement("div")
+		popup.className = "sl-selection-actions"
+		popup.style.display = "none"
+
+		const editBtn = document.createElement("button")
+		editBtn.type = "button"
+		editBtn.className = "sl-selection-action-btn"
+		editBtn.textContent = "SL-Edit"
+		editBtn.addEventListener("click", async (evt) => {
+			evt.preventDefault()
+			evt.stopPropagation()
+			const selection = this.getSelectionActionContext()
+			if (selection == undefined) { return }
+			this.hideSelectionActionPopup()
+			await this.startKnowledgeEdit(selection.view, selection.text)
+		})
+
+		const interpretBtn = document.createElement("button")
+		interpretBtn.type = "button"
+		interpretBtn.className = "sl-selection-action-btn"
+		interpretBtn.textContent = "SL-Interpret"
+		interpretBtn.addEventListener("click", async (evt) => {
+			evt.preventDefault()
+			evt.stopPropagation()
+			const selection = this.getSelectionActionContext()
+			if (selection == undefined) { return }
+			this.hideSelectionActionPopup()
+			await this.startSLInterpreter(selection.view, selection.text)
+		})
+
+		popup.appendChild(editBtn)
+		popup.appendChild(interpretBtn)
+		document.body.appendChild(popup)
+		this.selectionActionPopupEl = popup
+		return popup
+	}
+
+	public updateSelectionActionButtonUi(): void {
+		this.syncSelectionActionHeaderButtons()
+		if (!this.settings.showSelectionActionButtons) {
+			this.hideSelectionActionPopup()
+			return
+		}
+		this.scheduleSelectionActionPopupUpdate()
+	}
+
+	private updateSelectionActionHeaderButton(button: HTMLElement): void {
+		const enabled = this.settings.showSelectionActionButtons
+		button.classList.toggle("is-active", enabled)
+		button.setAttribute("aria-label", enabled ? "Hide SL selection actions" : "Show SL selection actions")
+		button.setAttribute("title", enabled ? "Hide SL selection actions" : "Show SL selection actions")
+		setIcon(button, enabled ? "toggle-right" : "toggle-left")
+	}
+
+	private syncSelectionActionHeaderButtons(): void {
+		if (this.settings == undefined || !this.app.workspace.layoutReady) { return }
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (leaf.view.getViewType() != "markdown") { return }
+			const container = leaf.view.containerEl
+			if (container == undefined) { return }
+			const actionsEl = container.querySelector(".view-actions")
+			if (!(actionsEl instanceof HTMLElement)) { return }
+			let button = this.selectionActionHeaderButtons.get(leaf)
+			if (button == undefined || !actionsEl.contains(button)) {
+				const existing = actionsEl.querySelector("[data-sl-selection-toggle='1']")
+				if (existing instanceof HTMLElement) {
+					button = existing
+				} else {
+					const newButton = document.createElement("button")
+					newButton.type = "button"
+					button = newButton
+					button.className = "clickable-icon"
+					button.setAttribute("data-sl-selection-toggle", "1")
+					button.addEventListener("click", async (evt) => {
+						evt.preventDefault()
+						evt.stopPropagation()
+						this.settings.showSelectionActionButtons = !this.settings.showSelectionActionButtons
+						await this.saveSettings()
+						this.updateSelectionActionButtonUi()
+					})
+					actionsEl.insertBefore(button, actionsEl.firstChild)
+				}
+				this.selectionActionHeaderButtons.set(leaf, button)
+			}
+			this.updateSelectionActionHeaderButton(button)
+		})
+	}
+
+	private hideSelectionActionPopup(): void {
+		if (this.selectionActionHideDebounce != undefined) {
+			window.clearTimeout(this.selectionActionHideDebounce)
+			this.selectionActionHideDebounce = undefined
+		}
+		if (this.selectionActionPopupEl != undefined) {
+			this.selectionActionPopupEl.style.display = "none"
+		}
+	}
+
+	private hideSelectionActionPopupSoon(): void {
+		if (this.selectionActionHideDebounce != undefined) {
+			window.clearTimeout(this.selectionActionHideDebounce)
+		}
+		this.selectionActionHideDebounce = window.setTimeout(() => {
+			this.hideSelectionActionPopup()
+		}, 120)
+	}
+
+	private scheduleSelectionActionPopupUpdate(delay: number = 60): void {
+		if (this.selectionActionUpdateDebounce != undefined) {
+			window.clearTimeout(this.selectionActionUpdateDebounce)
+		}
+		this.selectionActionUpdateDebounce = window.setTimeout(() => {
+			this.selectionActionUpdateDebounce = undefined
+			this.updateSelectionActionPopup()
+		}, delay)
+	}
+
+	private getTextSelectionRect(selection: Selection): DOMRect | undefined {
+		if (selection.rangeCount == 0) { return undefined }
+		const range = selection.getRangeAt(0)
+		const rects = range.getClientRects()
+		if (rects.length > 0) {
+			return rects[0]
+		}
+		const rect = range.getBoundingClientRect()
+		if (rect.width == 0 && rect.height == 0) { return undefined }
+		return rect
+	}
+
+	private findTextSelectionRange(view: MarkdownView, selectedText: string): { view: MarkdownView; from: { line: number; ch: number }; to: { line: number; ch: number } } | undefined {
+		const text = selectedText.trim()
+		if (text.length == 0) { return undefined }
+		const docText = view.editor.getValue()
+		const cursor = view.editor.getCursor("from")
+		const preferredOffset = view.editor.posToOffset(cursor)
+		const fromOffset = this.findNearestTextOccurrence(docText, text, preferredOffset)
+		if (fromOffset < 0) { return undefined }
+		return {
+			view,
+			from: view.editor.offsetToPos(fromOffset),
+			to: view.editor.offsetToPos(fromOffset + text.length)
+		}
+	}
+
+	private getSelectionActionContext(): { view: MarkdownView; text: string; rect: DOMRect } | undefined {
+		if (!this.pluginEnabled || this.pauseAllRequests || !this.settings.showSelectionActionButtons) { return undefined }
+		const view = this.app.workspace.getActiveViewOfType(MarkdownView)
+		if (view == undefined) { return undefined }
+
+		const domSelection = window.getSelection()
+		const domText = domSelection?.toString().trim() ?? ""
+		const rect = domSelection != null ? this.getTextSelectionRect(domSelection) : undefined
+		const editorSelection = view.editor.getSelection()
+
+		if (editorSelection.trim().length > 0) {
+			if (rect == undefined) { return undefined }
+			return { view, text: editorSelection, rect }
+		}
+
+		if (domSelection == null || domText.length == 0 || rect == undefined) { return undefined }
+		const anchorNode = domSelection.anchorNode
+		const focusNode = domSelection.focusNode
+		const anchorEl = anchorNode instanceof HTMLElement ? anchorNode : anchorNode?.parentElement
+		const focusEl = focusNode instanceof HTMLElement ? focusNode : focusNode?.parentElement
+		if (anchorEl == undefined || focusEl == undefined) { return undefined }
+		if (!view.contentEl.contains(anchorEl) || !view.contentEl.contains(focusEl)) { return undefined }
+		if (anchorEl.closest(".cm-editor") != null || focusEl.closest(".cm-editor") != null) { return undefined }
+		if (this.findTextSelectionRange(view, domText) == undefined) { return undefined }
+		return { view, text: domText, rect }
+	}
+
+	private updateSelectionActionPopup(): void {
+		const selection = this.getSelectionActionContext()
+		if (selection == undefined) {
+			this.hideSelectionActionPopup()
+			return
+		}
+		const popup = this.createSelectionActionPopup()
+		const top = Math.max(8, Math.round(selection.rect.bottom + window.scrollY + 10))
+		const left = Math.max(8, Math.round(selection.rect.left + window.scrollX))
+		popup.style.top = `${top}px`
+		popup.style.left = `${left}px`
+		popup.style.display = "flex"
 	}
 
 	private async startSLInterpreterRequest(selection: string, requestText: string, useNlp: boolean, trackSelection?: { view: MarkdownView; from: { line: number; ch: number }; to: { line: number; ch: number } }): Promise<void> {
@@ -1773,13 +2007,16 @@ export default class SemaLogicPlugin extends Plugin {
 		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, "Start KnowledgeEdit")
 		const existingAnchor = this.extractSLInterpreterAnchorData(selection)
 		const normalizedSelection = existingAnchor?.slText || existingAnchor?.visibleText || selection
+		const selectionRange = existingAnchor != undefined
+			? this.findSLInterpreterSelectionForAnchor(view, existingAnchor.visibleText, existingAnchor.slText)
+			: this.findTextSelectionRange(view, selection)
 		this.pauseAllRequests = true
 		this.updateOutstanding = false
 		this.updateTransferOutstanding = false
 
 		this.knowledgeEditLastCanvas = ""
-		const from = view.editor.getCursor("from")
-		const to = view.editor.getCursor("to")
+		const from = selectionRange?.from ?? view.editor.getCursor("from")
+		const to = selectionRange?.to ?? view.editor.getCursor("to")
 		this.knowledgeEditSelection = { view, from, to, original: selection }
 
 		const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
@@ -1912,8 +2149,12 @@ export default class SemaLogicPlugin extends Plugin {
 		const existingAnchor = this.extractSLInterpreterAnchorData(selection)
 		const normalizedSelection = existingAnchor?.visibleText ?? selection
 		const existingSLText = existingAnchor?.slText ?? ""
-		const from = view.editor.getCursor("from")
-		const to = view.editor.getCursor("to")
+		const anchorSelection = existingAnchor != undefined
+			? this.findSLInterpreterSelectionForAnchor(view, existingAnchor.visibleText, existingAnchor.slText)
+			: undefined
+		const textSelection = anchorSelection == undefined ? this.findTextSelectionRange(view, normalizedSelection) : undefined
+		const from = anchorSelection?.from ?? textSelection?.from ?? view.editor.getCursor("from")
+		const to = anchorSelection?.to ?? textSelection?.to ?? view.editor.getCursor("to")
 		if (existingSLText.length > 0) {
 			await this.startSLInterpreterFromSLText(normalizedSelection, existingSLText, { view, from, to })
 			return
@@ -1993,6 +2234,16 @@ export default class SemaLogicPlugin extends Plugin {
 	}
 
 	async onunload() {
+		if (this.selectionActionUpdateDebounce != undefined) {
+			window.clearTimeout(this.selectionActionUpdateDebounce)
+			this.selectionActionUpdateDebounce = undefined
+		}
+		if (this.selectionActionHideDebounce != undefined) {
+			window.clearTimeout(this.selectionActionHideDebounce)
+			this.selectionActionHideDebounce = undefined
+		}
+		this.selectionActionPopupEl?.remove()
+		this.selectionActionPopupEl = undefined
 		// commented out due to publishing process - see PlugInGuideline - could be deleted
 		this.app.workspace.detachLeavesOfType(SemaLogicViewType);
 		this.app.workspace.detachLeavesOfType(ASPViewType);
@@ -2006,7 +2257,12 @@ export default class SemaLogicPlugin extends Plugin {
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, Default_profile, await this.loadData());
+		const loadedData = await this.loadData();
+		this.settings = Object.assign({}, Default_profile, loadedData);
+		if (loadedData?.showSelectionActionButtons == undefined) {
+			this.settings.showSelectionActionButtons = Platform.isAndroidApp;
+			await this.saveData(this.settings);
+		}
 	}
 
 	async saveSettings() {

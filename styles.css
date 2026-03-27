@@ -96,3 +96,29 @@ If your plugin does not need CSS, delete this file.
 .sl-interpreter-modal-close {
     align-self: flex-end;
 }
+
+.sl-selection-actions {
+    position: absolute;
+    z-index: 10002;
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 10px;
+    background: var(--background-primary);
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+}
+
+.sl-selection-action-btn {
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    background: var(--interactive-normal);
+    color: var(--text-normal);
+    padding: 6px 10px;
+    font-size: 0.9em;
+    line-height: 1.2;
+}
+
+.sl-selection-action-btn:hover {
+    background: var(--interactive-hover);
+}
