@@ -626,7 +626,7 @@ export default class SemaLogicPlugin extends Plugin {
 		this.slComm = new SemaLogicPluginComm
 		this.slComm.setSLClass(this)
 
-		this.activateView();
+		await this.activateView();
 		this.statusSL = true
 		// Clear SemaLogic to start with a clear service
 		await this.semaLogicReset();
@@ -703,7 +703,9 @@ export default class SemaLogicPlugin extends Plugin {
 		if (this.statusSL) {
 			this.semaLogicReset();
 			// Default is that SemaLogicView is activated but it can be deactivated by click on Ribbon Icon
-			this.slComm.slview.setNewInitial(this.settings.mySLSettings[this.settings.mySetting].myOutputFormat, true);
+			if (this.slComm.slview != undefined) {
+				this.slComm.slview.setNewInitial(this.settings.mySLSettings[this.settings.mySetting].myOutputFormat, true);
+			}
 			this.semaLogicParse();
 		}
 		this.registerEditorExtension([EditorView.updateListener.of(this.handleUpdate), slTermHider]);
@@ -715,6 +717,10 @@ export default class SemaLogicPlugin extends Plugin {
 		}
 
 		this.setViews();
+		if (this.slComm?.slview == undefined) {
+			slconsolelog(DebugLevMap.DebugLevel_Informative, undefined, "Skip SemaLogicParse: slview not ready")
+			return [];
+		}
 
 		slconsolelog(DebugLevMap.DebugLevel_, this.slComm.slview, 'Start SemaLogicParse')
 		let results: Node[] = [];
@@ -1517,7 +1523,9 @@ export default class SemaLogicPlugin extends Plugin {
 		}
 		this.setViews()
 		this.handlePing()
-		this.semaLogicUpdate()
+		if (this.slComm.slview != undefined) {
+			this.semaLogicUpdate()
+		}
 		this.pluginEnabled = true
 		this.statusSL = true
 		this.myStatus.setText('SemaLogic is on');
@@ -1560,7 +1568,7 @@ export default class SemaLogicPlugin extends Plugin {
 				}
 			}
 		})
-		if (!found) {
+		if (!found && this.app.workspace.layoutReady) {
 			slconsolelog(DebugLevMap.DebugLevel_All, undefined, 'Split')
 			slv = this.app.workspace.getLeaf('split');
 			slconsolelog(DebugLevMap.DebugLevel_All, undefined, slv)
@@ -1583,7 +1591,7 @@ export default class SemaLogicPlugin extends Plugin {
 				}
 			}
 		})
-		if (!found) {
+		if (!found && this.app.workspace.layoutReady) {
 			slconsolelog(DebugLevMap.DebugLevel_All, undefined, 'Split')
 			slv = this.app.workspace.getLeaf('split');
 			slconsolelog(DebugLevMap.DebugLevel_All, undefined, slv)
@@ -2042,6 +2050,12 @@ export default class SemaLogicPlugin extends Plugin {
 		this.UpdateProcessing = true
 
 		if (setView == true || setView == undefined) { this.setViews() }
+		if (this.slComm?.slview == undefined) {
+			slconsolelog(DebugLevMap.DebugLevel_Informative, undefined, "Skip SemaLogicUpdate: slview not ready")
+			this.waitingForResponse = false
+			this.UpdateProcessing = false
+			return
+		}
 
 		slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, 'Start SemaLogicUpdate')
 

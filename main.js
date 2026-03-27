@@ -2243,7 +2243,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     this.myStatus = this.addStatusBarItem();
     this.slComm = new SemaLogicPluginComm2();
     this.slComm.setSLClass(this);
-    this.activateView();
+    await this.activateView();
     this.statusSL = true;
     await this.semaLogicReset();
     this.setViews();
@@ -2304,16 +2304,23 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     });
     if (this.statusSL) {
       this.semaLogicReset();
-      this.slComm.slview.setNewInitial(this.settings.mySLSettings[this.settings.mySetting].myOutputFormat, true);
+      if (this.slComm.slview != void 0) {
+        this.slComm.slview.setNewInitial(this.settings.mySLSettings[this.settings.mySetting].myOutputFormat, true);
+      }
       this.semaLogicParse();
     }
     this.registerEditorExtension([import_view4.EditorView.updateListener.of(this.handleUpdate), slTermHider]);
   }
   async semaLogicParse() {
+    var _a;
     if (this.pauseAllRequests) {
       return [];
     }
     this.setViews();
+    if (((_a = this.slComm) == null ? void 0 : _a.slview) == void 0) {
+      slconsolelog(DebugLevMap.DebugLevel_Informative, void 0, "Skip SemaLogicParse: slview not ready");
+      return [];
+    }
     slconsolelog(DebugLevMap.DebugLevel_, this.slComm.slview, "Start SemaLogicParse");
     let results = [];
     this.lastUpdate = Date.now();
@@ -3117,7 +3124,9 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     }
     this.setViews();
     this.handlePing();
-    this.semaLogicUpdate();
+    if (this.slComm.slview != void 0) {
+      this.semaLogicUpdate();
+    }
     this.pluginEnabled = true;
     this.statusSL = true;
     this.myStatus.setText("SemaLogic is on");
@@ -3154,7 +3163,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
         }
       }
     });
-    if (!found) {
+    if (!found && this.app.workspace.layoutReady) {
       slconsolelog(DebugLevMap.DebugLevel_All, void 0, "Split");
       slv = this.app.workspace.getLeaf("split");
       slconsolelog(DebugLevMap.DebugLevel_All, void 0, slv);
@@ -3174,7 +3183,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
         }
       }
     });
-    if (!found) {
+    if (!found && this.app.workspace.layoutReady) {
       slconsolelog(DebugLevMap.DebugLevel_All, void 0, "Split");
       slv = this.app.workspace.getLeaf("split");
       slconsolelog(DebugLevMap.DebugLevel_All, void 0, slv);
@@ -3593,10 +3602,17 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     semaLogicPing(this.settings, this.lastUpdate);
   }
   semaLogicUpdate(setView) {
+    var _a;
     this.waitingForResponse = true;
     this.UpdateProcessing = true;
     if (setView == true || setView == void 0) {
       this.setViews();
+    }
+    if (((_a = this.slComm) == null ? void 0 : _a.slview) == void 0) {
+      slconsolelog(DebugLevMap.DebugLevel_Informative, void 0, "Skip SemaLogicUpdate: slview not ready");
+      this.waitingForResponse = false;
+      this.UpdateProcessing = false;
+      return;
     }
     slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, "Start SemaLogicUpdate");
     this.setViews();
