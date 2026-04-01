@@ -2699,6 +2699,21 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     }
     return rect;
   }
+  getEditorSelectionRect(view) {
+    const selection = window.getSelection();
+    const domRect = selection != null ? this.getTextSelectionRect(selection) : void 0;
+    if (domRect != void 0) {
+      return domRect;
+    }
+    const selectionEls = Array.from(view.contentEl.querySelectorAll(".cm-selectionBackground"));
+    for (const el of selectionEls) {
+      const rect = el.getBoundingClientRect();
+      if (rect.width > 0 || rect.height > 0) {
+        return rect;
+      }
+    }
+    return void 0;
+  }
   findTextSelectionRange(view, selectedText) {
     const text = selectedText.trim();
     if (text.length == 0) {
@@ -2731,10 +2746,11 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     const rect = domSelection != null ? this.getTextSelectionRect(domSelection) : void 0;
     const editorSelection = view.editor.getSelection();
     if (editorSelection.trim().length > 0) {
-      if (rect == void 0) {
+      const editorRect = this.getEditorSelectionRect(view);
+      if (editorRect == void 0) {
         return void 0;
       }
-      return { view, text: editorSelection, rect };
+      return { view, text: editorSelection, rect: editorRect };
     }
     if (domSelection == null || domText.length == 0 || rect == void 0) {
       return void 0;

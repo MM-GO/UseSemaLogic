@@ -1128,6 +1128,22 @@ export default class SemaLogicPlugin extends Plugin {
 		return rect
 	}
 
+	private getEditorSelectionRect(view: MarkdownView): DOMRect | undefined {
+		const selection = window.getSelection()
+		const domRect = selection != null ? this.getTextSelectionRect(selection) : undefined
+		if (domRect != undefined) {
+			return domRect
+		}
+		const selectionEls = Array.from(view.contentEl.querySelectorAll(".cm-selectionBackground")) as HTMLElement[]
+		for (const el of selectionEls) {
+			const rect = el.getBoundingClientRect()
+			if (rect.width > 0 || rect.height > 0) {
+				return rect
+			}
+		}
+		return undefined
+	}
+
 	private findTextSelectionRange(view: MarkdownView, selectedText: string): { view: MarkdownView; from: { line: number; ch: number }; to: { line: number; ch: number } } | undefined {
 		const text = selectedText.trim()
 		if (text.length == 0) { return undefined }
@@ -1154,8 +1170,9 @@ export default class SemaLogicPlugin extends Plugin {
 		const editorSelection = view.editor.getSelection()
 
 		if (editorSelection.trim().length > 0) {
-			if (rect == undefined) { return undefined }
-			return { view, text: editorSelection, rect }
+			const editorRect = this.getEditorSelectionRect(view)
+			if (editorRect == undefined) { return undefined }
+			return { view, text: editorSelection, rect: editorRect }
 		}
 
 		if (domSelection == null || domText.length == 0 || rect == undefined) { return undefined }
