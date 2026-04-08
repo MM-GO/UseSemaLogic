@@ -1,4 +1,4 @@
-import { App, MarkdownView, Plugin, PluginSettingTab, requestUrl, Setting, WorkspaceLeaf, renderResults, RequestUrlParam, RequestUrlResponse, RequestUrlResponsePromise, ButtonComponent, MarkdownRenderChild, MarkdownPreviewView, View, TFile, normalizePath, MarkdownRenderer, setIcon, Platform }
+import { App, MarkdownView, Plugin, PluginSettingTab, requestUrl, Setting, WorkspaceLeaf, renderResults, RequestUrlParam, RequestUrlResponse, RequestUrlResponsePromise, ButtonComponent, MarkdownRenderChild, MarkdownPreviewView, View, TFile, normalizePath, MarkdownRenderer, setIcon, Platform, Notice, Modal, TextComponent }
 	from 'obsidian';
 import { SemaLogicView, SemaLogicViewType } from "./src/view";
 import { ASPView, ASPViewType } from "./src/view_asp";
@@ -15,6 +15,175 @@ import { slTermHider } from "src/sl_term_hider";
 export var DebugLevel = 0;
 
 export var mygSID = String(Math.round(Math.random() * 99999999999))
+const SL_DEBUG_BUILD = "canvas-anchor-debug-2026-04-08-01"
+
+type CanvasNodeInsertType = "AND" | "OR" | "LEAF" | "SYMBOL" | "ATTRIBUTE"
+type CanvasEdgeInsertType = "as_Defined" | "as_calculated"
+
+type CanvasFileNode = {
+	id: string
+	type: string
+	text?: string
+	x: number
+	y: number
+	width?: number
+	height?: number
+	color?: string
+	meta?: Record<string, unknown>
+}
+
+type CanvasFileEdge = {
+	id: string
+	fromNode: string
+	fromSide: string
+	toNode: string
+	toSide: string
+	color?: string
+	meta?: Record<string, unknown>
+}
+
+type CanvasFileData = {
+	nodes: CanvasFileNode[]
+	edges: CanvasFileEdge[]
+	files?: unknown[]
+}
+
+type CanvasOrConfig = {
+	min: string
+	max: string
+}
+
+type CanvasNodeContentConfig = {
+	orConfig?: CanvasOrConfig
+	value?: string
+}
+
+class CanvasNodeIdModal extends Modal {
+	private readonly suggestedId: string
+	private readonly nodeType: CanvasNodeInsertType
+	private readonly resolveValue: (value: string | undefined) => void
+	private inputComponent: TextComponent | undefined
+
+	constructor(app: App, nodeType: CanvasNodeInsertType, suggestedId: string, resolveValue: (value: string | undefined) => void) {
+		super(app)
+		this.nodeType = nodeType
+		this.suggestedId = suggestedId
+		this.resolveValue = resolveValue
+	}
+
+	onOpen(): void {
+		const { contentEl, titleEl } = this
+		titleEl.setText(`Insert ${this.nodeType} node`)
+		contentEl.empty()
+
+		const setting = new Setting(contentEl)
+			.setName("Node ID")
+			.setDesc("Enter the node identifier for the new canvas node.")
+			.addText((text) => {
+				this.inputComponent = text
+				text.setValue(this.suggestedId)
+				text.inputEl.select()
+				text.inputEl.addEventListener("keydown", (evt) => {
+					if (evt.key == "Enter") {
+						evt.preventDefault()
+						this.submit()
+					}
+				})
+			})
+
+		setting.addButton((button) => {
+			button.setButtonText("Add")
+			button.setCta()
+			button.onClick(() => this.submit())
+		})
+		setting.addExtraButton((button) => {
+			button.setIcon("cross")
+			button.setTooltip("Cancel")
+			button.onClick(() => {
+				this.resolveValue(undefined)
+				this.close()
+			})
+		})
+	}
+
+	onClose(): void {
+		this.contentEl.empty()
+	}
+
+	private submit(): void {
+		const value = this.inputComponent?.getValue().trim() ?? ""
+		this.resolveValue(value.length > 0 ? value : undefined)
+		this.close()
+	}
+}
+
+class CanvasOrConfigModal extends Modal {
+	private readonly resolveValue: (value: CanvasOrConfig | undefined) => void
+	private minComponent: TextComponent | undefined
+	private maxComponent: TextComponent | undefined
+
+	constructor(app: App, resolveValue: (value: CanvasOrConfig | undefined) => void) {
+		super(app)
+		this.resolveValue = resolveValue
+	}
+
+	onOpen(): void {
+		const { contentEl, titleEl } = this
+		titleEl.setText("Configure OR node")
+		contentEl.empty()
+
+		new Setting(contentEl)
+			.setName("Min")
+			.setDesc("Minimum number of required options.")
+			.addText((text) => {
+				this.minComponent = text
+				text.setValue("1")
+			})
+
+		const maxSetting = new Setting(contentEl)
+			.setName("Max")
+			.setDesc("Maximum number of allowed options.")
+			.addText((text) => {
+				this.maxComponent = text
+				text.setValue("1")
+				text.inputEl.addEventListener("keydown", (evt) => {
+					if (evt.key == "Enter") {
+						evt.preventDefault()
+						this.submit()
+					}
+				})
+			})
+
+		maxSetting.addButton((button) => {
+			button.setButtonText("Add")
+			button.setCta()
+			button.onClick(() => this.submit())
+		})
+		maxSetting.addExtraButton((button) => {
+			button.setIcon("cross")
+			button.setTooltip("Cancel")
+			button.onClick(() => {
+				this.resolveValue(undefined)
+				this.close()
+			})
+		})
+	}
+
+	onClose(): void {
+		this.contentEl.empty()
+	}
+
+	private submit(): void {
+		const min = this.minComponent?.getValue().trim() ?? ""
+		const max = this.maxComponent?.getValue().trim() ?? ""
+		if (min.length == 0 || max.length == 0) {
+			new Notice("Min and Max are required.")
+			return
+		}
+		this.resolveValue({ min, max })
+		this.close()
+	}
+}
 
 export interface SLSetting {
 	myPort: string;
@@ -452,6 +621,10 @@ export default class SemaLogicPlugin extends Plugin {
 	selectionActionUpdateDebounce: number | undefined
 	selectionActionHeaderButtons: WeakMap<WorkspaceLeaf, HTMLElement> = new WeakMap()
 	canvasNodeFileCache: Map<string, { mtime: number; map: Map<string, string>; textMap: Map<string, string>; dataMap: Map<string, string>; dataTextMap: Map<string, string>; idTextMap: Map<string, string>; dataIdTextMap: Map<string, string> }> = new Map()
+	canvasNodeInsertSelections: Map<string, CanvasNodeInsertType> = new Map()
+	canvasEdgeModes: Map<string, CanvasEdgeInsertType> = new Map()
+	canvasKnownEdgeIds: Map<string, Set<string>> = new Map()
+	canvasEdgeModeWriteInFlight: Set<string> = new Set()
 	knowledgeCanvasPath: string = "SemaLogic/KnowledgeGraph.canvas"
 	knowledgeLastRequestTime: number = 0
 	knowledgeLeaf: WorkspaceLeaf | undefined
@@ -528,6 +701,7 @@ export default class SemaLogicPlugin extends Plugin {
 	}
 
 	async onload(): Promise<void> {
+		slconsolelog(DebugLevMap.DebugLevel_Informative, undefined, `SemaLogic debug build: ${SL_DEBUG_BUILD}`)
 		this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor, view) => {
 			if (!this.pluginEnabled) { return }
 			const selection = editor.getSelection()
@@ -560,6 +734,9 @@ export default class SemaLogicPlugin extends Plugin {
 
 		this.registerEvent(this.app.vault.on("modify", (file) => {
 			const path = normalizePath(file.path)
+			if (file instanceof TFile && this.canvasEdgeModes.has(path)) {
+				this.syncNewCanvasEdgesToMode(file)
+			}
 			if (path == normalizePath(this.knowledgeEditCanvasPath)) {
 				if (!this.pauseAllRequests || this.knowledgeEditSelection == undefined) { return }
 				if (this.knowledgeEditDebounce != undefined) {
@@ -1311,18 +1488,37 @@ export default class SemaLogicPlugin extends Plugin {
 		const view: any = leaf.view
 		const container: HTMLElement | null = view?.containerEl ?? null
 		if (!container) { return }
+		this.bindCanvasSelectionTracking(container)
 		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, "Attach canvas tooltips: observer start")
 		const observer = new MutationObserver(() => {
-			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, "Canvas DOM mutation")
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas DOM mutation [${SL_DEBUG_BUILD}]`)
+			this.refreshCanvasNodeAnchorTracking(leaf)
 			this.refreshCanvasTooltips(leaf)
+			this.updateCanvasMenuAnchorState(leaf)
+			this.addCanvasToolbarInsertControls(leaf)
 			this.addCanvasInfoButton(leaf)
+			this.addCanvasInsertControls(leaf)
+			this.addCanvasChangeControls(leaf)
+			this.addCanvasMenuEdgeModeControls(leaf)
+			this.addCanvasEdgeModeControls(leaf)
+			this.updateCanvasEdgeModeControls(leaf)
+			this.updateCanvasToolbarVisibility(leaf)
 			this.updateCanvasInfoButton(leaf)
 		})
 		observer.observe(container, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] })
 		this.canvasTooltipObservers.set(leaf, observer)
 		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, "Attach canvas tooltips: initial refresh")
+		this.refreshCanvasNodeAnchorTracking(leaf)
 		this.refreshCanvasTooltips(leaf)
+		this.updateCanvasMenuAnchorState(leaf)
+		this.addCanvasToolbarInsertControls(leaf)
 		this.addCanvasInfoButton(leaf)
+		this.addCanvasInsertControls(leaf)
+		this.addCanvasChangeControls(leaf)
+		this.addCanvasMenuEdgeModeControls(leaf)
+		this.addCanvasEdgeModeControls(leaf)
+		this.updateCanvasEdgeModeControls(leaf)
+		this.updateCanvasToolbarVisibility(leaf)
 		this.updateCanvasInfoButton(leaf)
 	}
 
@@ -1395,6 +1591,27 @@ export default class SemaLogicPlugin extends Plugin {
 			el.addEventListener("mouseleave", () => {
 				this.hideCanvasTooltip()
 			})
+		}
+	}
+
+	private refreshCanvasNodeAnchorTracking(leaf: WorkspaceLeaf): void {
+		const view: any = leaf.view
+		const container: HTMLElement | null = view?.containerEl ?? null
+		if (!container) { return }
+		const nodes = Array.from(container.querySelectorAll<HTMLElement>("[data-node-id], .canvas-node[data-id], [data-id]"))
+		for (const node of nodes) {
+			if (node.closest(".canvas-menu")) { continue }
+			if (node.dataset.slAnchorBound == "1") { continue }
+			node.dataset.slAnchorBound = "1"
+			const rememberNode = () => {
+				const nodeId = this.extractCanvasDomNodeId(node)
+				if (!nodeId) { return }
+				container.dataset.slLastNodeId = nodeId
+				slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas node anchor bound: last node=${nodeId}`)
+			}
+			node.addEventListener("pointerdown", rememberNode, true)
+			node.addEventListener("mousedown", rememberNode, true)
+			node.addEventListener("click", rememberNode, true)
 		}
 	}
 
@@ -1649,6 +1866,620 @@ export default class SemaLogicPlugin extends Plugin {
 		this.updateCanvasInfoButton(leaf)
 	}
 
+	private addCanvasInsertControls(leaf: WorkspaceLeaf): void {
+		const view: any = leaf.view
+		const canvasFile: TFile | undefined = view?.file
+		if (!canvasFile) { return }
+		const container: HTMLElement | null = view?.containerEl ?? null
+		if (!container) { return }
+		if (this.getFocusedCanvasEdge(container)) { return }
+		const menu = container.querySelector<HTMLElement>(".canvas-menu")
+		if (!menu || menu.querySelector(".sl-canvas-node-select")) { return }
+		const currentAnchorNodeId = this.getFocusedCanvasNodeId(container)
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas insert controls [${SL_DEBUG_BUILD}]: focused anchor=${currentAnchorNodeId ?? ""}`)
+		if (currentAnchorNodeId) {
+			menu.dataset.slAnchorNodeId = currentAnchorNodeId
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas insert controls: menu anchor set=${menu.dataset.slAnchorNodeId}`)
+		}
+
+		const nodeSelect = document.createElement("select")
+		nodeSelect.className = "sl-canvas-node-select"
+		nodeSelect.setAttribute("aria-label", "Insert SemaLogic node")
+		nodeSelect.style.pointerEvents = "auto"
+		nodeSelect.style.position = "relative"
+		nodeSelect.style.zIndex = "21"
+		nodeSelect.style.maxWidth = "120px"
+		nodeSelect.style.fontSize = "11px"
+		nodeSelect.style.marginLeft = "8px"
+		nodeSelect.style.border = "1px solid rgba(148, 163, 184, 0.6)"
+		nodeSelect.style.borderRadius = "6px"
+		nodeSelect.style.background = "rgba(255, 255, 255, 0.95)"
+		this.appendCanvasSelectOption(nodeSelect, "", "Insert node")
+		this.appendCanvasSelectOption(nodeSelect, "SYMBOL", "SYMBOL")
+		this.appendCanvasSelectOption(nodeSelect, "AND", "AND")
+		this.appendCanvasSelectOption(nodeSelect, "OR", "OR")
+		this.appendCanvasSelectOption(nodeSelect, "LEAF", "LEAF")
+		this.appendCanvasSelectOption(nodeSelect, "ATTRIBUTE", "ATTRIBUTE")
+		const lastSelection = this.canvasNodeInsertSelections.get(canvasFile.path)
+		if (lastSelection) {
+			nodeSelect.value = lastSelection
+		}
+		this.bindCanvasMenuControlEvents(nodeSelect)
+		nodeSelect.addEventListener("change", () => {
+			const selected = nodeSelect.value as CanvasNodeInsertType | ""
+			if (selected) {
+				this.canvasNodeInsertSelections.set(canvasFile.path, selected)
+			}
+		})
+
+		const addButton = document.createElement("button")
+		addButton.className = "clickable-icon sl-canvas-node-add-btn"
+		addButton.type = "button"
+		addButton.textContent = "Add"
+		addButton.setAttribute("aria-label", "Add selected node type")
+		addButton.style.fontSize = "11px"
+		addButton.style.lineHeight = "1"
+		addButton.style.padding = "4px 8px"
+		addButton.style.borderRadius = "6px"
+		addButton.style.border = "1px solid rgba(148, 163, 184, 0.6)"
+		addButton.style.background = "rgba(255, 255, 255, 0.95)"
+		addButton.style.color = "#334155"
+		addButton.style.cursor = "pointer"
+		this.bindCanvasMenuControlEvents(addButton)
+		addButton.addEventListener("click", async (evt) => {
+			evt.preventDefault()
+			evt.stopPropagation()
+			const selected = nodeSelect.value as CanvasNodeInsertType | ""
+			if (!selected) {
+				new Notice("Select a node type first.")
+				return
+			}
+			this.canvasNodeInsertSelections.set(canvasFile.path, selected)
+			const anchorNodeId = this.getCanvasMenuAnchorNodeId(container) || currentAnchorNodeId
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas insert click: selected=${selected} anchor=${anchorNodeId ?? ""}`)
+			if (!anchorNodeId) {
+				new Notice("Select a node first.")
+				return
+			}
+			await this.insertCanvasNode(leaf, selected, anchorNodeId)
+		})
+
+		menu.appendChild(nodeSelect)
+		menu.appendChild(addButton)
+	}
+
+	private addCanvasChangeControls(leaf: WorkspaceLeaf): void {
+		const view: any = leaf.view
+		const canvasFile: TFile | undefined = view?.file
+		if (!canvasFile) { return }
+		const container: HTMLElement | null = view?.containerEl ?? null
+		if (!container) { return }
+		if (this.getFocusedCanvasEdge(container)) { return }
+		const menu = container.querySelector<HTMLElement>(".canvas-menu")
+		if (!menu || menu.querySelector(".sl-canvas-node-change-select")) { return }
+		const currentAnchorNodeId = this.getFocusedCanvasNodeId(container)
+		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas change controls [${SL_DEBUG_BUILD}]: focused anchor=${currentAnchorNodeId ?? ""}`)
+		if (currentAnchorNodeId) {
+			menu.dataset.slAnchorNodeId = currentAnchorNodeId
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas change controls: menu anchor set=${menu.dataset.slAnchorNodeId}`)
+		}
+
+		const changeSelect = document.createElement("select")
+		changeSelect.className = "sl-canvas-node-change-select"
+		changeSelect.setAttribute("aria-label", "Change SemaLogic node concept")
+		changeSelect.style.pointerEvents = "auto"
+		changeSelect.style.position = "relative"
+		changeSelect.style.zIndex = "21"
+		changeSelect.style.maxWidth = "120px"
+		changeSelect.style.fontSize = "11px"
+		changeSelect.style.marginLeft = "8px"
+		changeSelect.style.border = "1px solid rgba(148, 163, 184, 0.6)"
+		changeSelect.style.borderRadius = "6px"
+		changeSelect.style.background = "rgba(255, 255, 255, 0.95)"
+		this.appendCanvasSelectOption(changeSelect, "", "Change node")
+		this.appendCanvasSelectOption(changeSelect, "SYMBOL", "SYMBOL")
+		this.appendCanvasSelectOption(changeSelect, "AND", "AND")
+		this.appendCanvasSelectOption(changeSelect, "OR", "OR")
+		this.appendCanvasSelectOption(changeSelect, "LEAF", "LEAF")
+		this.appendCanvasSelectOption(changeSelect, "ATTRIBUTE", "ATTRIBUTE")
+		this.bindCanvasMenuControlEvents(changeSelect)
+
+		const changeButton = document.createElement("button")
+		changeButton.className = "clickable-icon sl-canvas-node-change-btn"
+		changeButton.type = "button"
+		changeButton.textContent = "Change"
+		changeButton.setAttribute("aria-label", "Change selected node concept")
+		changeButton.style.fontSize = "11px"
+		changeButton.style.lineHeight = "1"
+		changeButton.style.padding = "4px 8px"
+		changeButton.style.borderRadius = "6px"
+		changeButton.style.border = "1px solid rgba(148, 163, 184, 0.6)"
+		changeButton.style.background = "rgba(255, 255, 255, 0.95)"
+		changeButton.style.color = "#334155"
+		changeButton.style.cursor = "pointer"
+		this.bindCanvasMenuControlEvents(changeButton)
+		changeButton.addEventListener("click", async (evt) => {
+			evt.preventDefault()
+			evt.stopPropagation()
+			const selected = changeSelect.value as CanvasNodeInsertType | ""
+			if (!selected) {
+				new Notice("Select a concept first.")
+				return
+			}
+			const anchorNodeId = this.getCanvasMenuAnchorNodeId(container) || currentAnchorNodeId
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas change click [${SL_DEBUG_BUILD}]: selected=${selected} anchor=${anchorNodeId ?? ""}`)
+			if (!anchorNodeId) {
+				new Notice("Select a node first.")
+				return
+			}
+			await this.changeCanvasNodeConcept(leaf, anchorNodeId, selected)
+		})
+
+		menu.appendChild(changeSelect)
+		menu.appendChild(changeButton)
+	}
+
+	private removeCanvasInsertControls(leaf: WorkspaceLeaf): void {
+		const view: any = leaf.view
+		const container: HTMLElement | null = view?.containerEl ?? null
+		if (!container) { return }
+		container.querySelector(".sl-canvas-node-select")?.remove()
+		container.querySelector(".sl-canvas-node-add-btn")?.remove()
+	}
+
+	private addCanvasToolbarInsertControls(leaf: WorkspaceLeaf): void {
+		const view: any = leaf.view
+		const canvasFile: TFile | undefined = view?.file
+		const container: HTMLElement | null = view?.containerEl ?? null
+		if (!canvasFile || !container) { return }
+		const bar = this.ensureCanvasToolbar(leaf)
+		if (bar.querySelector(".sl-canvas-toolbar-node-select")) { return }
+
+		const section = document.createElement("div")
+		section.className = "sl-canvas-toolbar-insert"
+		section.style.display = "flex"
+		section.style.alignItems = "center"
+		section.style.gap = "6px"
+
+		const label = document.createElement("span")
+		label.textContent = "node"
+		label.style.color = "#475569"
+		label.style.fontSize = "11px"
+		label.style.lineHeight = "1"
+		section.appendChild(label)
+
+		const nodeSelect = document.createElement("select")
+		nodeSelect.className = "sl-canvas-toolbar-node-select"
+		nodeSelect.setAttribute("aria-label", "Insert SemaLogic node")
+		nodeSelect.style.maxWidth = "120px"
+		nodeSelect.style.fontSize = "11px"
+		nodeSelect.style.border = "1px solid rgba(148, 163, 184, 0.6)"
+		nodeSelect.style.borderRadius = "6px"
+		nodeSelect.style.background = "rgba(255, 255, 255, 0.95)"
+		this.appendCanvasSelectOption(nodeSelect, "", "Insert node")
+		this.appendCanvasSelectOption(nodeSelect, "SYMBOL", "SYMBOL")
+		this.appendCanvasSelectOption(nodeSelect, "AND", "AND")
+		this.appendCanvasSelectOption(nodeSelect, "OR", "OR")
+		this.appendCanvasSelectOption(nodeSelect, "LEAF", "LEAF")
+		this.appendCanvasSelectOption(nodeSelect, "ATTRIBUTE", "ATTRIBUTE")
+		const lastSelection = this.canvasNodeInsertSelections.get(canvasFile.path)
+		if (lastSelection) {
+			nodeSelect.value = lastSelection
+		}
+		nodeSelect.addEventListener("change", () => {
+			const selected = nodeSelect.value as CanvasNodeInsertType | ""
+			if (selected) {
+				this.canvasNodeInsertSelections.set(canvasFile.path, selected)
+			}
+		})
+		section.appendChild(nodeSelect)
+
+		const addButton = document.createElement("button")
+		addButton.className = "clickable-icon sl-canvas-toolbar-node-add-btn"
+		addButton.type = "button"
+		addButton.textContent = "Add"
+		addButton.setAttribute("aria-label", "Add selected node type")
+		addButton.style.fontSize = "11px"
+		addButton.style.lineHeight = "1"
+		addButton.style.padding = "4px 8px"
+		addButton.style.borderRadius = "6px"
+		addButton.style.border = "1px solid rgba(148, 163, 184, 0.6)"
+		addButton.style.background = "rgba(255, 255, 255, 0.95)"
+		addButton.style.color = "#334155"
+		addButton.style.cursor = "pointer"
+		addButton.addEventListener("click", async (evt) => {
+			evt.preventDefault()
+			evt.stopPropagation()
+			const selected = nodeSelect.value as CanvasNodeInsertType | ""
+			if (!selected) {
+				new Notice("Select a node type first.")
+				return
+			}
+			this.canvasNodeInsertSelections.set(canvasFile.path, selected)
+			await this.insertCanvasNode(leaf, selected)
+		})
+		section.appendChild(addButton)
+
+		bar.appendChild(section)
+		this.updateCanvasToolbarPosition(leaf)
+	}
+
+	private appendCanvasSelectOption(selectEl: HTMLSelectElement, value: string, label: string): void {
+		const option = document.createElement("option")
+		option.value = value
+		option.textContent = label
+		selectEl.appendChild(option)
+	}
+
+	private bindCanvasSelectionTracking(container: HTMLElement): void {
+		if (container.dataset.slSelectionTrackingBound == "1") { return }
+		container.dataset.slSelectionTrackingBound = "1"
+
+		const trackTarget = (target: EventTarget | null) => {
+			const el = target instanceof HTMLElement ? target : null
+			if (!el) { return }
+			if (!container.contains(el)) { return }
+			const nodeEl = el?.closest(".canvas-node") as HTMLElement | null
+			if (nodeEl) {
+				const nodeId = nodeEl.getAttribute("data-node-id") || nodeEl.getAttribute("data-id") || nodeEl.dataset.nodeId || nodeEl.dataset.id
+				if (nodeId) {
+					container.dataset.slLastNodeId = nodeId
+					slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas selection tracking: last node=${nodeId}`)
+				}
+			}
+			const edgeEl = el?.closest(".canvas-edge") as HTMLElement | null
+			if (edgeEl) {
+				const edgeId = edgeEl.getAttribute("data-edge-id") || edgeEl.getAttribute("data-id") || edgeEl.dataset.edgeId || edgeEl.dataset.id
+				if (edgeId) {
+					container.dataset.slLastEdgeId = edgeId
+					slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas selection tracking: last edge=${edgeId}`)
+				}
+			}
+		}
+
+		container.addEventListener("pointerdown", (evt) => trackTarget(evt.target), true)
+		container.addEventListener("click", (evt) => trackTarget(evt.target), true)
+		this.registerDomEvent(document, "pointerdown", (evt: PointerEvent) => {
+			trackTarget(evt.target)
+		})
+		this.registerDomEvent(document, "click", (evt: MouseEvent) => {
+			trackTarget(evt.target)
+		})
+	}
+
+	private updateCanvasMenuAnchorState(leaf: WorkspaceLeaf): void {
+		const view: any = leaf.view
+		const container: HTMLElement | null = view?.containerEl ?? null
+		if (!container) { return }
+		const menu = container.querySelector<HTMLElement>(".canvas-menu")
+		if (!menu) { return }
+		const anchorNodeId = this.getCanvasMenuDomAnchorNodeId(menu) || this.getFocusedCanvasNodeId(container) || container.dataset.slLastNodeId
+		if (anchorNodeId) {
+			menu.dataset.slAnchorNodeId = anchorNodeId
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas menu anchor update [${SL_DEBUG_BUILD}]: anchor=${anchorNodeId}`)
+		} else {
+			delete menu.dataset.slAnchorNodeId
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas menu anchor update [${SL_DEBUG_BUILD}]: cleared`)
+		}
+	}
+
+	private getCanvasMenuAnchorNodeId(container: HTMLElement): string | undefined {
+		const menu = container.querySelector<HTMLElement>(".canvas-menu")
+		const domAnchor = menu ? this.getCanvasMenuDomAnchorNodeId(menu) : ""
+		const menuAnchor = menu?.dataset.slAnchorNodeId || ""
+		const focusedAnchor = this.getFocusedCanvasNodeId(container) || ""
+		const lastAnchor = container.dataset.slLastNodeId || ""
+		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas menu anchor read [${SL_DEBUG_BUILD}]: dom=${domAnchor} menu=${menuAnchor} focused=${focusedAnchor} last=${lastAnchor}`)
+		return domAnchor || menuAnchor || focusedAnchor || lastAnchor || undefined
+	}
+
+	private getCanvasMenuDomAnchorNodeId(menu: HTMLElement): string {
+		const direct = menu.closest<HTMLElement>("[data-node-id], [data-id]")
+		const directId = direct ? this.extractCanvasDomNodeId(direct) : ""
+		if (directId) {
+			return directId
+		}
+		const explicitNodeAncestor = menu.parentElement?.querySelector<HTMLElement>("[data-node-id], [data-id]")
+		const explicitId = explicitNodeAncestor ? this.extractCanvasDomNodeId(explicitNodeAncestor) : ""
+		if (explicitId) {
+			return explicitId
+		}
+
+		const container = menu.closest<HTMLElement>(".workspace-leaf-content, .view-content, .canvas-wrapper, .canvas")
+			|| menu.parentElement
+			|| menu.ownerDocument.body
+		const nodes = Array.from(container.querySelectorAll<HTMLElement>("[data-node-id], [data-id]"))
+			.filter((node) => !node.closest(".canvas-menu"))
+			.filter((node) => this.extractCanvasDomNodeId(node).length > 0)
+		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas menu anchor dom-nearest candidates [${SL_DEBUG_BUILD}]: count=${nodes.length}`)
+		if (nodes.length == 0) {
+			return ""
+		}
+
+		const menuRect = menu.getBoundingClientRect()
+		const menuCenterX = menuRect.left + (menuRect.width / 2)
+		const menuCenterY = menuRect.top + (menuRect.height / 2)
+		let bestId = ""
+		let bestDistance = Number.POSITIVE_INFINITY
+		for (const node of nodes) {
+			const nodeId = this.extractCanvasDomNodeId(node)
+			if (!nodeId) { continue }
+			const rect = node.getBoundingClientRect()
+			const centerX = rect.left + (rect.width / 2)
+			const centerY = rect.top + (rect.height / 2)
+			const distance = Math.hypot(centerX - menuCenterX, centerY - menuCenterY)
+			if (distance < bestDistance) {
+				bestDistance = distance
+				bestId = nodeId
+			}
+		}
+		if (bestId.length > 0) {
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas menu anchor dom-nearest: ${bestId} dist=${bestDistance.toFixed(1)}`)
+		}
+		return bestId
+	}
+
+	private extractCanvasDomNodeId(el: HTMLElement): string {
+		const nodeId = el.getAttribute("data-node-id") || el.dataset.nodeId || ""
+		if (nodeId.length > 0) {
+			return nodeId
+		}
+		const dataId = el.getAttribute("data-id") || el.dataset.id || ""
+		if (dataId.length == 0) {
+			return ""
+		}
+		if (dataId.startsWith("edge-")) {
+			return ""
+		}
+		return dataId
+	}
+
+	private bindCanvasMenuControlEvents(element: HTMLElement): void {
+		const stop = (evt: Event) => {
+			evt.stopPropagation()
+		}
+		element.addEventListener("pointerdown", stop)
+		element.addEventListener("mousedown", stop)
+		element.addEventListener("mouseup", stop)
+		element.addEventListener("click", stop)
+		element.addEventListener("dblclick", stop)
+		element.addEventListener("keydown", stop)
+	}
+
+	private addCanvasMenuEdgeModeControls(leaf: WorkspaceLeaf): void {
+		const view: any = leaf.view
+		const canvasFile: TFile | undefined = view?.file
+		const container: HTMLElement | null = view?.containerEl ?? null
+		if (!canvasFile || !container) { return }
+		if (!this.getFocusedCanvasEdge(container)) { return }
+		const menu = container.querySelector<HTMLElement>(".canvas-menu")
+		if (!menu || menu.querySelector(".sl-canvas-menu-edge-mode")) { return }
+		if (!this.canvasEdgeModes.has(canvasFile.path)) {
+			this.canvasEdgeModes.set(canvasFile.path, "as_Defined")
+		}
+
+		const section = document.createElement("div")
+		section.className = "sl-canvas-menu-edge-mode"
+		section.style.display = "flex"
+		section.style.alignItems = "center"
+		section.style.gap = "6px"
+		section.style.marginLeft = "8px"
+
+		const leftLabel = document.createElement("span")
+		leftLabel.className = "sl-canvas-edge-mode-left-label"
+		leftLabel.textContent = "defined"
+		leftLabel.style.color = "#475569"
+		leftLabel.style.fontSize = "11px"
+		leftLabel.style.lineHeight = "1"
+		section.appendChild(leftLabel)
+
+		const toggle = document.createElement("button")
+		toggle.className = "sl-canvas-edge-mode-toggle"
+		toggle.type = "button"
+		toggle.setAttribute("aria-label", "Toggle edge mode")
+		toggle.style.position = "relative"
+		toggle.style.width = "34px"
+		toggle.style.height = "20px"
+		toggle.style.padding = "0"
+		toggle.style.borderRadius = "999px"
+		toggle.style.border = "1px solid rgba(100, 116, 139, 0.35)"
+		toggle.style.background = "#cbd5e1"
+		toggle.style.cursor = "pointer"
+		toggle.style.transition = "background 120ms ease"
+		this.bindCanvasMenuControlEvents(toggle)
+
+		const knob = document.createElement("span")
+		knob.className = "sl-canvas-edge-mode-toggle-knob"
+		knob.style.position = "absolute"
+		knob.style.top = "1px"
+		knob.style.left = "1px"
+		knob.style.width = "16px"
+		knob.style.height = "16px"
+		knob.style.borderRadius = "999px"
+		knob.style.background = "#ffffff"
+		knob.style.boxShadow = "0 1px 2px rgba(15, 23, 42, 0.18)"
+		knob.style.transition = "transform 120ms ease"
+		toggle.appendChild(knob)
+		toggle.addEventListener("click", async (evt) => {
+			evt.preventDefault()
+			evt.stopPropagation()
+			const current = this.canvasEdgeModes.get(canvasFile.path) ?? "as_Defined"
+			const next = current == "as_Defined" ? "as_calculated" : "as_Defined"
+			this.canvasEdgeModes.set(canvasFile.path, next)
+			this.updateCanvasEdgeModeControls(leaf)
+			await this.applyCanvasEdgeModeToSelectedEdges(leaf, next)
+		})
+		section.appendChild(toggle)
+
+		const rightLabel = document.createElement("span")
+		rightLabel.className = "sl-canvas-edge-mode-right-label"
+		rightLabel.textContent = "calculated"
+		rightLabel.style.color = "#475569"
+		rightLabel.style.fontSize = "11px"
+		rightLabel.style.lineHeight = "1"
+		section.appendChild(rightLabel)
+
+		menu.appendChild(section)
+	}
+
+	private removeCanvasMenuEdgeModeControls(leaf: WorkspaceLeaf): void {
+		const view: any = leaf.view
+		const container: HTMLElement | null = view?.containerEl ?? null
+		if (!container) { return }
+		container.querySelector(".sl-canvas-menu-edge-mode")?.remove()
+	}
+
+	private addCanvasEdgeModeControls(leaf: WorkspaceLeaf): void {
+		const view: any = leaf.view
+		const canvasFile: TFile | undefined = view?.file
+		const container: HTMLElement | null = view?.containerEl ?? null
+		if (!canvasFile || !container) { return }
+		const bar = this.ensureCanvasToolbar(leaf)
+		if (bar.querySelector(".sl-canvas-edge-mode-bar")) { return }
+
+		if (!this.canvasEdgeModes.has(canvasFile.path)) {
+			this.canvasEdgeModes.set(canvasFile.path, "as_Defined")
+		}
+
+		const section = document.createElement("div")
+		section.className = "sl-canvas-edge-mode-bar"
+		section.style.display = "flex"
+		section.style.alignItems = "center"
+		section.style.gap = "6px"
+
+		const label = document.createElement("span")
+		label.className = "sl-canvas-edge-mode-left-label"
+		label.textContent = "defined"
+		label.style.color = "#475569"
+		label.style.fontSize = "11px"
+		label.style.lineHeight = "1"
+		section.appendChild(label)
+
+		const toggle = document.createElement("button")
+		toggle.className = "sl-canvas-edge-mode-toggle"
+		toggle.type = "button"
+		toggle.setAttribute("aria-label", "Toggle edge mode")
+		toggle.style.position = "relative"
+		toggle.style.width = "34px"
+		toggle.style.height = "20px"
+		toggle.style.padding = "0"
+		toggle.style.borderRadius = "999px"
+		toggle.style.border = "1px solid rgba(100, 116, 139, 0.35)"
+		toggle.style.background = "#cbd5e1"
+		toggle.style.cursor = "pointer"
+		toggle.style.transition = "background 120ms ease"
+
+		const knob = document.createElement("span")
+		knob.className = "sl-canvas-edge-mode-toggle-knob"
+		knob.style.position = "absolute"
+		knob.style.top = "1px"
+		knob.style.left = "1px"
+		knob.style.width = "16px"
+		knob.style.height = "16px"
+		knob.style.borderRadius = "999px"
+		knob.style.background = "#ffffff"
+		knob.style.boxShadow = "0 1px 2px rgba(15, 23, 42, 0.18)"
+		knob.style.transition = "transform 120ms ease"
+		toggle.appendChild(knob)
+
+		toggle.addEventListener("click", async (evt) => {
+			evt.preventDefault()
+			evt.stopPropagation()
+			const current = this.canvasEdgeModes.get(canvasFile.path) ?? "as_Defined"
+			const next = current == "as_Defined" ? "as_calculated" : "as_Defined"
+			this.canvasEdgeModes.set(canvasFile.path, next)
+			this.updateCanvasEdgeModeControls(leaf)
+			await this.applyCanvasEdgeModeToSelectedEdges(leaf, next)
+		})
+
+		section.appendChild(toggle)
+
+		const rightLabel = document.createElement("span")
+		rightLabel.className = "sl-canvas-edge-mode-right-label"
+		rightLabel.textContent = "calculated"
+		rightLabel.style.color = "#475569"
+		rightLabel.style.fontSize = "11px"
+		rightLabel.style.lineHeight = "1"
+		section.appendChild(rightLabel)
+
+		bar.appendChild(section)
+		this.updateCanvasToolbarPosition(leaf)
+	}
+
+	private updateCanvasEdgeModeControls(leaf: WorkspaceLeaf): void {
+		const view: any = leaf.view
+		const canvasFile: TFile | undefined = view?.file
+		const container: HTMLElement | null = view?.containerEl ?? null
+		if (!canvasFile || !container) { return }
+		const mode = this.canvasEdgeModes.get(canvasFile.path) ?? "as_Defined"
+		const toggle = container.querySelector<HTMLElement>(".sl-canvas-edge-mode-toggle")
+		const knob = container.querySelector<HTMLElement>(".sl-canvas-edge-mode-toggle-knob")
+		const leftLabel = container.querySelector<HTMLElement>(".sl-canvas-edge-mode-left-label")
+		const rightLabel = container.querySelector<HTMLElement>(".sl-canvas-edge-mode-right-label")
+		if (toggle && knob) {
+			const isCalculated = mode == "as_calculated"
+			toggle.style.background = isCalculated ? "#cbd5e1" : "#64748b"
+			knob.style.transform = isCalculated ? "translateX(14px)" : "translateX(0)"
+			toggle.setAttribute("aria-pressed", isCalculated ? "true" : "false")
+		}
+		if (leftLabel) {
+			leftLabel.style.color = mode == "as_Defined" ? "#0f172a" : "#64748b"
+		}
+		if (rightLabel) {
+			rightLabel.style.color = mode == "as_calculated" ? "#0f172a" : "#64748b"
+		}
+		this.updateCanvasToolbarPosition(leaf)
+	}
+
+	private updateCanvasToolbarVisibility(leaf: WorkspaceLeaf): void {
+		const view: any = leaf.view
+		const container: HTMLElement | null = view?.containerEl ?? null
+		if (!container) { return }
+		const bar = container.querySelector<HTMLElement>(".sl-canvas-toolbar")
+		if (!bar) { return }
+		bar.style.display = (this.getFocusedCanvasNode(container) || this.getFocusedCanvasEdge(container)) ? "none" : "flex"
+	}
+
+	private ensureCanvasToolbar(leaf: WorkspaceLeaf): HTMLElement {
+		const view: any = leaf.view
+		const container: HTMLElement | null = view?.containerEl ?? null
+		let bar = container?.querySelector<HTMLElement>(".sl-canvas-toolbar")
+		if (container && !bar) {
+			const menu = container.querySelector<HTMLElement>(".canvas-menu")
+			const host = menu?.parentElement ?? container
+			bar = document.createElement("div")
+			bar.className = "sl-canvas-toolbar"
+			bar.style.display = "flex"
+			bar.style.alignItems = "center"
+			bar.style.gap = "10px"
+			bar.style.marginRight = "8px"
+			bar.style.padding = "4px 8px"
+			bar.style.borderRadius = "999px"
+			bar.style.background = "rgba(255, 255, 255, 0.72)"
+			bar.style.border = "1px solid rgba(148, 163, 184, 0.5)"
+			bar.style.boxShadow = "0 1px 4px rgba(15, 23, 42, 0.08)"
+			bar.style.setProperty("backdrop-filter", "blur(3px)")
+			if (menu) {
+				host.insertBefore(bar, menu)
+			} else {
+				host.appendChild(bar)
+			}
+		}
+		return bar as HTMLElement
+	}
+
+	private updateCanvasToolbarPosition(leaf: WorkspaceLeaf): void {
+		const view: any = leaf.view
+		const container: HTMLElement | null = view?.containerEl ?? null
+		if (!container) { return }
+		const bar = container.querySelector<HTMLElement>(".sl-canvas-toolbar")
+		const menu = container.querySelector<HTMLElement>(".canvas-menu")
+		if (!bar || !menu) { return }
+		if (bar.parentElement !== menu.parentElement) {
+			menu.parentElement?.insertBefore(bar, menu)
+		}
+	}
+
 	private async updateCanvasInfoButton(leaf: WorkspaceLeaf): Promise<void> {
 		const view: any = leaf.view
 		const canvasFile: TFile | undefined = view?.file
@@ -1709,10 +2540,403 @@ export default class SemaLogicPlugin extends Plugin {
 		return raw.split(/[\r\n]/)[0].trim()
 	}
 
+	private extractCanvasNodeFieldValue(raw: string, fieldName: string): string {
+		if (!raw) { return "" }
+		const regex = new RegExp(`^${fieldName}:\\s*(.*)$`, "im")
+		const match = raw.match(regex)
+		return match?.[1]?.trim() ?? ""
+	}
+
 	private getFocusedCanvasNode(container: HTMLElement): HTMLElement | null {
 		return container.querySelector<HTMLElement>(
 			".canvas-node.is-focused, .canvas-node.is-selected, .canvas-node.is-editing"
 		)
+	}
+
+	private getFocusedCanvasEdge(container: HTMLElement): HTMLElement | null {
+		return container.querySelector<HTMLElement>(
+			".canvas-edge.is-focused, .canvas-edge.is-selected"
+		)
+	}
+
+	private async insertCanvasNode(leaf: WorkspaceLeaf, nodeType: CanvasNodeInsertType, anchorNodeId?: string): Promise<void> {
+		const view: any = leaf.view
+		const canvasFile: TFile | undefined = view?.file
+		const container: HTMLElement | null = view?.containerEl ?? null
+		if (!canvasFile || !container) { return }
+
+		const data = await this.readCanvasFileData(canvasFile)
+		const anchorId = anchorNodeId ?? this.getFocusedCanvasNodeId(container)
+		const anchorNode = anchorId ? data.nodes.find((node) => node.id == anchorId) : undefined
+		const suggestedId = this.suggestCanvasNodeId(nodeType, anchorNode, data.nodes)
+		const requestedId = await this.promptCanvasNodeId(nodeType, suggestedId)
+		if (!requestedId) {
+			new Notice("Node insertion cancelled.")
+			return
+		}
+		if (data.nodes.some((node) => node.id == requestedId)) {
+			new Notice("This node ID already exists.")
+			return
+		}
+
+		const orConfig = nodeType == "OR" ? await this.promptCanvasOrConfig() : undefined
+		if (nodeType == "OR" && !orConfig) {
+			new Notice("OR insertion cancelled.")
+			return
+		}
+
+		const nextNode = this.buildCanvasNode(nodeType, requestedId, anchorNode, { orConfig })
+		data.nodes.push(nextNode)
+		if (anchorNode) {
+			data.edges.push(this.buildCanvasEdge(anchorNode, nextNode, data.edges, this.canvasEdgeModes.get(canvasFile.path) ?? "as_Defined"))
+		}
+
+		await this.writeCanvasFileData(canvasFile, data)
+		await leaf.openFile(canvasFile, { active: false })
+		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas node inserted: ${nodeType} (${nextNode.id})`)
+	}
+
+	private async promptCanvasNodeId(nodeType: CanvasNodeInsertType, suggestedId: string): Promise<string | undefined> {
+		return await new Promise((resolve) => {
+			const modal = new CanvasNodeIdModal(this.app, nodeType, suggestedId, resolve)
+			modal.open()
+		})
+	}
+
+	private async promptCanvasOrConfig(): Promise<CanvasOrConfig | undefined> {
+		return await new Promise((resolve) => {
+			const modal = new CanvasOrConfigModal(this.app, resolve)
+			modal.open()
+		})
+	}
+
+	private async changeCanvasNodeConcept(leaf: WorkspaceLeaf, nodeId: string, nodeType: CanvasNodeInsertType): Promise<void> {
+		const view: any = leaf.view
+		const canvasFile: TFile | undefined = view?.file
+		if (!canvasFile) { return }
+
+		const data = await this.readCanvasFileData(canvasFile)
+		const node = data.nodes.find((entry) => entry.id == nodeId)
+		if (!node) {
+			new Notice("Selected node could not be found.")
+			return
+		}
+
+		const contentConfig = await this.getCanvasNodeContentConfig(nodeType, node.text ?? "")
+		if (nodeType == "OR" && !contentConfig.orConfig) {
+			new Notice("Change cancelled.")
+			return
+		}
+
+		const dimensions = this.getCanvasNodeDimensions(nodeType)
+		node.width = dimensions.width
+		node.height = dimensions.height
+		node.color = this.getCanvasNodeColor(nodeType)
+		node.text = this.buildCanvasNodeText(nodeType, node.id, contentConfig)
+
+		await this.writeCanvasFileData(canvasFile, data)
+		await leaf.openFile(canvasFile, { active: false })
+	}
+
+	private async getCanvasNodeContentConfig(nodeType: CanvasNodeInsertType, existingText: string): Promise<CanvasNodeContentConfig> {
+		if (nodeType == "OR") {
+			const orConfig = await this.promptCanvasOrConfig()
+			return { orConfig }
+		}
+		if (nodeType == "ATTRIBUTE") {
+			return { value: this.extractCanvasNodeFieldValue(existingText, "Value") }
+		}
+		return {}
+	}
+
+	private getFocusedCanvasNodeId(container: HTMLElement): string | undefined {
+		const focused = this.getFocusedCanvasNode(container)
+		return focused?.getAttribute("data-node-id")
+			|| focused?.getAttribute("data-id")
+			|| focused?.dataset.nodeId
+			|| focused?.dataset.id
+			|| undefined
+	}
+
+	private getSelectedCanvasNodeIds(container: HTMLElement): string[] {
+		const focusedId = this.getFocusedCanvasNodeId(container)
+		const ids: string[] = []
+		if (focusedId) {
+			ids.push(focusedId)
+		}
+		const selectedNodes = Array.from(container.querySelectorAll<HTMLElement>(".canvas-node.is-selected, .canvas-node.is-focused, .canvas-node.is-editing"))
+		for (const node of selectedNodes) {
+			const id = node.getAttribute("data-node-id") || node.getAttribute("data-id") || node.dataset.nodeId || node.dataset.id
+			if (id && !ids.includes(id)) {
+				ids.push(id)
+			}
+		}
+		return ids.slice(0, 2)
+	}
+
+	private getSelectedCanvasEdgeIds(container: HTMLElement): string[] {
+		const ids: string[] = []
+		const selectedEdges = Array.from(container.querySelectorAll<HTMLElement>(".canvas-edge.is-selected, .canvas-edge.is-focused"))
+		for (const edge of selectedEdges) {
+			const id = edge.getAttribute("data-edge-id") || edge.getAttribute("data-id") || edge.dataset.edgeId || edge.dataset.id
+			if (id && !ids.includes(id)) {
+				ids.push(id)
+			}
+		}
+		return ids
+	}
+
+	private async applyCanvasEdgeModeToSelectedEdges(leaf: WorkspaceLeaf, mode: CanvasEdgeInsertType): Promise<void> {
+		const view: any = leaf.view
+		const canvasFile: TFile | undefined = view?.file
+		const container: HTMLElement | null = view?.containerEl ?? null
+		if (!canvasFile || !container) { return }
+
+		const selectedEdgeIds = this.getSelectedCanvasEdgeIds(container)
+		if (selectedEdgeIds.length == 0) { return }
+
+		const data = await this.readCanvasFileData(canvasFile)
+		let changed = false
+		for (const edge of data.edges) {
+			if (!selectedEdgeIds.includes(edge.id)) { continue }
+			if (this.getCanvasEdgeRelationType(edge) == mode && edge.color == this.getCanvasEdgeColor(mode)) { continue }
+			edge.meta = { ...(edge.meta ?? {}), SL_RelationType: mode }
+			edge.color = this.getCanvasEdgeColor(mode)
+			changed = true
+		}
+		if (!changed) { return }
+
+		await this.writeCanvasFileData(canvasFile, data)
+		await leaf.openFile(canvasFile, { active: false })
+	}
+
+	private buildCanvasNode(nodeType: CanvasNodeInsertType, nodeId: string, anchorNode: CanvasFileNode | undefined, contentConfig?: CanvasNodeContentConfig): CanvasFileNode {
+		const dimensions = this.getCanvasNodeDimensions(nodeType)
+		const originX = anchorNode?.x ?? 0
+		const originY = anchorNode?.y ?? 0
+		const originWidth = anchorNode?.width ?? 260
+		const originHeight = anchorNode?.height ?? 100
+		const nodeX = anchorNode
+			? (nodeType == "LEAF" ? originX + originWidth + 120 : originX)
+			: originX
+		const nodeY = anchorNode
+			? (nodeType == "LEAF" ? originY : originY + originHeight + 120)
+			: originY
+
+		return {
+			id: nodeId,
+			type: "text",
+			text: this.buildCanvasNodeText(nodeType, nodeId, contentConfig),
+			x: nodeX,
+			y: nodeY,
+			width: dimensions.width,
+			height: dimensions.height,
+			color: this.getCanvasNodeColor(nodeType)
+		}
+	}
+
+	private suggestCanvasNodeId(nodeType: CanvasNodeInsertType, anchorNode: CanvasFileNode | undefined, existingNodes: CanvasFileNode[]): string {
+		const existingIds = new Set(existingNodes.map((node) => node.id))
+		const baseId = this.getCanvasBaseNodeId(nodeType, anchorNode?.id)
+		return this.createUniqueCanvasId(baseId, existingIds)
+	}
+
+	private getCanvasBaseNodeId(nodeType: CanvasNodeInsertType, anchorId: string | undefined): string {
+		if (nodeType == "SYMBOL") {
+			return anchorId ? `${anchorId}.symbol` : "NewSymbol"
+		}
+		if (nodeType == "ATTRIBUTE") {
+			return anchorId ? `${anchorId}.Attribute` : "NewAttribute"
+		}
+		if (anchorId && nodeType == "LEAF") {
+			return `${anchorId}.leaf`
+		}
+		if (anchorId) {
+			return `${anchorId}.${nodeType.toLowerCase()}`
+		}
+		return `New${nodeType}`
+	}
+
+	private buildCanvasNodeText(nodeType: CanvasNodeInsertType, nodeId: string, contentConfig?: CanvasNodeContentConfig): string {
+		const lines = [`ID: ${nodeId}`, `Concept: ${nodeType}`]
+		switch (nodeType) {
+			case "SYMBOL":
+				break
+			case "AND":
+				break
+			case "OR":
+				lines.push(`Min: ${contentConfig?.orConfig?.min ?? "1"}`)
+				lines.push(`Max: ${contentConfig?.orConfig?.max ?? "1"}`)
+				break
+			case "LEAF":
+				break
+			case "ATTRIBUTE":
+				lines.push(`Value: ${contentConfig?.value ?? ""}`)
+				break
+		}
+		return lines.join("\n")
+	}
+
+	private getCanvasNodeDimensions(nodeType: CanvasNodeInsertType): { width: number; height: number } {
+		switch (nodeType) {
+			case "SYMBOL":
+				return { width: 300, height: 60 }
+			case "AND":
+				return { width: 300, height: 100 }
+			case "OR":
+				return { width: 300, height: 140 }
+			case "LEAF":
+				return { width: 300, height: 60 }
+			case "ATTRIBUTE":
+				return { width: 300, height: 80 }
+		}
+	}
+
+	private getCanvasNodeColor(nodeType: CanvasNodeInsertType): string {
+		switch (nodeType) {
+			case "SYMBOL":
+				return "#1d4ed8"
+			case "AND":
+				return "#7e22ce"
+			case "OR":
+				return "#4ade80"
+			case "LEAF":
+				return "#fed7aa"
+			case "ATTRIBUTE":
+				return "#fef9c3"
+		}
+	}
+
+	private getCanvasEdgeColor(edgeType: CanvasEdgeInsertType): string {
+		switch (edgeType) {
+			case "as_Defined":
+				return "#4b5563"
+			case "as_calculated":
+				return "#d1d5db"
+		}
+	}
+
+	private getCanvasEdgeRelationType(edge: CanvasFileEdge): CanvasEdgeInsertType | undefined {
+		const relation = String(edge.meta?.SL_RelationType ?? "")
+		return relation == "as_Defined" || relation == "as_calculated"
+			? relation
+			: undefined
+	}
+
+	private getCanvasEdgeSides(sourceNode: CanvasFileNode, targetNode: CanvasFileNode): { fromSide: string; toSide: string } {
+		const sourceCenterX = sourceNode.x + ((sourceNode.width ?? 260) / 2)
+		const sourceCenterY = sourceNode.y + ((sourceNode.height ?? 100) / 2)
+		const targetCenterX = targetNode.x + ((targetNode.width ?? 260) / 2)
+		const targetCenterY = targetNode.y + ((targetNode.height ?? 100) / 2)
+		const deltaX = targetCenterX - sourceCenterX
+		const deltaY = targetCenterY - sourceCenterY
+
+		if (Math.abs(deltaX) >= Math.abs(deltaY)) {
+			return deltaX >= 0
+				? { fromSide: "right", toSide: "left" }
+				: { fromSide: "left", toSide: "right" }
+		}
+
+		return deltaY >= 0
+			? { fromSide: "bottom", toSide: "top" }
+			: { fromSide: "top", toSide: "bottom" }
+	}
+
+	private buildCanvasEdge(sourceNode: CanvasFileNode, targetNode: CanvasFileNode, existingEdges: CanvasFileEdge[], edgeType: CanvasEdgeInsertType): CanvasFileEdge {
+		const sides = this.getCanvasEdgeSides(sourceNode, targetNode)
+		const edgeId = this.createUniqueCanvasId(
+			`${sourceNode.id}->${targetNode.id}`,
+			new Set(existingEdges.map((edge) => edge.id))
+		)
+		return {
+			id: edgeId,
+			fromNode: sourceNode.id,
+			fromSide: sides.fromSide,
+			toNode: targetNode.id,
+			toSide: sides.toSide,
+			color: this.getCanvasEdgeColor(edgeType),
+			meta: {
+				SL_RelationType: edgeType
+			}
+		}
+	}
+
+	private createUniqueCanvasId(baseId: string, existingIds: Set<string>): string {
+		if (!existingIds.has(baseId)) {
+			return baseId
+		}
+		let counter = 2
+		while (existingIds.has(`${baseId}.${counter}`)) {
+			counter++
+		}
+		return `${baseId}.${counter}`
+	}
+
+	private async readCanvasFileData(canvasFile: TFile): Promise<CanvasFileData> {
+		let raw = ""
+		try {
+			raw = await this.app.vault.cachedRead(canvasFile)
+		} catch (e) {
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, `Canvas read failed: ${canvasFile.path}`)
+			return { nodes: [], edges: [] }
+		}
+
+		try {
+			const parsed = JSON.parse(raw)
+			const data = {
+				nodes: Array.isArray(parsed?.nodes) ? parsed.nodes : [],
+				edges: Array.isArray(parsed?.edges) ? parsed.edges : [],
+				files: Array.isArray(parsed?.files) ? parsed.files : undefined
+			}
+			if (!this.canvasKnownEdgeIds.has(canvasFile.path)) {
+				this.canvasKnownEdgeIds.set(canvasFile.path, new Set(data.edges.map((edge: CanvasFileEdge) => edge.id)))
+			}
+			return data
+		} catch (e) {
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, `Canvas parse failed: ${canvasFile.path}`)
+			return { nodes: [], edges: [] }
+		}
+	}
+
+	private async writeCanvasFileData(canvasFile: TFile, data: CanvasFileData): Promise<void> {
+		const payload = JSON.stringify(data, null, 2)
+		this.canvasEdgeModeWriteInFlight.add(canvasFile.path)
+		try {
+			await this.app.vault.modify(canvasFile, payload)
+			this.canvasNodeFileCache.delete(canvasFile.path)
+			this.canvasKnownEdgeIds.set(canvasFile.path, new Set(data.edges.map((edge: CanvasFileEdge) => edge.id)))
+		} finally {
+			window.setTimeout(() => {
+				this.canvasEdgeModeWriteInFlight.delete(canvasFile.path)
+			}, 50)
+		}
+	}
+
+	private async syncNewCanvasEdgesToMode(canvasFile: TFile): Promise<void> {
+		const path = normalizePath(canvasFile.path)
+		if (this.canvasEdgeModeWriteInFlight.has(path)) { return }
+		const mode = this.canvasEdgeModes.get(path)
+		if (!mode) { return }
+
+		const previousEdgeIds = this.canvasKnownEdgeIds.get(path)
+		const data = await this.readCanvasFileData(canvasFile)
+		const currentEdgeIds = new Set(data.edges.map((edge) => edge.id))
+		if (!previousEdgeIds) {
+			this.canvasKnownEdgeIds.set(path, currentEdgeIds)
+			return
+		}
+
+		let changed = false
+		for (const edge of data.edges) {
+			if (previousEdgeIds.has(edge.id)) { continue }
+			edge.meta = { ...(edge.meta ?? {}), SL_RelationType: mode }
+			edge.color = this.getCanvasEdgeColor(mode)
+			changed = true
+		}
+
+		this.canvasKnownEdgeIds.set(path, currentEdgeIds)
+		if (!changed) { return }
+		await this.writeCanvasFileData(canvasFile, data)
 	}
 
 	async activateASPView() {

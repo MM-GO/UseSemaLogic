@@ -1836,6 +1836,105 @@ var slTermHider = import_view2.ViewPlugin.fromClass(class {
 // main.ts
 var DebugLevel = 0;
 var mygSID = String(Math.round(Math.random() * 99999999999));
+var SL_DEBUG_BUILD = "canvas-anchor-debug-2026-04-08-01";
+var CanvasNodeIdModal = class extends import_obsidian8.Modal {
+  constructor(app2, nodeType, suggestedId, resolveValue) {
+    super(app2);
+    this.nodeType = nodeType;
+    this.suggestedId = suggestedId;
+    this.resolveValue = resolveValue;
+  }
+  onOpen() {
+    const { contentEl, titleEl } = this;
+    titleEl.setText(`Insert ${this.nodeType} node`);
+    contentEl.empty();
+    const setting = new import_obsidian8.Setting(contentEl).setName("Node ID").setDesc("Enter the node identifier for the new canvas node.").addText((text) => {
+      this.inputComponent = text;
+      text.setValue(this.suggestedId);
+      text.inputEl.select();
+      text.inputEl.addEventListener("keydown", (evt) => {
+        if (evt.key == "Enter") {
+          evt.preventDefault();
+          this.submit();
+        }
+      });
+    });
+    setting.addButton((button) => {
+      button.setButtonText("Add");
+      button.setCta();
+      button.onClick(() => this.submit());
+    });
+    setting.addExtraButton((button) => {
+      button.setIcon("cross");
+      button.setTooltip("Cancel");
+      button.onClick(() => {
+        this.resolveValue(void 0);
+        this.close();
+      });
+    });
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+  submit() {
+    var _a, _b;
+    const value = (_b = (_a = this.inputComponent) == null ? void 0 : _a.getValue().trim()) != null ? _b : "";
+    this.resolveValue(value.length > 0 ? value : void 0);
+    this.close();
+  }
+};
+var CanvasOrConfigModal = class extends import_obsidian8.Modal {
+  constructor(app2, resolveValue) {
+    super(app2);
+    this.resolveValue = resolveValue;
+  }
+  onOpen() {
+    const { contentEl, titleEl } = this;
+    titleEl.setText("Configure OR node");
+    contentEl.empty();
+    new import_obsidian8.Setting(contentEl).setName("Min").setDesc("Minimum number of required options.").addText((text) => {
+      this.minComponent = text;
+      text.setValue("1");
+    });
+    const maxSetting = new import_obsidian8.Setting(contentEl).setName("Max").setDesc("Maximum number of allowed options.").addText((text) => {
+      this.maxComponent = text;
+      text.setValue("1");
+      text.inputEl.addEventListener("keydown", (evt) => {
+        if (evt.key == "Enter") {
+          evt.preventDefault();
+          this.submit();
+        }
+      });
+    });
+    maxSetting.addButton((button) => {
+      button.setButtonText("Add");
+      button.setCta();
+      button.onClick(() => this.submit());
+    });
+    maxSetting.addExtraButton((button) => {
+      button.setIcon("cross");
+      button.setTooltip("Cancel");
+      button.onClick(() => {
+        this.resolveValue(void 0);
+        this.close();
+      });
+    });
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+  submit() {
+    var _a, _b, _c, _d;
+    const min = (_b = (_a = this.minComponent) == null ? void 0 : _a.getValue().trim()) != null ? _b : "";
+    const max = (_d = (_c = this.maxComponent) == null ? void 0 : _c.getValue().trim()) != null ? _d : "";
+    if (min.length == 0 || max.length == 0) {
+      new import_obsidian8.Notice("Min and Max are required.");
+      return;
+    }
+    this.resolveValue({ min, max });
+    this.close();
+  }
+};
 var Default_profile = {
   mySLSettings: [
     {
@@ -2039,6 +2138,10 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     this.canvasTooltipObservers = /* @__PURE__ */ new WeakMap();
     this.selectionActionHeaderButtons = /* @__PURE__ */ new WeakMap();
     this.canvasNodeFileCache = /* @__PURE__ */ new Map();
+    this.canvasNodeInsertSelections = /* @__PURE__ */ new Map();
+    this.canvasEdgeModes = /* @__PURE__ */ new Map();
+    this.canvasKnownEdgeIds = /* @__PURE__ */ new Map();
+    this.canvasEdgeModeWriteInFlight = /* @__PURE__ */ new Set();
     this.knowledgeCanvasPath = "SemaLogic/KnowledgeGraph.canvas";
     this.knowledgeLastRequestTime = 0;
     this.knowledgeEditCanvasPath = "SemaLogic/KnowledgeEdit.canvas";
@@ -2121,6 +2224,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     this.getActiveView();
   }
   async onload() {
+    slconsolelog(DebugLevMap.DebugLevel_Informative, void 0, `SemaLogic debug build: ${SL_DEBUG_BUILD}`);
     this.registerEvent(this.app.workspace.on("editor-menu", (menu, editor, view) => {
       if (!this.pluginEnabled) {
         return;
@@ -2153,6 +2257,9 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     }));
     this.registerEvent(this.app.vault.on("modify", (file) => {
       const path = (0, import_obsidian8.normalizePath)(file.path);
+      if (file instanceof import_obsidian8.TFile && this.canvasEdgeModes.has(path)) {
+        this.syncNewCanvasEdgesToMode(file);
+      }
       if (path == (0, import_obsidian8.normalizePath)(this.knowledgeEditCanvasPath)) {
         if (!this.pauseAllRequests || this.knowledgeEditSelection == void 0) {
           return;
@@ -2901,19 +3008,38 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     if (!container) {
       return;
     }
+    this.bindCanvasSelectionTracking(container);
     slconsolelog(DebugLevMap.DebugLevel_Informative, (_b = this.slComm) == null ? void 0 : _b.slview, "Attach canvas tooltips: observer start");
     const observer = new MutationObserver(() => {
       var _a2;
-      slconsolelog(DebugLevMap.DebugLevel_Informative, (_a2 = this.slComm) == null ? void 0 : _a2.slview, "Canvas DOM mutation");
+      slconsolelog(DebugLevMap.DebugLevel_Informative, (_a2 = this.slComm) == null ? void 0 : _a2.slview, `Canvas DOM mutation [${SL_DEBUG_BUILD}]`);
+      this.refreshCanvasNodeAnchorTracking(leaf);
       this.refreshCanvasTooltips(leaf);
+      this.updateCanvasMenuAnchorState(leaf);
+      this.addCanvasToolbarInsertControls(leaf);
       this.addCanvasInfoButton(leaf);
+      this.addCanvasInsertControls(leaf);
+      this.addCanvasChangeControls(leaf);
+      this.addCanvasMenuEdgeModeControls(leaf);
+      this.addCanvasEdgeModeControls(leaf);
+      this.updateCanvasEdgeModeControls(leaf);
+      this.updateCanvasToolbarVisibility(leaf);
       this.updateCanvasInfoButton(leaf);
     });
     observer.observe(container, { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] });
     this.canvasTooltipObservers.set(leaf, observer);
     slconsolelog(DebugLevMap.DebugLevel_Informative, (_c = this.slComm) == null ? void 0 : _c.slview, "Attach canvas tooltips: initial refresh");
+    this.refreshCanvasNodeAnchorTracking(leaf);
     this.refreshCanvasTooltips(leaf);
+    this.updateCanvasMenuAnchorState(leaf);
+    this.addCanvasToolbarInsertControls(leaf);
     this.addCanvasInfoButton(leaf);
+    this.addCanvasInsertControls(leaf);
+    this.addCanvasChangeControls(leaf);
+    this.addCanvasMenuEdgeModeControls(leaf);
+    this.addCanvasEdgeModeControls(leaf);
+    this.updateCanvasEdgeModeControls(leaf);
+    this.updateCanvasToolbarVisibility(leaf);
     this.updateCanvasInfoButton(leaf);
   }
   attachCanvasTooltipsToAllLeaves() {
@@ -3003,6 +3129,36 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
       el.addEventListener("mouseleave", () => {
         this.hideCanvasTooltip();
       });
+    }
+  }
+  refreshCanvasNodeAnchorTracking(leaf) {
+    var _a;
+    const view = leaf.view;
+    const container = (_a = view == null ? void 0 : view.containerEl) != null ? _a : null;
+    if (!container) {
+      return;
+    }
+    const nodes = Array.from(container.querySelectorAll("[data-node-id], .canvas-node[data-id], [data-id]"));
+    for (const node of nodes) {
+      if (node.closest(".canvas-menu")) {
+        continue;
+      }
+      if (node.dataset.slAnchorBound == "1") {
+        continue;
+      }
+      node.dataset.slAnchorBound = "1";
+      const rememberNode = () => {
+        var _a2;
+        const nodeId = this.extractCanvasDomNodeId(node);
+        if (!nodeId) {
+          return;
+        }
+        container.dataset.slLastNodeId = nodeId;
+        slconsolelog(DebugLevMap.DebugLevel_Informative, (_a2 = this.slComm) == null ? void 0 : _a2.slview, `Canvas node anchor bound: last node=${nodeId}`);
+      };
+      node.addEventListener("pointerdown", rememberNode, true);
+      node.addEventListener("mousedown", rememberNode, true);
+      node.addEventListener("click", rememberNode, true);
     }
   }
   async loadCanvasNodeFileMaps(canvasFile) {
@@ -3265,6 +3421,643 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     menu.appendChild(btn);
     this.updateCanvasInfoButton(leaf);
   }
+  addCanvasInsertControls(leaf) {
+    var _a, _b, _c;
+    const view = leaf.view;
+    const canvasFile = view == null ? void 0 : view.file;
+    if (!canvasFile) {
+      return;
+    }
+    const container = (_a = view == null ? void 0 : view.containerEl) != null ? _a : null;
+    if (!container) {
+      return;
+    }
+    if (this.getFocusedCanvasEdge(container)) {
+      return;
+    }
+    const menu = container.querySelector(".canvas-menu");
+    if (!menu || menu.querySelector(".sl-canvas-node-select")) {
+      return;
+    }
+    const currentAnchorNodeId = this.getFocusedCanvasNodeId(container);
+    slconsolelog(DebugLevMap.DebugLevel_Informative, (_b = this.slComm) == null ? void 0 : _b.slview, `Canvas insert controls [${SL_DEBUG_BUILD}]: focused anchor=${currentAnchorNodeId != null ? currentAnchorNodeId : ""}`);
+    if (currentAnchorNodeId) {
+      menu.dataset.slAnchorNodeId = currentAnchorNodeId;
+      slconsolelog(DebugLevMap.DebugLevel_Informative, (_c = this.slComm) == null ? void 0 : _c.slview, `Canvas insert controls: menu anchor set=${menu.dataset.slAnchorNodeId}`);
+    }
+    const nodeSelect = document.createElement("select");
+    nodeSelect.className = "sl-canvas-node-select";
+    nodeSelect.setAttribute("aria-label", "Insert SemaLogic node");
+    nodeSelect.style.pointerEvents = "auto";
+    nodeSelect.style.position = "relative";
+    nodeSelect.style.zIndex = "21";
+    nodeSelect.style.maxWidth = "120px";
+    nodeSelect.style.fontSize = "11px";
+    nodeSelect.style.marginLeft = "8px";
+    nodeSelect.style.border = "1px solid rgba(148, 163, 184, 0.6)";
+    nodeSelect.style.borderRadius = "6px";
+    nodeSelect.style.background = "rgba(255, 255, 255, 0.95)";
+    this.appendCanvasSelectOption(nodeSelect, "", "Insert node");
+    this.appendCanvasSelectOption(nodeSelect, "SYMBOL", "SYMBOL");
+    this.appendCanvasSelectOption(nodeSelect, "AND", "AND");
+    this.appendCanvasSelectOption(nodeSelect, "OR", "OR");
+    this.appendCanvasSelectOption(nodeSelect, "LEAF", "LEAF");
+    this.appendCanvasSelectOption(nodeSelect, "ATTRIBUTE", "ATTRIBUTE");
+    const lastSelection = this.canvasNodeInsertSelections.get(canvasFile.path);
+    if (lastSelection) {
+      nodeSelect.value = lastSelection;
+    }
+    this.bindCanvasMenuControlEvents(nodeSelect);
+    nodeSelect.addEventListener("change", () => {
+      const selected = nodeSelect.value;
+      if (selected) {
+        this.canvasNodeInsertSelections.set(canvasFile.path, selected);
+      }
+    });
+    const addButton = document.createElement("button");
+    addButton.className = "clickable-icon sl-canvas-node-add-btn";
+    addButton.type = "button";
+    addButton.textContent = "Add";
+    addButton.setAttribute("aria-label", "Add selected node type");
+    addButton.style.fontSize = "11px";
+    addButton.style.lineHeight = "1";
+    addButton.style.padding = "4px 8px";
+    addButton.style.borderRadius = "6px";
+    addButton.style.border = "1px solid rgba(148, 163, 184, 0.6)";
+    addButton.style.background = "rgba(255, 255, 255, 0.95)";
+    addButton.style.color = "#334155";
+    addButton.style.cursor = "pointer";
+    this.bindCanvasMenuControlEvents(addButton);
+    addButton.addEventListener("click", async (evt) => {
+      var _a2;
+      evt.preventDefault();
+      evt.stopPropagation();
+      const selected = nodeSelect.value;
+      if (!selected) {
+        new import_obsidian8.Notice("Select a node type first.");
+        return;
+      }
+      this.canvasNodeInsertSelections.set(canvasFile.path, selected);
+      const anchorNodeId = this.getCanvasMenuAnchorNodeId(container) || currentAnchorNodeId;
+      slconsolelog(DebugLevMap.DebugLevel_Informative, (_a2 = this.slComm) == null ? void 0 : _a2.slview, `Canvas insert click: selected=${selected} anchor=${anchorNodeId != null ? anchorNodeId : ""}`);
+      if (!anchorNodeId) {
+        new import_obsidian8.Notice("Select a node first.");
+        return;
+      }
+      await this.insertCanvasNode(leaf, selected, anchorNodeId);
+    });
+    menu.appendChild(nodeSelect);
+    menu.appendChild(addButton);
+  }
+  addCanvasChangeControls(leaf) {
+    var _a, _b, _c;
+    const view = leaf.view;
+    const canvasFile = view == null ? void 0 : view.file;
+    if (!canvasFile) {
+      return;
+    }
+    const container = (_a = view == null ? void 0 : view.containerEl) != null ? _a : null;
+    if (!container) {
+      return;
+    }
+    if (this.getFocusedCanvasEdge(container)) {
+      return;
+    }
+    const menu = container.querySelector(".canvas-menu");
+    if (!menu || menu.querySelector(".sl-canvas-node-change-select")) {
+      return;
+    }
+    const currentAnchorNodeId = this.getFocusedCanvasNodeId(container);
+    slconsolelog(DebugLevMap.DebugLevel_Informative, (_b = this.slComm) == null ? void 0 : _b.slview, `Canvas change controls [${SL_DEBUG_BUILD}]: focused anchor=${currentAnchorNodeId != null ? currentAnchorNodeId : ""}`);
+    if (currentAnchorNodeId) {
+      menu.dataset.slAnchorNodeId = currentAnchorNodeId;
+      slconsolelog(DebugLevMap.DebugLevel_Informative, (_c = this.slComm) == null ? void 0 : _c.slview, `Canvas change controls: menu anchor set=${menu.dataset.slAnchorNodeId}`);
+    }
+    const changeSelect = document.createElement("select");
+    changeSelect.className = "sl-canvas-node-change-select";
+    changeSelect.setAttribute("aria-label", "Change SemaLogic node concept");
+    changeSelect.style.pointerEvents = "auto";
+    changeSelect.style.position = "relative";
+    changeSelect.style.zIndex = "21";
+    changeSelect.style.maxWidth = "120px";
+    changeSelect.style.fontSize = "11px";
+    changeSelect.style.marginLeft = "8px";
+    changeSelect.style.border = "1px solid rgba(148, 163, 184, 0.6)";
+    changeSelect.style.borderRadius = "6px";
+    changeSelect.style.background = "rgba(255, 255, 255, 0.95)";
+    this.appendCanvasSelectOption(changeSelect, "", "Change node");
+    this.appendCanvasSelectOption(changeSelect, "SYMBOL", "SYMBOL");
+    this.appendCanvasSelectOption(changeSelect, "AND", "AND");
+    this.appendCanvasSelectOption(changeSelect, "OR", "OR");
+    this.appendCanvasSelectOption(changeSelect, "LEAF", "LEAF");
+    this.appendCanvasSelectOption(changeSelect, "ATTRIBUTE", "ATTRIBUTE");
+    this.bindCanvasMenuControlEvents(changeSelect);
+    const changeButton = document.createElement("button");
+    changeButton.className = "clickable-icon sl-canvas-node-change-btn";
+    changeButton.type = "button";
+    changeButton.textContent = "Change";
+    changeButton.setAttribute("aria-label", "Change selected node concept");
+    changeButton.style.fontSize = "11px";
+    changeButton.style.lineHeight = "1";
+    changeButton.style.padding = "4px 8px";
+    changeButton.style.borderRadius = "6px";
+    changeButton.style.border = "1px solid rgba(148, 163, 184, 0.6)";
+    changeButton.style.background = "rgba(255, 255, 255, 0.95)";
+    changeButton.style.color = "#334155";
+    changeButton.style.cursor = "pointer";
+    this.bindCanvasMenuControlEvents(changeButton);
+    changeButton.addEventListener("click", async (evt) => {
+      var _a2;
+      evt.preventDefault();
+      evt.stopPropagation();
+      const selected = changeSelect.value;
+      if (!selected) {
+        new import_obsidian8.Notice("Select a concept first.");
+        return;
+      }
+      const anchorNodeId = this.getCanvasMenuAnchorNodeId(container) || currentAnchorNodeId;
+      slconsolelog(DebugLevMap.DebugLevel_Informative, (_a2 = this.slComm) == null ? void 0 : _a2.slview, `Canvas change click [${SL_DEBUG_BUILD}]: selected=${selected} anchor=${anchorNodeId != null ? anchorNodeId : ""}`);
+      if (!anchorNodeId) {
+        new import_obsidian8.Notice("Select a node first.");
+        return;
+      }
+      await this.changeCanvasNodeConcept(leaf, anchorNodeId, selected);
+    });
+    menu.appendChild(changeSelect);
+    menu.appendChild(changeButton);
+  }
+  removeCanvasInsertControls(leaf) {
+    var _a, _b, _c;
+    const view = leaf.view;
+    const container = (_a = view == null ? void 0 : view.containerEl) != null ? _a : null;
+    if (!container) {
+      return;
+    }
+    (_b = container.querySelector(".sl-canvas-node-select")) == null ? void 0 : _b.remove();
+    (_c = container.querySelector(".sl-canvas-node-add-btn")) == null ? void 0 : _c.remove();
+  }
+  addCanvasToolbarInsertControls(leaf) {
+    var _a;
+    const view = leaf.view;
+    const canvasFile = view == null ? void 0 : view.file;
+    const container = (_a = view == null ? void 0 : view.containerEl) != null ? _a : null;
+    if (!canvasFile || !container) {
+      return;
+    }
+    const bar = this.ensureCanvasToolbar(leaf);
+    if (bar.querySelector(".sl-canvas-toolbar-node-select")) {
+      return;
+    }
+    const section = document.createElement("div");
+    section.className = "sl-canvas-toolbar-insert";
+    section.style.display = "flex";
+    section.style.alignItems = "center";
+    section.style.gap = "6px";
+    const label = document.createElement("span");
+    label.textContent = "node";
+    label.style.color = "#475569";
+    label.style.fontSize = "11px";
+    label.style.lineHeight = "1";
+    section.appendChild(label);
+    const nodeSelect = document.createElement("select");
+    nodeSelect.className = "sl-canvas-toolbar-node-select";
+    nodeSelect.setAttribute("aria-label", "Insert SemaLogic node");
+    nodeSelect.style.maxWidth = "120px";
+    nodeSelect.style.fontSize = "11px";
+    nodeSelect.style.border = "1px solid rgba(148, 163, 184, 0.6)";
+    nodeSelect.style.borderRadius = "6px";
+    nodeSelect.style.background = "rgba(255, 255, 255, 0.95)";
+    this.appendCanvasSelectOption(nodeSelect, "", "Insert node");
+    this.appendCanvasSelectOption(nodeSelect, "SYMBOL", "SYMBOL");
+    this.appendCanvasSelectOption(nodeSelect, "AND", "AND");
+    this.appendCanvasSelectOption(nodeSelect, "OR", "OR");
+    this.appendCanvasSelectOption(nodeSelect, "LEAF", "LEAF");
+    this.appendCanvasSelectOption(nodeSelect, "ATTRIBUTE", "ATTRIBUTE");
+    const lastSelection = this.canvasNodeInsertSelections.get(canvasFile.path);
+    if (lastSelection) {
+      nodeSelect.value = lastSelection;
+    }
+    nodeSelect.addEventListener("change", () => {
+      const selected = nodeSelect.value;
+      if (selected) {
+        this.canvasNodeInsertSelections.set(canvasFile.path, selected);
+      }
+    });
+    section.appendChild(nodeSelect);
+    const addButton = document.createElement("button");
+    addButton.className = "clickable-icon sl-canvas-toolbar-node-add-btn";
+    addButton.type = "button";
+    addButton.textContent = "Add";
+    addButton.setAttribute("aria-label", "Add selected node type");
+    addButton.style.fontSize = "11px";
+    addButton.style.lineHeight = "1";
+    addButton.style.padding = "4px 8px";
+    addButton.style.borderRadius = "6px";
+    addButton.style.border = "1px solid rgba(148, 163, 184, 0.6)";
+    addButton.style.background = "rgba(255, 255, 255, 0.95)";
+    addButton.style.color = "#334155";
+    addButton.style.cursor = "pointer";
+    addButton.addEventListener("click", async (evt) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      const selected = nodeSelect.value;
+      if (!selected) {
+        new import_obsidian8.Notice("Select a node type first.");
+        return;
+      }
+      this.canvasNodeInsertSelections.set(canvasFile.path, selected);
+      await this.insertCanvasNode(leaf, selected);
+    });
+    section.appendChild(addButton);
+    bar.appendChild(section);
+    this.updateCanvasToolbarPosition(leaf);
+  }
+  appendCanvasSelectOption(selectEl, value, label) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    selectEl.appendChild(option);
+  }
+  bindCanvasSelectionTracking(container) {
+    if (container.dataset.slSelectionTrackingBound == "1") {
+      return;
+    }
+    container.dataset.slSelectionTrackingBound = "1";
+    const trackTarget = (target) => {
+      var _a, _b;
+      const el = target instanceof HTMLElement ? target : null;
+      if (!el) {
+        return;
+      }
+      if (!container.contains(el)) {
+        return;
+      }
+      const nodeEl = el == null ? void 0 : el.closest(".canvas-node");
+      if (nodeEl) {
+        const nodeId = nodeEl.getAttribute("data-node-id") || nodeEl.getAttribute("data-id") || nodeEl.dataset.nodeId || nodeEl.dataset.id;
+        if (nodeId) {
+          container.dataset.slLastNodeId = nodeId;
+          slconsolelog(DebugLevMap.DebugLevel_Informative, (_a = this.slComm) == null ? void 0 : _a.slview, `Canvas selection tracking: last node=${nodeId}`);
+        }
+      }
+      const edgeEl = el == null ? void 0 : el.closest(".canvas-edge");
+      if (edgeEl) {
+        const edgeId = edgeEl.getAttribute("data-edge-id") || edgeEl.getAttribute("data-id") || edgeEl.dataset.edgeId || edgeEl.dataset.id;
+        if (edgeId) {
+          container.dataset.slLastEdgeId = edgeId;
+          slconsolelog(DebugLevMap.DebugLevel_Informative, (_b = this.slComm) == null ? void 0 : _b.slview, `Canvas selection tracking: last edge=${edgeId}`);
+        }
+      }
+    };
+    container.addEventListener("pointerdown", (evt) => trackTarget(evt.target), true);
+    container.addEventListener("click", (evt) => trackTarget(evt.target), true);
+    this.registerDomEvent(document, "pointerdown", (evt) => {
+      trackTarget(evt.target);
+    });
+    this.registerDomEvent(document, "click", (evt) => {
+      trackTarget(evt.target);
+    });
+  }
+  updateCanvasMenuAnchorState(leaf) {
+    var _a, _b, _c;
+    const view = leaf.view;
+    const container = (_a = view == null ? void 0 : view.containerEl) != null ? _a : null;
+    if (!container) {
+      return;
+    }
+    const menu = container.querySelector(".canvas-menu");
+    if (!menu) {
+      return;
+    }
+    const anchorNodeId = this.getCanvasMenuDomAnchorNodeId(menu) || this.getFocusedCanvasNodeId(container) || container.dataset.slLastNodeId;
+    if (anchorNodeId) {
+      menu.dataset.slAnchorNodeId = anchorNodeId;
+      slconsolelog(DebugLevMap.DebugLevel_Informative, (_b = this.slComm) == null ? void 0 : _b.slview, `Canvas menu anchor update [${SL_DEBUG_BUILD}]: anchor=${anchorNodeId}`);
+    } else {
+      delete menu.dataset.slAnchorNodeId;
+      slconsolelog(DebugLevMap.DebugLevel_Informative, (_c = this.slComm) == null ? void 0 : _c.slview, `Canvas menu anchor update [${SL_DEBUG_BUILD}]: cleared`);
+    }
+  }
+  getCanvasMenuAnchorNodeId(container) {
+    var _a;
+    const menu = container.querySelector(".canvas-menu");
+    const domAnchor = menu ? this.getCanvasMenuDomAnchorNodeId(menu) : "";
+    const menuAnchor = (menu == null ? void 0 : menu.dataset.slAnchorNodeId) || "";
+    const focusedAnchor = this.getFocusedCanvasNodeId(container) || "";
+    const lastAnchor = container.dataset.slLastNodeId || "";
+    slconsolelog(DebugLevMap.DebugLevel_Informative, (_a = this.slComm) == null ? void 0 : _a.slview, `Canvas menu anchor read [${SL_DEBUG_BUILD}]: dom=${domAnchor} menu=${menuAnchor} focused=${focusedAnchor} last=${lastAnchor}`);
+    return domAnchor || menuAnchor || focusedAnchor || lastAnchor || void 0;
+  }
+  getCanvasMenuDomAnchorNodeId(menu) {
+    var _a, _b, _c;
+    const direct = menu.closest("[data-node-id], [data-id]");
+    const directId = direct ? this.extractCanvasDomNodeId(direct) : "";
+    if (directId) {
+      return directId;
+    }
+    const explicitNodeAncestor = (_a = menu.parentElement) == null ? void 0 : _a.querySelector("[data-node-id], [data-id]");
+    const explicitId = explicitNodeAncestor ? this.extractCanvasDomNodeId(explicitNodeAncestor) : "";
+    if (explicitId) {
+      return explicitId;
+    }
+    const container = menu.closest(".workspace-leaf-content, .view-content, .canvas-wrapper, .canvas") || menu.parentElement || menu.ownerDocument.body;
+    const nodes = Array.from(container.querySelectorAll("[data-node-id], [data-id]")).filter((node) => !node.closest(".canvas-menu")).filter((node) => this.extractCanvasDomNodeId(node).length > 0);
+    slconsolelog(DebugLevMap.DebugLevel_Informative, (_b = this.slComm) == null ? void 0 : _b.slview, `Canvas menu anchor dom-nearest candidates [${SL_DEBUG_BUILD}]: count=${nodes.length}`);
+    if (nodes.length == 0) {
+      return "";
+    }
+    const menuRect = menu.getBoundingClientRect();
+    const menuCenterX = menuRect.left + menuRect.width / 2;
+    const menuCenterY = menuRect.top + menuRect.height / 2;
+    let bestId = "";
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const node of nodes) {
+      const nodeId = this.extractCanvasDomNodeId(node);
+      if (!nodeId) {
+        continue;
+      }
+      const rect = node.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const distance = Math.hypot(centerX - menuCenterX, centerY - menuCenterY);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestId = nodeId;
+      }
+    }
+    if (bestId.length > 0) {
+      slconsolelog(DebugLevMap.DebugLevel_Informative, (_c = this.slComm) == null ? void 0 : _c.slview, `Canvas menu anchor dom-nearest: ${bestId} dist=${bestDistance.toFixed(1)}`);
+    }
+    return bestId;
+  }
+  extractCanvasDomNodeId(el) {
+    const nodeId = el.getAttribute("data-node-id") || el.dataset.nodeId || "";
+    if (nodeId.length > 0) {
+      return nodeId;
+    }
+    const dataId = el.getAttribute("data-id") || el.dataset.id || "";
+    if (dataId.length == 0) {
+      return "";
+    }
+    if (dataId.startsWith("edge-")) {
+      return "";
+    }
+    return dataId;
+  }
+  bindCanvasMenuControlEvents(element) {
+    const stop = (evt) => {
+      evt.stopPropagation();
+    };
+    element.addEventListener("pointerdown", stop);
+    element.addEventListener("mousedown", stop);
+    element.addEventListener("mouseup", stop);
+    element.addEventListener("click", stop);
+    element.addEventListener("dblclick", stop);
+    element.addEventListener("keydown", stop);
+  }
+  addCanvasMenuEdgeModeControls(leaf) {
+    var _a;
+    const view = leaf.view;
+    const canvasFile = view == null ? void 0 : view.file;
+    const container = (_a = view == null ? void 0 : view.containerEl) != null ? _a : null;
+    if (!canvasFile || !container) {
+      return;
+    }
+    if (!this.getFocusedCanvasEdge(container)) {
+      return;
+    }
+    const menu = container.querySelector(".canvas-menu");
+    if (!menu || menu.querySelector(".sl-canvas-menu-edge-mode")) {
+      return;
+    }
+    if (!this.canvasEdgeModes.has(canvasFile.path)) {
+      this.canvasEdgeModes.set(canvasFile.path, "as_Defined");
+    }
+    const section = document.createElement("div");
+    section.className = "sl-canvas-menu-edge-mode";
+    section.style.display = "flex";
+    section.style.alignItems = "center";
+    section.style.gap = "6px";
+    section.style.marginLeft = "8px";
+    const leftLabel = document.createElement("span");
+    leftLabel.className = "sl-canvas-edge-mode-left-label";
+    leftLabel.textContent = "defined";
+    leftLabel.style.color = "#475569";
+    leftLabel.style.fontSize = "11px";
+    leftLabel.style.lineHeight = "1";
+    section.appendChild(leftLabel);
+    const toggle = document.createElement("button");
+    toggle.className = "sl-canvas-edge-mode-toggle";
+    toggle.type = "button";
+    toggle.setAttribute("aria-label", "Toggle edge mode");
+    toggle.style.position = "relative";
+    toggle.style.width = "34px";
+    toggle.style.height = "20px";
+    toggle.style.padding = "0";
+    toggle.style.borderRadius = "999px";
+    toggle.style.border = "1px solid rgba(100, 116, 139, 0.35)";
+    toggle.style.background = "#cbd5e1";
+    toggle.style.cursor = "pointer";
+    toggle.style.transition = "background 120ms ease";
+    this.bindCanvasMenuControlEvents(toggle);
+    const knob = document.createElement("span");
+    knob.className = "sl-canvas-edge-mode-toggle-knob";
+    knob.style.position = "absolute";
+    knob.style.top = "1px";
+    knob.style.left = "1px";
+    knob.style.width = "16px";
+    knob.style.height = "16px";
+    knob.style.borderRadius = "999px";
+    knob.style.background = "#ffffff";
+    knob.style.boxShadow = "0 1px 2px rgba(15, 23, 42, 0.18)";
+    knob.style.transition = "transform 120ms ease";
+    toggle.appendChild(knob);
+    toggle.addEventListener("click", async (evt) => {
+      var _a2;
+      evt.preventDefault();
+      evt.stopPropagation();
+      const current = (_a2 = this.canvasEdgeModes.get(canvasFile.path)) != null ? _a2 : "as_Defined";
+      const next = current == "as_Defined" ? "as_calculated" : "as_Defined";
+      this.canvasEdgeModes.set(canvasFile.path, next);
+      this.updateCanvasEdgeModeControls(leaf);
+      await this.applyCanvasEdgeModeToSelectedEdges(leaf, next);
+    });
+    section.appendChild(toggle);
+    const rightLabel = document.createElement("span");
+    rightLabel.className = "sl-canvas-edge-mode-right-label";
+    rightLabel.textContent = "calculated";
+    rightLabel.style.color = "#475569";
+    rightLabel.style.fontSize = "11px";
+    rightLabel.style.lineHeight = "1";
+    section.appendChild(rightLabel);
+    menu.appendChild(section);
+  }
+  removeCanvasMenuEdgeModeControls(leaf) {
+    var _a, _b;
+    const view = leaf.view;
+    const container = (_a = view == null ? void 0 : view.containerEl) != null ? _a : null;
+    if (!container) {
+      return;
+    }
+    (_b = container.querySelector(".sl-canvas-menu-edge-mode")) == null ? void 0 : _b.remove();
+  }
+  addCanvasEdgeModeControls(leaf) {
+    var _a;
+    const view = leaf.view;
+    const canvasFile = view == null ? void 0 : view.file;
+    const container = (_a = view == null ? void 0 : view.containerEl) != null ? _a : null;
+    if (!canvasFile || !container) {
+      return;
+    }
+    const bar = this.ensureCanvasToolbar(leaf);
+    if (bar.querySelector(".sl-canvas-edge-mode-bar")) {
+      return;
+    }
+    if (!this.canvasEdgeModes.has(canvasFile.path)) {
+      this.canvasEdgeModes.set(canvasFile.path, "as_Defined");
+    }
+    const section = document.createElement("div");
+    section.className = "sl-canvas-edge-mode-bar";
+    section.style.display = "flex";
+    section.style.alignItems = "center";
+    section.style.gap = "6px";
+    const label = document.createElement("span");
+    label.className = "sl-canvas-edge-mode-left-label";
+    label.textContent = "defined";
+    label.style.color = "#475569";
+    label.style.fontSize = "11px";
+    label.style.lineHeight = "1";
+    section.appendChild(label);
+    const toggle = document.createElement("button");
+    toggle.className = "sl-canvas-edge-mode-toggle";
+    toggle.type = "button";
+    toggle.setAttribute("aria-label", "Toggle edge mode");
+    toggle.style.position = "relative";
+    toggle.style.width = "34px";
+    toggle.style.height = "20px";
+    toggle.style.padding = "0";
+    toggle.style.borderRadius = "999px";
+    toggle.style.border = "1px solid rgba(100, 116, 139, 0.35)";
+    toggle.style.background = "#cbd5e1";
+    toggle.style.cursor = "pointer";
+    toggle.style.transition = "background 120ms ease";
+    const knob = document.createElement("span");
+    knob.className = "sl-canvas-edge-mode-toggle-knob";
+    knob.style.position = "absolute";
+    knob.style.top = "1px";
+    knob.style.left = "1px";
+    knob.style.width = "16px";
+    knob.style.height = "16px";
+    knob.style.borderRadius = "999px";
+    knob.style.background = "#ffffff";
+    knob.style.boxShadow = "0 1px 2px rgba(15, 23, 42, 0.18)";
+    knob.style.transition = "transform 120ms ease";
+    toggle.appendChild(knob);
+    toggle.addEventListener("click", async (evt) => {
+      var _a2;
+      evt.preventDefault();
+      evt.stopPropagation();
+      const current = (_a2 = this.canvasEdgeModes.get(canvasFile.path)) != null ? _a2 : "as_Defined";
+      const next = current == "as_Defined" ? "as_calculated" : "as_Defined";
+      this.canvasEdgeModes.set(canvasFile.path, next);
+      this.updateCanvasEdgeModeControls(leaf);
+      await this.applyCanvasEdgeModeToSelectedEdges(leaf, next);
+    });
+    section.appendChild(toggle);
+    const rightLabel = document.createElement("span");
+    rightLabel.className = "sl-canvas-edge-mode-right-label";
+    rightLabel.textContent = "calculated";
+    rightLabel.style.color = "#475569";
+    rightLabel.style.fontSize = "11px";
+    rightLabel.style.lineHeight = "1";
+    section.appendChild(rightLabel);
+    bar.appendChild(section);
+    this.updateCanvasToolbarPosition(leaf);
+  }
+  updateCanvasEdgeModeControls(leaf) {
+    var _a, _b;
+    const view = leaf.view;
+    const canvasFile = view == null ? void 0 : view.file;
+    const container = (_a = view == null ? void 0 : view.containerEl) != null ? _a : null;
+    if (!canvasFile || !container) {
+      return;
+    }
+    const mode = (_b = this.canvasEdgeModes.get(canvasFile.path)) != null ? _b : "as_Defined";
+    const toggle = container.querySelector(".sl-canvas-edge-mode-toggle");
+    const knob = container.querySelector(".sl-canvas-edge-mode-toggle-knob");
+    const leftLabel = container.querySelector(".sl-canvas-edge-mode-left-label");
+    const rightLabel = container.querySelector(".sl-canvas-edge-mode-right-label");
+    if (toggle && knob) {
+      const isCalculated = mode == "as_calculated";
+      toggle.style.background = isCalculated ? "#cbd5e1" : "#64748b";
+      knob.style.transform = isCalculated ? "translateX(14px)" : "translateX(0)";
+      toggle.setAttribute("aria-pressed", isCalculated ? "true" : "false");
+    }
+    if (leftLabel) {
+      leftLabel.style.color = mode == "as_Defined" ? "#0f172a" : "#64748b";
+    }
+    if (rightLabel) {
+      rightLabel.style.color = mode == "as_calculated" ? "#0f172a" : "#64748b";
+    }
+    this.updateCanvasToolbarPosition(leaf);
+  }
+  updateCanvasToolbarVisibility(leaf) {
+    var _a;
+    const view = leaf.view;
+    const container = (_a = view == null ? void 0 : view.containerEl) != null ? _a : null;
+    if (!container) {
+      return;
+    }
+    const bar = container.querySelector(".sl-canvas-toolbar");
+    if (!bar) {
+      return;
+    }
+    bar.style.display = this.getFocusedCanvasNode(container) || this.getFocusedCanvasEdge(container) ? "none" : "flex";
+  }
+  ensureCanvasToolbar(leaf) {
+    var _a, _b;
+    const view = leaf.view;
+    const container = (_a = view == null ? void 0 : view.containerEl) != null ? _a : null;
+    let bar = container == null ? void 0 : container.querySelector(".sl-canvas-toolbar");
+    if (container && !bar) {
+      const menu = container.querySelector(".canvas-menu");
+      const host = (_b = menu == null ? void 0 : menu.parentElement) != null ? _b : container;
+      bar = document.createElement("div");
+      bar.className = "sl-canvas-toolbar";
+      bar.style.display = "flex";
+      bar.style.alignItems = "center";
+      bar.style.gap = "10px";
+      bar.style.marginRight = "8px";
+      bar.style.padding = "4px 8px";
+      bar.style.borderRadius = "999px";
+      bar.style.background = "rgba(255, 255, 255, 0.72)";
+      bar.style.border = "1px solid rgba(148, 163, 184, 0.5)";
+      bar.style.boxShadow = "0 1px 4px rgba(15, 23, 42, 0.08)";
+      bar.style.setProperty("backdrop-filter", "blur(3px)");
+      if (menu) {
+        host.insertBefore(bar, menu);
+      } else {
+        host.appendChild(bar);
+      }
+    }
+    return bar;
+  }
+  updateCanvasToolbarPosition(leaf) {
+    var _a, _b;
+    const view = leaf.view;
+    const container = (_a = view == null ? void 0 : view.containerEl) != null ? _a : null;
+    if (!container) {
+      return;
+    }
+    const bar = container.querySelector(".sl-canvas-toolbar");
+    const menu = container.querySelector(".canvas-menu");
+    if (!bar || !menu) {
+      return;
+    }
+    if (bar.parentElement !== menu.parentElement) {
+      (_b = menu.parentElement) == null ? void 0 : _b.insertBefore(bar, menu);
+    }
+  }
   async updateCanvasInfoButton(leaf) {
     var _a;
     const view = leaf.view;
@@ -3329,10 +4122,380 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     }
     return raw.split(/[\r\n]/)[0].trim();
   }
+  extractCanvasNodeFieldValue(raw, fieldName) {
+    var _a, _b;
+    if (!raw) {
+      return "";
+    }
+    const regex = new RegExp(`^${fieldName}:\\s*(.*)$`, "im");
+    const match = raw.match(regex);
+    return (_b = (_a = match == null ? void 0 : match[1]) == null ? void 0 : _a.trim()) != null ? _b : "";
+  }
   getFocusedCanvasNode(container) {
     return container.querySelector(
       ".canvas-node.is-focused, .canvas-node.is-selected, .canvas-node.is-editing"
     );
+  }
+  getFocusedCanvasEdge(container) {
+    return container.querySelector(
+      ".canvas-edge.is-focused, .canvas-edge.is-selected"
+    );
+  }
+  async insertCanvasNode(leaf, nodeType, anchorNodeId) {
+    var _a, _b, _c;
+    const view = leaf.view;
+    const canvasFile = view == null ? void 0 : view.file;
+    const container = (_a = view == null ? void 0 : view.containerEl) != null ? _a : null;
+    if (!canvasFile || !container) {
+      return;
+    }
+    const data = await this.readCanvasFileData(canvasFile);
+    const anchorId = anchorNodeId != null ? anchorNodeId : this.getFocusedCanvasNodeId(container);
+    const anchorNode = anchorId ? data.nodes.find((node) => node.id == anchorId) : void 0;
+    const suggestedId = this.suggestCanvasNodeId(nodeType, anchorNode, data.nodes);
+    const requestedId = await this.promptCanvasNodeId(nodeType, suggestedId);
+    if (!requestedId) {
+      new import_obsidian8.Notice("Node insertion cancelled.");
+      return;
+    }
+    if (data.nodes.some((node) => node.id == requestedId)) {
+      new import_obsidian8.Notice("This node ID already exists.");
+      return;
+    }
+    const orConfig = nodeType == "OR" ? await this.promptCanvasOrConfig() : void 0;
+    if (nodeType == "OR" && !orConfig) {
+      new import_obsidian8.Notice("OR insertion cancelled.");
+      return;
+    }
+    const nextNode = this.buildCanvasNode(nodeType, requestedId, anchorNode, { orConfig });
+    data.nodes.push(nextNode);
+    if (anchorNode) {
+      data.edges.push(this.buildCanvasEdge(anchorNode, nextNode, data.edges, (_b = this.canvasEdgeModes.get(canvasFile.path)) != null ? _b : "as_Defined"));
+    }
+    await this.writeCanvasFileData(canvasFile, data);
+    await leaf.openFile(canvasFile, { active: false });
+    slconsolelog(DebugLevMap.DebugLevel_Informative, (_c = this.slComm) == null ? void 0 : _c.slview, `Canvas node inserted: ${nodeType} (${nextNode.id})`);
+  }
+  async promptCanvasNodeId(nodeType, suggestedId) {
+    return await new Promise((resolve) => {
+      const modal = new CanvasNodeIdModal(this.app, nodeType, suggestedId, resolve);
+      modal.open();
+    });
+  }
+  async promptCanvasOrConfig() {
+    return await new Promise((resolve) => {
+      const modal = new CanvasOrConfigModal(this.app, resolve);
+      modal.open();
+    });
+  }
+  async changeCanvasNodeConcept(leaf, nodeId, nodeType) {
+    var _a;
+    const view = leaf.view;
+    const canvasFile = view == null ? void 0 : view.file;
+    if (!canvasFile) {
+      return;
+    }
+    const data = await this.readCanvasFileData(canvasFile);
+    const node = data.nodes.find((entry) => entry.id == nodeId);
+    if (!node) {
+      new import_obsidian8.Notice("Selected node could not be found.");
+      return;
+    }
+    const contentConfig = await this.getCanvasNodeContentConfig(nodeType, (_a = node.text) != null ? _a : "");
+    if (nodeType == "OR" && !contentConfig.orConfig) {
+      new import_obsidian8.Notice("Change cancelled.");
+      return;
+    }
+    const dimensions = this.getCanvasNodeDimensions(nodeType);
+    node.width = dimensions.width;
+    node.height = dimensions.height;
+    node.color = this.getCanvasNodeColor(nodeType);
+    node.text = this.buildCanvasNodeText(nodeType, node.id, contentConfig);
+    await this.writeCanvasFileData(canvasFile, data);
+    await leaf.openFile(canvasFile, { active: false });
+  }
+  async getCanvasNodeContentConfig(nodeType, existingText) {
+    if (nodeType == "OR") {
+      const orConfig = await this.promptCanvasOrConfig();
+      return { orConfig };
+    }
+    if (nodeType == "ATTRIBUTE") {
+      return { value: this.extractCanvasNodeFieldValue(existingText, "Value") };
+    }
+    return {};
+  }
+  getFocusedCanvasNodeId(container) {
+    const focused = this.getFocusedCanvasNode(container);
+    return (focused == null ? void 0 : focused.getAttribute("data-node-id")) || (focused == null ? void 0 : focused.getAttribute("data-id")) || (focused == null ? void 0 : focused.dataset.nodeId) || (focused == null ? void 0 : focused.dataset.id) || void 0;
+  }
+  getSelectedCanvasNodeIds(container) {
+    const focusedId = this.getFocusedCanvasNodeId(container);
+    const ids = [];
+    if (focusedId) {
+      ids.push(focusedId);
+    }
+    const selectedNodes = Array.from(container.querySelectorAll(".canvas-node.is-selected, .canvas-node.is-focused, .canvas-node.is-editing"));
+    for (const node of selectedNodes) {
+      const id = node.getAttribute("data-node-id") || node.getAttribute("data-id") || node.dataset.nodeId || node.dataset.id;
+      if (id && !ids.includes(id)) {
+        ids.push(id);
+      }
+    }
+    return ids.slice(0, 2);
+  }
+  getSelectedCanvasEdgeIds(container) {
+    const ids = [];
+    const selectedEdges = Array.from(container.querySelectorAll(".canvas-edge.is-selected, .canvas-edge.is-focused"));
+    for (const edge of selectedEdges) {
+      const id = edge.getAttribute("data-edge-id") || edge.getAttribute("data-id") || edge.dataset.edgeId || edge.dataset.id;
+      if (id && !ids.includes(id)) {
+        ids.push(id);
+      }
+    }
+    return ids;
+  }
+  async applyCanvasEdgeModeToSelectedEdges(leaf, mode) {
+    var _a, _b;
+    const view = leaf.view;
+    const canvasFile = view == null ? void 0 : view.file;
+    const container = (_a = view == null ? void 0 : view.containerEl) != null ? _a : null;
+    if (!canvasFile || !container) {
+      return;
+    }
+    const selectedEdgeIds = this.getSelectedCanvasEdgeIds(container);
+    if (selectedEdgeIds.length == 0) {
+      return;
+    }
+    const data = await this.readCanvasFileData(canvasFile);
+    let changed = false;
+    for (const edge of data.edges) {
+      if (!selectedEdgeIds.includes(edge.id)) {
+        continue;
+      }
+      if (this.getCanvasEdgeRelationType(edge) == mode && edge.color == this.getCanvasEdgeColor(mode)) {
+        continue;
+      }
+      edge.meta = { ...(_b = edge.meta) != null ? _b : {}, SL_RelationType: mode };
+      edge.color = this.getCanvasEdgeColor(mode);
+      changed = true;
+    }
+    if (!changed) {
+      return;
+    }
+    await this.writeCanvasFileData(canvasFile, data);
+    await leaf.openFile(canvasFile, { active: false });
+  }
+  buildCanvasNode(nodeType, nodeId, anchorNode, contentConfig) {
+    var _a, _b, _c, _d;
+    const dimensions = this.getCanvasNodeDimensions(nodeType);
+    const originX = (_a = anchorNode == null ? void 0 : anchorNode.x) != null ? _a : 0;
+    const originY = (_b = anchorNode == null ? void 0 : anchorNode.y) != null ? _b : 0;
+    const originWidth = (_c = anchorNode == null ? void 0 : anchorNode.width) != null ? _c : 260;
+    const originHeight = (_d = anchorNode == null ? void 0 : anchorNode.height) != null ? _d : 100;
+    const nodeX = anchorNode ? nodeType == "LEAF" ? originX + originWidth + 120 : originX : originX;
+    const nodeY = anchorNode ? nodeType == "LEAF" ? originY : originY + originHeight + 120 : originY;
+    return {
+      id: nodeId,
+      type: "text",
+      text: this.buildCanvasNodeText(nodeType, nodeId, contentConfig),
+      x: nodeX,
+      y: nodeY,
+      width: dimensions.width,
+      height: dimensions.height,
+      color: this.getCanvasNodeColor(nodeType)
+    };
+  }
+  suggestCanvasNodeId(nodeType, anchorNode, existingNodes) {
+    const existingIds = new Set(existingNodes.map((node) => node.id));
+    const baseId = this.getCanvasBaseNodeId(nodeType, anchorNode == null ? void 0 : anchorNode.id);
+    return this.createUniqueCanvasId(baseId, existingIds);
+  }
+  getCanvasBaseNodeId(nodeType, anchorId) {
+    if (nodeType == "SYMBOL") {
+      return anchorId ? `${anchorId}.symbol` : "NewSymbol";
+    }
+    if (nodeType == "ATTRIBUTE") {
+      return anchorId ? `${anchorId}.Attribute` : "NewAttribute";
+    }
+    if (anchorId && nodeType == "LEAF") {
+      return `${anchorId}.leaf`;
+    }
+    if (anchorId) {
+      return `${anchorId}.${nodeType.toLowerCase()}`;
+    }
+    return `New${nodeType}`;
+  }
+  buildCanvasNodeText(nodeType, nodeId, contentConfig) {
+    var _a, _b, _c, _d, _e;
+    const lines = [`ID: ${nodeId}`, `Concept: ${nodeType}`];
+    switch (nodeType) {
+      case "SYMBOL":
+        break;
+      case "AND":
+        break;
+      case "OR":
+        lines.push(`Min: ${(_b = (_a = contentConfig == null ? void 0 : contentConfig.orConfig) == null ? void 0 : _a.min) != null ? _b : "1"}`);
+        lines.push(`Max: ${(_d = (_c = contentConfig == null ? void 0 : contentConfig.orConfig) == null ? void 0 : _c.max) != null ? _d : "1"}`);
+        break;
+      case "LEAF":
+        break;
+      case "ATTRIBUTE":
+        lines.push(`Value: ${(_e = contentConfig == null ? void 0 : contentConfig.value) != null ? _e : ""}`);
+        break;
+    }
+    return lines.join("\n");
+  }
+  getCanvasNodeDimensions(nodeType) {
+    switch (nodeType) {
+      case "SYMBOL":
+        return { width: 300, height: 60 };
+      case "AND":
+        return { width: 300, height: 100 };
+      case "OR":
+        return { width: 300, height: 140 };
+      case "LEAF":
+        return { width: 300, height: 60 };
+      case "ATTRIBUTE":
+        return { width: 300, height: 80 };
+    }
+  }
+  getCanvasNodeColor(nodeType) {
+    switch (nodeType) {
+      case "SYMBOL":
+        return "#1d4ed8";
+      case "AND":
+        return "#7e22ce";
+      case "OR":
+        return "#4ade80";
+      case "LEAF":
+        return "#fed7aa";
+      case "ATTRIBUTE":
+        return "#fef9c3";
+    }
+  }
+  getCanvasEdgeColor(edgeType) {
+    switch (edgeType) {
+      case "as_Defined":
+        return "#4b5563";
+      case "as_calculated":
+        return "#d1d5db";
+    }
+  }
+  getCanvasEdgeRelationType(edge) {
+    var _a, _b;
+    const relation = String((_b = (_a = edge.meta) == null ? void 0 : _a.SL_RelationType) != null ? _b : "");
+    return relation == "as_Defined" || relation == "as_calculated" ? relation : void 0;
+  }
+  getCanvasEdgeSides(sourceNode, targetNode) {
+    var _a, _b, _c, _d;
+    const sourceCenterX = sourceNode.x + ((_a = sourceNode.width) != null ? _a : 260) / 2;
+    const sourceCenterY = sourceNode.y + ((_b = sourceNode.height) != null ? _b : 100) / 2;
+    const targetCenterX = targetNode.x + ((_c = targetNode.width) != null ? _c : 260) / 2;
+    const targetCenterY = targetNode.y + ((_d = targetNode.height) != null ? _d : 100) / 2;
+    const deltaX = targetCenterX - sourceCenterX;
+    const deltaY = targetCenterY - sourceCenterY;
+    if (Math.abs(deltaX) >= Math.abs(deltaY)) {
+      return deltaX >= 0 ? { fromSide: "right", toSide: "left" } : { fromSide: "left", toSide: "right" };
+    }
+    return deltaY >= 0 ? { fromSide: "bottom", toSide: "top" } : { fromSide: "top", toSide: "bottom" };
+  }
+  buildCanvasEdge(sourceNode, targetNode, existingEdges, edgeType) {
+    const sides = this.getCanvasEdgeSides(sourceNode, targetNode);
+    const edgeId = this.createUniqueCanvasId(
+      `${sourceNode.id}->${targetNode.id}`,
+      new Set(existingEdges.map((edge) => edge.id))
+    );
+    return {
+      id: edgeId,
+      fromNode: sourceNode.id,
+      fromSide: sides.fromSide,
+      toNode: targetNode.id,
+      toSide: sides.toSide,
+      color: this.getCanvasEdgeColor(edgeType),
+      meta: {
+        SL_RelationType: edgeType
+      }
+    };
+  }
+  createUniqueCanvasId(baseId, existingIds) {
+    if (!existingIds.has(baseId)) {
+      return baseId;
+    }
+    let counter = 2;
+    while (existingIds.has(`${baseId}.${counter}`)) {
+      counter++;
+    }
+    return `${baseId}.${counter}`;
+  }
+  async readCanvasFileData(canvasFile) {
+    var _a, _b;
+    let raw = "";
+    try {
+      raw = await this.app.vault.cachedRead(canvasFile);
+    } catch (e) {
+      slconsolelog(DebugLevMap.DebugLevel_Error, (_a = this.slComm) == null ? void 0 : _a.slview, `Canvas read failed: ${canvasFile.path}`);
+      return { nodes: [], edges: [] };
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      const data = {
+        nodes: Array.isArray(parsed == null ? void 0 : parsed.nodes) ? parsed.nodes : [],
+        edges: Array.isArray(parsed == null ? void 0 : parsed.edges) ? parsed.edges : [],
+        files: Array.isArray(parsed == null ? void 0 : parsed.files) ? parsed.files : void 0
+      };
+      if (!this.canvasKnownEdgeIds.has(canvasFile.path)) {
+        this.canvasKnownEdgeIds.set(canvasFile.path, new Set(data.edges.map((edge) => edge.id)));
+      }
+      return data;
+    } catch (e) {
+      slconsolelog(DebugLevMap.DebugLevel_Error, (_b = this.slComm) == null ? void 0 : _b.slview, `Canvas parse failed: ${canvasFile.path}`);
+      return { nodes: [], edges: [] };
+    }
+  }
+  async writeCanvasFileData(canvasFile, data) {
+    const payload = JSON.stringify(data, null, 2);
+    this.canvasEdgeModeWriteInFlight.add(canvasFile.path);
+    try {
+      await this.app.vault.modify(canvasFile, payload);
+      this.canvasNodeFileCache.delete(canvasFile.path);
+      this.canvasKnownEdgeIds.set(canvasFile.path, new Set(data.edges.map((edge) => edge.id)));
+    } finally {
+      window.setTimeout(() => {
+        this.canvasEdgeModeWriteInFlight.delete(canvasFile.path);
+      }, 50);
+    }
+  }
+  async syncNewCanvasEdgesToMode(canvasFile) {
+    var _a;
+    const path = (0, import_obsidian8.normalizePath)(canvasFile.path);
+    if (this.canvasEdgeModeWriteInFlight.has(path)) {
+      return;
+    }
+    const mode = this.canvasEdgeModes.get(path);
+    if (!mode) {
+      return;
+    }
+    const previousEdgeIds = this.canvasKnownEdgeIds.get(path);
+    const data = await this.readCanvasFileData(canvasFile);
+    const currentEdgeIds = new Set(data.edges.map((edge) => edge.id));
+    if (!previousEdgeIds) {
+      this.canvasKnownEdgeIds.set(path, currentEdgeIds);
+      return;
+    }
+    let changed = false;
+    for (const edge of data.edges) {
+      if (previousEdgeIds.has(edge.id)) {
+        continue;
+      }
+      edge.meta = { ...(_a = edge.meta) != null ? _a : {}, SL_RelationType: mode };
+      edge.color = this.getCanvasEdgeColor(mode);
+      changed = true;
+    }
+    this.canvasKnownEdgeIds.set(path, currentEdgeIds);
+    if (!changed) {
+      return;
+    }
+    await this.writeCanvasFileData(canvasFile, data);
   }
   async activateASPView() {
     if (this.slComm.slaspview == void 0) {

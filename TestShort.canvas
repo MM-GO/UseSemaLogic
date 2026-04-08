@@ -1,0 +1,31 @@
+{
+	"nodes":[
+		{"id":"Türen","type":"text","text":"ID: Türen","x":-570,"y":240,"width":300,"height":60,"color":"#1d4ed8"},
+		{"id":"Fenster","type":"text","text":"ID: Fenster\nConcept: OR\nMin: 1\nMax: 1","x":-150,"y":240,"width":300,"height":140,"color":"#4ade80"},
+		{"id":"Wand","type":"text","text":"ID: Wand","x":270,"y":240,"width":300,"height":60,"color":"#1d4ed8"},
+		{"id":"Türen.Kosten","type":"text","text":"ID: Türen.Kosten\nValue: 25.000","x":-570,"y":420,"width":300,"height":80,"color":"#fef9c3"},
+		{"id":"Wand.Kosten","type":"text","text":"ID: Wand.Kosten\nValue: 100.000","x":270,"y":420,"width":300,"height":80,"color":"#fef9c3"},
+		{"id":"Holzfenster","type":"text","text":"ID: Holzfenster","x":-360,"y":520,"width":300,"height":60,"color":"#1d4ed8"},
+		{"id":"Kunststofffenster","type":"text","text":"ID: Kunststofffenster","x":60,"y":520,"width":300,"height":60,"color":"#1d4ed8"},
+		{"id":"Haus.leaf.Kosten","type":"text","text":"ID: Haus.leaf.Kosten\nValue: 30.000","x":630,"y":760,"width":300,"height":80,"color":"#fef9c3"},
+		{"id":"Haus","type":"text","text":"ID: Haus\nConcept: AND","x":-150,"y":-160,"width":300,"height":100,"color":"#7e22ce"},
+		{"id":"Haus.leaf","type":"text","text":"ID: Haus.leaf","x":630,"y":-40,"width":300,"height":60,"color":"#fed7aa"}
+	],
+	"edges":[
+		{"id":"Haus->Türen","fromNode":"Haus","fromSide":"bottom","toNode":"Türen","toSide":"top","color":"#4b5563"},
+		{"id":"Haus->Fenster","fromNode":"Haus","fromSide":"bottom","toNode":"Fenster","toSide":"top","color":"#4b5563"},
+		{"id":"Haus->Wand","fromNode":"Haus","fromSide":"bottom","toNode":"Wand","toSide":"top","color":"#4b5563"},
+		{"id":"Fenster->Holzfenster","fromNode":"Fenster","fromSide":"bottom","toNode":"Holzfenster","toSide":"top","color":"#4b5563"},
+		{"id":"Fenster->Kunststofffenster","fromNode":"Fenster","fromSide":"bottom","toNode":"Kunststofffenster","toSide":"top","color":"#4b5563"},
+		{"id":"Haus->Haus.leaf","fromNode":"Haus","fromSide":"right","toNode":"Haus.leaf","toSide":"left","color":"#4b5563"},
+		{"id":"Haus.leaf->Türen","fromNode":"Haus.leaf","fromSide":"bottom","toNode":"Türen","toSide":"top","color":"#d1d5db"},
+		{"id":"Haus.leaf->Wand","fromNode":"Haus.leaf","fromSide":"bottom","toNode":"Wand","toSide":"top","color":"#d1d5db"},
+		{"id":"Haus.leaf->Holzfenster","fromNode":"Haus.leaf","fromSide":"bottom","toNode":"Holzfenster","toSide":"top","color":"#d1d5db"},
+		{"id":"Haus.leaf->Kunststofffenster","fromNode":"Haus.leaf","fromSide":"bottom","toNode":"Kunststofffenster","toSide":"top","color":"#d1d5db"},
+		{"id":"Türen->Türen.Kosten","fromNode":"Türen","fromSide":"bottom","toNode":"Türen.Kosten","toSide":"top","color":"#4b5563"},
+		{"id":"Wand->Wand.Kosten","fromNode":"Wand","fromSide":"bottom","toNode":"Wand.Kosten","toSide":"top","color":"#4b5563"},
+		{"id":"Haus.leaf->Haus.leaf.Kosten","fromNode":"Haus.leaf","fromSide":"bottom","toNode":"Haus.leaf.Kosten","toSide":"top","color":"#4b5563"},
+		{"id":"Holzfenster->Haus.leaf.Kosten","fromNode":"Holzfenster","fromSide":"bottom","toNode":"Haus.leaf.Kosten","toSide":"top","color":"#d1d5db"},
+		{"id":"Kunststofffenster->Haus.leaf.Kosten","fromNode":"Kunststofffenster","fromSide":"bottom","toNode":"Haus.leaf.Kosten","toSide":"top","color":"#d1d5db"}
+	]
+}
