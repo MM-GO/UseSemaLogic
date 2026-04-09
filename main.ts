@@ -185,6 +185,62 @@ class CanvasOrConfigModal extends Modal {
 	}
 }
 
+class CanvasAttributeValueModal extends Modal {
+	private readonly initialValue: string
+	private readonly resolveValue: (value: string | undefined) => void
+	private valueComponent: TextComponent | undefined
+
+	constructor(app: App, initialValue: string, resolveValue: (value: string | undefined) => void) {
+		super(app)
+		this.initialValue = initialValue
+		this.resolveValue = resolveValue
+	}
+
+	onOpen(): void {
+		const { contentEl, titleEl } = this
+		titleEl.setText("Configure ATTRIBUTE node")
+		contentEl.empty()
+
+		const setting = new Setting(contentEl)
+			.setName("Value")
+			.setDesc("Enter the value for the ATTRIBUTE node.")
+			.addText((text) => {
+				this.valueComponent = text
+				text.setValue(this.initialValue)
+				text.inputEl.select()
+				text.inputEl.addEventListener("keydown", (evt) => {
+					if (evt.key == "Enter") {
+						evt.preventDefault()
+						this.submit()
+					}
+				})
+			})
+
+		setting.addButton((button) => {
+			button.setButtonText("Add")
+			button.setCta()
+			button.onClick(() => this.submit())
+		})
+		setting.addExtraButton((button) => {
+			button.setIcon("cross")
+			button.setTooltip("Cancel")
+			button.onClick(() => {
+				this.resolveValue(undefined)
+				this.close()
+			})
+		})
+	}
+
+	onClose(): void {
+		this.contentEl.empty()
+	}
+
+	private submit(): void {
+		this.resolveValue(this.valueComponent?.getValue() ?? "")
+		this.close()
+	}
+}
+
 export interface SLSetting {
 	myPort: string;
 	myOutputFormat: string;
@@ -1806,6 +1862,7 @@ export default class SemaLogicPlugin extends Plugin {
 		if (!container) { return }
 		const menu = container.querySelector<HTMLElement>(".canvas-menu")
 		if (!menu || menu.querySelector(".sl-node-info-btn")) { return }
+		this.applyCanvasMenuResponsiveLayout(menu)
 
 		const btn = document.createElement("button")
 		btn.className = "clickable-icon sl-node-info-btn"
@@ -1824,7 +1881,7 @@ export default class SemaLogicPlugin extends Plugin {
 			let nodeText = ""
 			let fallbackPath: string | undefined
 
-			const focused = this.getFocusedCanvasNode(container)
+			const focused = this.getFocusedCanvasNode(leaf, container)
 			if (focused) {
 				const res = this.resolveCanvasNodeFiles(focused, maps)
 				if (res.dataPath) {
@@ -1872,10 +1929,11 @@ export default class SemaLogicPlugin extends Plugin {
 		if (!canvasFile) { return }
 		const container: HTMLElement | null = view?.containerEl ?? null
 		if (!container) { return }
-		if (this.getFocusedCanvasEdge(container)) { return }
+		if (this.hasFocusedCanvasEdge(leaf, container)) { return }
 		const menu = container.querySelector<HTMLElement>(".canvas-menu")
 		if (!menu || menu.querySelector(".sl-canvas-node-select")) { return }
-		const currentAnchorNodeId = this.getFocusedCanvasNodeId(container)
+		this.applyCanvasMenuResponsiveLayout(menu)
+		const currentAnchorNodeId = this.getFocusedCanvasNodeId(leaf, container)
 			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas insert controls [${SL_DEBUG_BUILD}]: focused anchor=${currentAnchorNodeId ?? ""}`)
 		if (currentAnchorNodeId) {
 			menu.dataset.slAnchorNodeId = currentAnchorNodeId
@@ -1889,6 +1947,8 @@ export default class SemaLogicPlugin extends Plugin {
 		nodeSelect.style.position = "relative"
 		nodeSelect.style.zIndex = "21"
 		nodeSelect.style.maxWidth = "120px"
+		nodeSelect.style.minWidth = "0"
+		nodeSelect.style.flexShrink = "1"
 		nodeSelect.style.fontSize = "11px"
 		nodeSelect.style.marginLeft = "8px"
 		nodeSelect.style.border = "1px solid rgba(148, 163, 184, 0.6)"
@@ -1900,52 +1960,24 @@ export default class SemaLogicPlugin extends Plugin {
 		this.appendCanvasSelectOption(nodeSelect, "OR", "OR")
 		this.appendCanvasSelectOption(nodeSelect, "LEAF", "LEAF")
 		this.appendCanvasSelectOption(nodeSelect, "ATTRIBUTE", "ATTRIBUTE")
-		const lastSelection = this.canvasNodeInsertSelections.get(canvasFile.path)
-		if (lastSelection) {
-			nodeSelect.value = lastSelection
-		}
+		nodeSelect.value = ""
 		this.bindCanvasMenuControlEvents(nodeSelect)
-		nodeSelect.addEventListener("change", () => {
+		nodeSelect.addEventListener("change", async () => {
 			const selected = nodeSelect.value as CanvasNodeInsertType | ""
-			if (selected) {
-				this.canvasNodeInsertSelections.set(canvasFile.path, selected)
-			}
-		})
-
-		const addButton = document.createElement("button")
-		addButton.className = "clickable-icon sl-canvas-node-add-btn"
-		addButton.type = "button"
-		addButton.textContent = "Add"
-		addButton.setAttribute("aria-label", "Add selected node type")
-		addButton.style.fontSize = "11px"
-		addButton.style.lineHeight = "1"
-		addButton.style.padding = "4px 8px"
-		addButton.style.borderRadius = "6px"
-		addButton.style.border = "1px solid rgba(148, 163, 184, 0.6)"
-		addButton.style.background = "rgba(255, 255, 255, 0.95)"
-		addButton.style.color = "#334155"
-		addButton.style.cursor = "pointer"
-		this.bindCanvasMenuControlEvents(addButton)
-		addButton.addEventListener("click", async (evt) => {
-			evt.preventDefault()
-			evt.stopPropagation()
-			const selected = nodeSelect.value as CanvasNodeInsertType | ""
-			if (!selected) {
-				new Notice("Select a node type first.")
-				return
-			}
+			if (!selected) { return }
 			this.canvasNodeInsertSelections.set(canvasFile.path, selected)
 			const anchorNodeId = this.getCanvasMenuAnchorNodeId(container) || currentAnchorNodeId
-			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas insert click: selected=${selected} anchor=${anchorNodeId ?? ""}`)
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas insert change: selected=${selected} anchor=${anchorNodeId ?? ""}`)
 			if (!anchorNodeId) {
 				new Notice("Select a node first.")
+				nodeSelect.value = ""
 				return
 			}
 			await this.insertCanvasNode(leaf, selected, anchorNodeId)
+			nodeSelect.value = ""
 		})
 
 		menu.appendChild(nodeSelect)
-		menu.appendChild(addButton)
 	}
 
 	private addCanvasChangeControls(leaf: WorkspaceLeaf): void {
@@ -1954,10 +1986,11 @@ export default class SemaLogicPlugin extends Plugin {
 		if (!canvasFile) { return }
 		const container: HTMLElement | null = view?.containerEl ?? null
 		if (!container) { return }
-		if (this.getFocusedCanvasEdge(container)) { return }
+		if (this.hasFocusedCanvasEdge(leaf, container)) { return }
 		const menu = container.querySelector<HTMLElement>(".canvas-menu")
 		if (!menu || menu.querySelector(".sl-canvas-node-change-select")) { return }
-		const currentAnchorNodeId = this.getFocusedCanvasNodeId(container)
+		this.applyCanvasMenuResponsiveLayout(menu)
+		const currentAnchorNodeId = this.getFocusedCanvasNodeId(leaf, container)
 		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas change controls [${SL_DEBUG_BUILD}]: focused anchor=${currentAnchorNodeId ?? ""}`)
 		if (currentAnchorNodeId) {
 			menu.dataset.slAnchorNodeId = currentAnchorNodeId
@@ -1971,6 +2004,8 @@ export default class SemaLogicPlugin extends Plugin {
 		changeSelect.style.position = "relative"
 		changeSelect.style.zIndex = "21"
 		changeSelect.style.maxWidth = "120px"
+		changeSelect.style.minWidth = "0"
+		changeSelect.style.flexShrink = "1"
 		changeSelect.style.fontSize = "11px"
 		changeSelect.style.marginLeft = "8px"
 		changeSelect.style.border = "1px solid rgba(148, 163, 184, 0.6)"
@@ -1982,41 +2017,23 @@ export default class SemaLogicPlugin extends Plugin {
 		this.appendCanvasSelectOption(changeSelect, "OR", "OR")
 		this.appendCanvasSelectOption(changeSelect, "LEAF", "LEAF")
 		this.appendCanvasSelectOption(changeSelect, "ATTRIBUTE", "ATTRIBUTE")
+		changeSelect.value = ""
 		this.bindCanvasMenuControlEvents(changeSelect)
-
-		const changeButton = document.createElement("button")
-		changeButton.className = "clickable-icon sl-canvas-node-change-btn"
-		changeButton.type = "button"
-		changeButton.textContent = "Change"
-		changeButton.setAttribute("aria-label", "Change selected node concept")
-		changeButton.style.fontSize = "11px"
-		changeButton.style.lineHeight = "1"
-		changeButton.style.padding = "4px 8px"
-		changeButton.style.borderRadius = "6px"
-		changeButton.style.border = "1px solid rgba(148, 163, 184, 0.6)"
-		changeButton.style.background = "rgba(255, 255, 255, 0.95)"
-		changeButton.style.color = "#334155"
-		changeButton.style.cursor = "pointer"
-		this.bindCanvasMenuControlEvents(changeButton)
-		changeButton.addEventListener("click", async (evt) => {
-			evt.preventDefault()
-			evt.stopPropagation()
+		changeSelect.addEventListener("change", async () => {
 			const selected = changeSelect.value as CanvasNodeInsertType | ""
-			if (!selected) {
-				new Notice("Select a concept first.")
-				return
-			}
+			if (!selected) { return }
 			const anchorNodeId = this.getCanvasMenuAnchorNodeId(container) || currentAnchorNodeId
-			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas change click [${SL_DEBUG_BUILD}]: selected=${selected} anchor=${anchorNodeId ?? ""}`)
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas change change [${SL_DEBUG_BUILD}]: selected=${selected} anchor=${anchorNodeId ?? ""}`)
 			if (!anchorNodeId) {
 				new Notice("Select a node first.")
+				changeSelect.value = ""
 				return
 			}
 			await this.changeCanvasNodeConcept(leaf, anchorNodeId, selected)
+			changeSelect.value = ""
 		})
 
 		menu.appendChild(changeSelect)
-		menu.appendChild(changeButton)
 	}
 
 	private removeCanvasInsertControls(leaf: WorkspaceLeaf): void {
@@ -2024,7 +2041,7 @@ export default class SemaLogicPlugin extends Plugin {
 		const container: HTMLElement | null = view?.containerEl ?? null
 		if (!container) { return }
 		container.querySelector(".sl-canvas-node-select")?.remove()
-		container.querySelector(".sl-canvas-node-add-btn")?.remove()
+		container.querySelector(".sl-canvas-node-change-select")?.remove()
 	}
 
 	private addCanvasToolbarInsertControls(leaf: WorkspaceLeaf): void {
@@ -2111,6 +2128,16 @@ export default class SemaLogicPlugin extends Plugin {
 		selectEl.appendChild(option)
 	}
 
+	private applyCanvasMenuResponsiveLayout(menu: HTMLElement): void {
+		menu.style.flexWrap = "wrap"
+		menu.style.rowGap = "6px"
+		menu.style.columnGap = "6px"
+		menu.style.justifyContent = "flex-end"
+		menu.style.alignItems = "center"
+		menu.style.maxWidth = "calc(100vw - 24px)"
+		menu.style.overflow = "visible"
+	}
+
 	private bindCanvasSelectionTracking(container: HTMLElement): void {
 		if (container.dataset.slSelectionTrackingBound == "1") { return }
 		container.dataset.slSelectionTrackingBound = "1"
@@ -2153,7 +2180,7 @@ export default class SemaLogicPlugin extends Plugin {
 		if (!container) { return }
 		const menu = container.querySelector<HTMLElement>(".canvas-menu")
 		if (!menu) { return }
-		const anchorNodeId = this.getCanvasMenuDomAnchorNodeId(menu) || this.getFocusedCanvasNodeId(container) || container.dataset.slLastNodeId
+		const anchorNodeId = this.getCanvasMenuDomAnchorNodeId(menu) || this.getFocusedCanvasNodeId(leaf, container) || container.dataset.slLastNodeId
 		if (anchorNodeId) {
 			menu.dataset.slAnchorNodeId = anchorNodeId
 			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas menu anchor update [${SL_DEBUG_BUILD}]: anchor=${anchorNodeId}`)
@@ -2167,7 +2194,8 @@ export default class SemaLogicPlugin extends Plugin {
 		const menu = container.querySelector<HTMLElement>(".canvas-menu")
 		const domAnchor = menu ? this.getCanvasMenuDomAnchorNodeId(menu) : ""
 		const menuAnchor = menu?.dataset.slAnchorNodeId || ""
-		const focusedAnchor = this.getFocusedCanvasNodeId(container) || ""
+		const leaf = this.findLeafForCanvasContainer(container)
+		const focusedAnchor = leaf ? (this.getFocusedCanvasNodeId(leaf, container) || "") : ""
 		const lastAnchor = container.dataset.slLastNodeId || ""
 		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas menu anchor read [${SL_DEBUG_BUILD}]: dom=${domAnchor} menu=${menuAnchor} focused=${focusedAnchor} last=${lastAnchor}`)
 		return domAnchor || menuAnchor || focusedAnchor || lastAnchor || undefined
@@ -2219,6 +2247,18 @@ export default class SemaLogicPlugin extends Plugin {
 		return bestId
 	}
 
+	private findLeafForCanvasContainer(container: HTMLElement): WorkspaceLeaf | undefined {
+		let found: WorkspaceLeaf | undefined = undefined
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (found != undefined) { return }
+			const leafContainer: HTMLElement | undefined = (leaf.view as any)?.containerEl
+			if (leafContainer === container) {
+				found = leaf
+			}
+		})
+		return found
+	}
+
 	private extractCanvasDomNodeId(el: HTMLElement): string {
 		const nodeId = el.getAttribute("data-node-id") || el.dataset.nodeId || ""
 		if (nodeId.length > 0) {
@@ -2251,9 +2291,10 @@ export default class SemaLogicPlugin extends Plugin {
 		const canvasFile: TFile | undefined = view?.file
 		const container: HTMLElement | null = view?.containerEl ?? null
 		if (!canvasFile || !container) { return }
-		if (!this.getFocusedCanvasEdge(container)) { return }
+		if (!this.hasFocusedCanvasEdge(leaf, container)) { return }
 		const menu = container.querySelector<HTMLElement>(".canvas-menu")
 		if (!menu || menu.querySelector(".sl-canvas-menu-edge-mode")) { return }
+		this.applyCanvasMenuResponsiveLayout(menu)
 		if (!this.canvasEdgeModes.has(canvasFile.path)) {
 			this.canvasEdgeModes.set(canvasFile.path, "as_Defined")
 		}
@@ -2437,7 +2478,7 @@ export default class SemaLogicPlugin extends Plugin {
 		if (!container) { return }
 		const bar = container.querySelector<HTMLElement>(".sl-canvas-toolbar")
 		if (!bar) { return }
-		bar.style.display = (this.getFocusedCanvasNode(container) || this.getFocusedCanvasEdge(container)) ? "none" : "flex"
+		bar.style.display = (this.hasFocusedCanvasNode(leaf, container) || this.hasFocusedCanvasEdge(leaf, container)) ? "none" : "flex"
 	}
 
 	private ensureCanvasToolbar(leaf: WorkspaceLeaf): HTMLElement {
@@ -2488,7 +2529,7 @@ export default class SemaLogicPlugin extends Plugin {
 		if (!container) { return }
 		const btn = container.querySelector<HTMLElement>(".sl-node-info-btn")
 		if (!btn) { return }
-		const focused = this.getFocusedCanvasNode(container)
+		const focused = this.getFocusedCanvasNode(leaf, container)
 		if (!focused) {
 			btn.style.display = "none"
 			return
@@ -2547,16 +2588,44 @@ export default class SemaLogicPlugin extends Plugin {
 		return match?.[1]?.trim() ?? ""
 	}
 
-	private getFocusedCanvasNode(container: HTMLElement): HTMLElement | null {
+	private getCanvasSelectionEntries(leaf: WorkspaceLeaf): any[] {
+		const canvas = (leaf.view as any)?.canvas
+		const selection = canvas?.selection
+		if (!selection) { return [] }
+		try {
+			return Array.from(selection as Iterable<any>)
+		} catch (e) {
+			return []
+		}
+	}
+
+	private extractCanvasSelectionId(entry: any): string {
+		return String(entry?.id ?? entry?.node?.id ?? entry?.data?.id ?? "")
+	}
+
+	private isCanvasSelectionEdge(entry: any): boolean {
+		return Boolean(entry?.fromNode || entry?.toNode || entry?.data?.fromNode || entry?.data?.toNode)
+	}
+
+	private getFocusedCanvasNode(leaf: WorkspaceLeaf, container: HTMLElement): HTMLElement | null {
+		const selectedId = this.getFocusedCanvasNodeId(leaf, container)
+		if (selectedId) {
+			const byNodeId = container.querySelector<HTMLElement>(`[data-node-id="${selectedId}"]`)
+			if (byNodeId) { return byNodeId }
+			const byDataId = container.querySelector<HTMLElement>(`[data-id="${selectedId}"]`)
+			if (byDataId) { return byDataId }
+		}
 		return container.querySelector<HTMLElement>(
 			".canvas-node.is-focused, .canvas-node.is-selected, .canvas-node.is-editing"
 		)
 	}
 
-	private getFocusedCanvasEdge(container: HTMLElement): HTMLElement | null {
-		return container.querySelector<HTMLElement>(
-			".canvas-edge.is-focused, .canvas-edge.is-selected"
-		)
+	private hasFocusedCanvasNode(leaf: WorkspaceLeaf, container: HTMLElement): boolean {
+		return this.getFocusedCanvasNodeId(leaf, container) != undefined
+	}
+
+	private hasFocusedCanvasEdge(leaf: WorkspaceLeaf, container: HTMLElement): boolean {
+		return this.getSelectedCanvasEdgeIds(leaf, container).length > 0
 	}
 
 	private async insertCanvasNode(leaf: WorkspaceLeaf, nodeType: CanvasNodeInsertType, anchorNodeId?: string): Promise<void> {
@@ -2566,7 +2635,7 @@ export default class SemaLogicPlugin extends Plugin {
 		if (!canvasFile || !container) { return }
 
 		const data = await this.readCanvasFileData(canvasFile)
-		const anchorId = anchorNodeId ?? this.getFocusedCanvasNodeId(container)
+		const anchorId = anchorNodeId ?? this.getFocusedCanvasNodeId(leaf, container)
 		const anchorNode = anchorId ? data.nodes.find((node) => node.id == anchorId) : undefined
 		const suggestedId = this.suggestCanvasNodeId(nodeType, anchorNode, data.nodes)
 		const requestedId = await this.promptCanvasNodeId(nodeType, suggestedId)
@@ -2584,8 +2653,13 @@ export default class SemaLogicPlugin extends Plugin {
 			new Notice("OR insertion cancelled.")
 			return
 		}
+		const attributeValue = nodeType == "ATTRIBUTE" ? await this.promptCanvasAttributeValue("") : undefined
+		if (nodeType == "ATTRIBUTE" && attributeValue == undefined) {
+			new Notice("ATTRIBUTE insertion cancelled.")
+			return
+		}
 
-		const nextNode = this.buildCanvasNode(nodeType, requestedId, anchorNode, { orConfig })
+		const nextNode = this.buildCanvasNode(nodeType, requestedId, anchorNode, { orConfig, value: attributeValue })
 		data.nodes.push(nextNode)
 		if (anchorNode) {
 			data.edges.push(this.buildCanvasEdge(anchorNode, nextNode, data.edges, this.canvasEdgeModes.get(canvasFile.path) ?? "as_Defined"))
@@ -2606,6 +2680,13 @@ export default class SemaLogicPlugin extends Plugin {
 	private async promptCanvasOrConfig(): Promise<CanvasOrConfig | undefined> {
 		return await new Promise((resolve) => {
 			const modal = new CanvasOrConfigModal(this.app, resolve)
+			modal.open()
+		})
+	}
+
+	private async promptCanvasAttributeValue(initialValue: string): Promise<string | undefined> {
+		return await new Promise((resolve) => {
+			const modal = new CanvasAttributeValueModal(this.app, initialValue, resolve)
 			modal.open()
 		})
 	}
@@ -2633,6 +2714,7 @@ export default class SemaLogicPlugin extends Plugin {
 		node.height = dimensions.height
 		node.color = this.getCanvasNodeColor(nodeType)
 		node.text = this.buildCanvasNodeText(nodeType, node.id, contentConfig)
+		this.refreshCanvasEdgesForNode(data, node.id)
 
 		await this.writeCanvasFileData(canvasFile, data)
 		await leaf.openFile(canvasFile, { active: false })
@@ -2649,8 +2731,18 @@ export default class SemaLogicPlugin extends Plugin {
 		return {}
 	}
 
-	private getFocusedCanvasNodeId(container: HTMLElement): string | undefined {
-		const focused = this.getFocusedCanvasNode(container)
+	private getFocusedCanvasNodeId(leaf: WorkspaceLeaf, container: HTMLElement): string | undefined {
+		for (const entry of this.getCanvasSelectionEntries(leaf)) {
+			if (this.isCanvasSelectionEdge(entry)) { continue }
+			const id = this.extractCanvasSelectionId(entry)
+			if (id.length > 0) {
+				slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas selection node [${SL_DEBUG_BUILD}]: ${id}`)
+				return id
+			}
+		}
+		const focused = container.querySelector<HTMLElement>(
+			".canvas-node.is-focused, .canvas-node.is-selected, .canvas-node.is-editing, [data-node-id], .canvas-node[data-id]"
+		)
 		return focused?.getAttribute("data-node-id")
 			|| focused?.getAttribute("data-id")
 			|| focused?.dataset.nodeId
@@ -2658,10 +2750,17 @@ export default class SemaLogicPlugin extends Plugin {
 			|| undefined
 	}
 
-	private getSelectedCanvasNodeIds(container: HTMLElement): string[] {
-		const focusedId = this.getFocusedCanvasNodeId(container)
+	private getSelectedCanvasNodeIds(leaf: WorkspaceLeaf, container: HTMLElement): string[] {
 		const ids: string[] = []
-		if (focusedId) {
+		for (const entry of this.getCanvasSelectionEntries(leaf)) {
+			if (this.isCanvasSelectionEdge(entry)) { continue }
+			const id = this.extractCanvasSelectionId(entry)
+			if (id && !ids.includes(id)) {
+				ids.push(id)
+			}
+		}
+		const focusedId = this.getFocusedCanvasNodeId(leaf, container)
+		if (focusedId && !ids.includes(focusedId)) {
 			ids.push(focusedId)
 		}
 		const selectedNodes = Array.from(container.querySelectorAll<HTMLElement>(".canvas-node.is-selected, .canvas-node.is-focused, .canvas-node.is-editing"))
@@ -2674,8 +2773,16 @@ export default class SemaLogicPlugin extends Plugin {
 		return ids.slice(0, 2)
 	}
 
-	private getSelectedCanvasEdgeIds(container: HTMLElement): string[] {
+	private getSelectedCanvasEdgeIds(leaf: WorkspaceLeaf, container: HTMLElement): string[] {
 		const ids: string[] = []
+		for (const entry of this.getCanvasSelectionEntries(leaf)) {
+			if (!this.isCanvasSelectionEdge(entry)) { continue }
+			const id = this.extractCanvasSelectionId(entry)
+			if (id && !ids.includes(id)) {
+				slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas selection edge [${SL_DEBUG_BUILD}]: ${id}`)
+				ids.push(id)
+			}
+		}
 		const selectedEdges = Array.from(container.querySelectorAll<HTMLElement>(".canvas-edge.is-selected, .canvas-edge.is-focused"))
 		for (const edge of selectedEdges) {
 			const id = edge.getAttribute("data-edge-id") || edge.getAttribute("data-id") || edge.dataset.edgeId || edge.dataset.id
@@ -2692,7 +2799,7 @@ export default class SemaLogicPlugin extends Plugin {
 		const container: HTMLElement | null = view?.containerEl ?? null
 		if (!canvasFile || !container) { return }
 
-		const selectedEdgeIds = this.getSelectedCanvasEdgeIds(container)
+		const selectedEdgeIds = this.getSelectedCanvasEdgeIds(leaf, container)
 		if (selectedEdgeIds.length == 0) { return }
 
 		const data = await this.readCanvasFileData(canvasFile)
@@ -2824,22 +2931,11 @@ export default class SemaLogicPlugin extends Plugin {
 	}
 
 	private getCanvasEdgeSides(sourceNode: CanvasFileNode, targetNode: CanvasFileNode): { fromSide: string; toSide: string } {
-		const sourceCenterX = sourceNode.x + ((sourceNode.width ?? 260) / 2)
-		const sourceCenterY = sourceNode.y + ((sourceNode.height ?? 100) / 2)
-		const targetCenterX = targetNode.x + ((targetNode.width ?? 260) / 2)
-		const targetCenterY = targetNode.y + ((targetNode.height ?? 100) / 2)
-		const deltaX = targetCenterX - sourceCenterX
-		const deltaY = targetCenterY - sourceCenterY
-
-		if (Math.abs(deltaX) >= Math.abs(deltaY)) {
-			return deltaX >= 0
-				? { fromSide: "right", toSide: "left" }
-				: { fromSide: "left", toSide: "right" }
+		const targetConcept = this.getCanvasNodeConcept(targetNode)
+		if (targetConcept == "LEAF") {
+			return { fromSide: "right", toSide: "left" }
 		}
-
-		return deltaY >= 0
-			? { fromSide: "bottom", toSide: "top" }
-			: { fromSide: "top", toSide: "bottom" }
+		return { fromSide: "bottom", toSide: "top" }
 	}
 
 	private buildCanvasEdge(sourceNode: CanvasFileNode, targetNode: CanvasFileNode, existingEdges: CanvasFileEdge[], edgeType: CanvasEdgeInsertType): CanvasFileEdge {
@@ -2859,6 +2955,25 @@ export default class SemaLogicPlugin extends Plugin {
 				SL_RelationType: edgeType
 			}
 		}
+	}
+
+	private refreshCanvasEdgesForNode(data: CanvasFileData, nodeId: string): void {
+		const nodeMap = new Map(data.nodes.map((node) => [node.id, node] as const))
+		for (const edge of data.edges) {
+			if (edge.fromNode != nodeId && edge.toNode != nodeId) { continue }
+			const sourceNode = nodeMap.get(edge.fromNode)
+			const targetNode = nodeMap.get(edge.toNode)
+			if (!sourceNode || !targetNode) { continue }
+			const sides = this.getCanvasEdgeSides(sourceNode, targetNode)
+			edge.fromSide = sides.fromSide
+			edge.toSide = sides.toSide
+		}
+	}
+
+	private getCanvasNodeConcept(node: CanvasFileNode): string {
+		const text = String(node.text ?? "")
+		const match = text.match(/^Concept:\s*(.+)$/im)
+		return match?.[1]?.trim().toUpperCase() ?? ""
 	}
 
 	private createUniqueCanvasId(baseId: string, existingIds: Set<string>): string {

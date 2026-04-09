@@ -1935,6 +1935,50 @@ var CanvasOrConfigModal = class extends import_obsidian8.Modal {
     this.close();
   }
 };
+var CanvasAttributeValueModal = class extends import_obsidian8.Modal {
+  constructor(app2, initialValue, resolveValue) {
+    super(app2);
+    this.initialValue = initialValue;
+    this.resolveValue = resolveValue;
+  }
+  onOpen() {
+    const { contentEl, titleEl } = this;
+    titleEl.setText("Configure ATTRIBUTE node");
+    contentEl.empty();
+    const setting = new import_obsidian8.Setting(contentEl).setName("Value").setDesc("Enter the value for the ATTRIBUTE node.").addText((text) => {
+      this.valueComponent = text;
+      text.setValue(this.initialValue);
+      text.inputEl.select();
+      text.inputEl.addEventListener("keydown", (evt) => {
+        if (evt.key == "Enter") {
+          evt.preventDefault();
+          this.submit();
+        }
+      });
+    });
+    setting.addButton((button) => {
+      button.setButtonText("Add");
+      button.setCta();
+      button.onClick(() => this.submit());
+    });
+    setting.addExtraButton((button) => {
+      button.setIcon("cross");
+      button.setTooltip("Cancel");
+      button.onClick(() => {
+        this.resolveValue(void 0);
+        this.close();
+      });
+    });
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+  submit() {
+    var _a, _b;
+    this.resolveValue((_b = (_a = this.valueComponent) == null ? void 0 : _a.getValue()) != null ? _b : "");
+    this.close();
+  }
+};
 var Default_profile = {
   mySLSettings: [
     {
@@ -3356,6 +3400,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     if (!menu || menu.querySelector(".sl-node-info-btn")) {
       return;
     }
+    this.applyCanvasMenuResponsiveLayout(menu);
     const btn = document.createElement("button");
     btn.className = "clickable-icon sl-node-info-btn";
     btn.setAttribute("aria-label", "SL Info");
@@ -3373,7 +3418,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
       let filePath;
       let nodeText = "";
       let fallbackPath;
-      const focused = this.getFocusedCanvasNode(container);
+      const focused = this.getFocusedCanvasNode(leaf, container);
       if (focused) {
         const res = this.resolveCanvasNodeFiles(focused, maps);
         if (res.dataPath) {
@@ -3432,14 +3477,15 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     if (!container) {
       return;
     }
-    if (this.getFocusedCanvasEdge(container)) {
+    if (this.hasFocusedCanvasEdge(leaf, container)) {
       return;
     }
     const menu = container.querySelector(".canvas-menu");
     if (!menu || menu.querySelector(".sl-canvas-node-select")) {
       return;
     }
-    const currentAnchorNodeId = this.getFocusedCanvasNodeId(container);
+    this.applyCanvasMenuResponsiveLayout(menu);
+    const currentAnchorNodeId = this.getFocusedCanvasNodeId(leaf, container);
     slconsolelog(DebugLevMap.DebugLevel_Informative, (_b = this.slComm) == null ? void 0 : _b.slview, `Canvas insert controls [${SL_DEBUG_BUILD}]: focused anchor=${currentAnchorNodeId != null ? currentAnchorNodeId : ""}`);
     if (currentAnchorNodeId) {
       menu.dataset.slAnchorNodeId = currentAnchorNodeId;
@@ -3452,6 +3498,8 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     nodeSelect.style.position = "relative";
     nodeSelect.style.zIndex = "21";
     nodeSelect.style.maxWidth = "120px";
+    nodeSelect.style.minWidth = "0";
+    nodeSelect.style.flexShrink = "1";
     nodeSelect.style.fontSize = "11px";
     nodeSelect.style.marginLeft = "8px";
     nodeSelect.style.border = "1px solid rgba(148, 163, 184, 0.6)";
@@ -3463,51 +3511,26 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     this.appendCanvasSelectOption(nodeSelect, "OR", "OR");
     this.appendCanvasSelectOption(nodeSelect, "LEAF", "LEAF");
     this.appendCanvasSelectOption(nodeSelect, "ATTRIBUTE", "ATTRIBUTE");
-    const lastSelection = this.canvasNodeInsertSelections.get(canvasFile.path);
-    if (lastSelection) {
-      nodeSelect.value = lastSelection;
-    }
+    nodeSelect.value = "";
     this.bindCanvasMenuControlEvents(nodeSelect);
-    nodeSelect.addEventListener("change", () => {
-      const selected = nodeSelect.value;
-      if (selected) {
-        this.canvasNodeInsertSelections.set(canvasFile.path, selected);
-      }
-    });
-    const addButton = document.createElement("button");
-    addButton.className = "clickable-icon sl-canvas-node-add-btn";
-    addButton.type = "button";
-    addButton.textContent = "Add";
-    addButton.setAttribute("aria-label", "Add selected node type");
-    addButton.style.fontSize = "11px";
-    addButton.style.lineHeight = "1";
-    addButton.style.padding = "4px 8px";
-    addButton.style.borderRadius = "6px";
-    addButton.style.border = "1px solid rgba(148, 163, 184, 0.6)";
-    addButton.style.background = "rgba(255, 255, 255, 0.95)";
-    addButton.style.color = "#334155";
-    addButton.style.cursor = "pointer";
-    this.bindCanvasMenuControlEvents(addButton);
-    addButton.addEventListener("click", async (evt) => {
+    nodeSelect.addEventListener("change", async () => {
       var _a2;
-      evt.preventDefault();
-      evt.stopPropagation();
       const selected = nodeSelect.value;
       if (!selected) {
-        new import_obsidian8.Notice("Select a node type first.");
         return;
       }
       this.canvasNodeInsertSelections.set(canvasFile.path, selected);
       const anchorNodeId = this.getCanvasMenuAnchorNodeId(container) || currentAnchorNodeId;
-      slconsolelog(DebugLevMap.DebugLevel_Informative, (_a2 = this.slComm) == null ? void 0 : _a2.slview, `Canvas insert click: selected=${selected} anchor=${anchorNodeId != null ? anchorNodeId : ""}`);
+      slconsolelog(DebugLevMap.DebugLevel_Informative, (_a2 = this.slComm) == null ? void 0 : _a2.slview, `Canvas insert change: selected=${selected} anchor=${anchorNodeId != null ? anchorNodeId : ""}`);
       if (!anchorNodeId) {
         new import_obsidian8.Notice("Select a node first.");
+        nodeSelect.value = "";
         return;
       }
       await this.insertCanvasNode(leaf, selected, anchorNodeId);
+      nodeSelect.value = "";
     });
     menu.appendChild(nodeSelect);
-    menu.appendChild(addButton);
   }
   addCanvasChangeControls(leaf) {
     var _a, _b, _c;
@@ -3520,14 +3543,15 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     if (!container) {
       return;
     }
-    if (this.getFocusedCanvasEdge(container)) {
+    if (this.hasFocusedCanvasEdge(leaf, container)) {
       return;
     }
     const menu = container.querySelector(".canvas-menu");
     if (!menu || menu.querySelector(".sl-canvas-node-change-select")) {
       return;
     }
-    const currentAnchorNodeId = this.getFocusedCanvasNodeId(container);
+    this.applyCanvasMenuResponsiveLayout(menu);
+    const currentAnchorNodeId = this.getFocusedCanvasNodeId(leaf, container);
     slconsolelog(DebugLevMap.DebugLevel_Informative, (_b = this.slComm) == null ? void 0 : _b.slview, `Canvas change controls [${SL_DEBUG_BUILD}]: focused anchor=${currentAnchorNodeId != null ? currentAnchorNodeId : ""}`);
     if (currentAnchorNodeId) {
       menu.dataset.slAnchorNodeId = currentAnchorNodeId;
@@ -3540,6 +3564,8 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     changeSelect.style.position = "relative";
     changeSelect.style.zIndex = "21";
     changeSelect.style.maxWidth = "120px";
+    changeSelect.style.minWidth = "0";
+    changeSelect.style.flexShrink = "1";
     changeSelect.style.fontSize = "11px";
     changeSelect.style.marginLeft = "8px";
     changeSelect.style.border = "1px solid rgba(148, 163, 184, 0.6)";
@@ -3551,40 +3577,25 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     this.appendCanvasSelectOption(changeSelect, "OR", "OR");
     this.appendCanvasSelectOption(changeSelect, "LEAF", "LEAF");
     this.appendCanvasSelectOption(changeSelect, "ATTRIBUTE", "ATTRIBUTE");
+    changeSelect.value = "";
     this.bindCanvasMenuControlEvents(changeSelect);
-    const changeButton = document.createElement("button");
-    changeButton.className = "clickable-icon sl-canvas-node-change-btn";
-    changeButton.type = "button";
-    changeButton.textContent = "Change";
-    changeButton.setAttribute("aria-label", "Change selected node concept");
-    changeButton.style.fontSize = "11px";
-    changeButton.style.lineHeight = "1";
-    changeButton.style.padding = "4px 8px";
-    changeButton.style.borderRadius = "6px";
-    changeButton.style.border = "1px solid rgba(148, 163, 184, 0.6)";
-    changeButton.style.background = "rgba(255, 255, 255, 0.95)";
-    changeButton.style.color = "#334155";
-    changeButton.style.cursor = "pointer";
-    this.bindCanvasMenuControlEvents(changeButton);
-    changeButton.addEventListener("click", async (evt) => {
+    changeSelect.addEventListener("change", async () => {
       var _a2;
-      evt.preventDefault();
-      evt.stopPropagation();
       const selected = changeSelect.value;
       if (!selected) {
-        new import_obsidian8.Notice("Select a concept first.");
         return;
       }
       const anchorNodeId = this.getCanvasMenuAnchorNodeId(container) || currentAnchorNodeId;
-      slconsolelog(DebugLevMap.DebugLevel_Informative, (_a2 = this.slComm) == null ? void 0 : _a2.slview, `Canvas change click [${SL_DEBUG_BUILD}]: selected=${selected} anchor=${anchorNodeId != null ? anchorNodeId : ""}`);
+      slconsolelog(DebugLevMap.DebugLevel_Informative, (_a2 = this.slComm) == null ? void 0 : _a2.slview, `Canvas change change [${SL_DEBUG_BUILD}]: selected=${selected} anchor=${anchorNodeId != null ? anchorNodeId : ""}`);
       if (!anchorNodeId) {
         new import_obsidian8.Notice("Select a node first.");
+        changeSelect.value = "";
         return;
       }
       await this.changeCanvasNodeConcept(leaf, anchorNodeId, selected);
+      changeSelect.value = "";
     });
     menu.appendChild(changeSelect);
-    menu.appendChild(changeButton);
   }
   removeCanvasInsertControls(leaf) {
     var _a, _b, _c;
@@ -3594,7 +3605,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
       return;
     }
     (_b = container.querySelector(".sl-canvas-node-select")) == null ? void 0 : _b.remove();
-    (_c = container.querySelector(".sl-canvas-node-add-btn")) == null ? void 0 : _c.remove();
+    (_c = container.querySelector(".sl-canvas-node-change-select")) == null ? void 0 : _c.remove();
   }
   addCanvasToolbarInsertControls(leaf) {
     var _a;
@@ -3678,6 +3689,15 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     option.textContent = label;
     selectEl.appendChild(option);
   }
+  applyCanvasMenuResponsiveLayout(menu) {
+    menu.style.flexWrap = "wrap";
+    menu.style.rowGap = "6px";
+    menu.style.columnGap = "6px";
+    menu.style.justifyContent = "flex-end";
+    menu.style.alignItems = "center";
+    menu.style.maxWidth = "calc(100vw - 24px)";
+    menu.style.overflow = "visible";
+  }
   bindCanvasSelectionTracking(container) {
     if (container.dataset.slSelectionTrackingBound == "1") {
       return;
@@ -3729,7 +3749,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     if (!menu) {
       return;
     }
-    const anchorNodeId = this.getCanvasMenuDomAnchorNodeId(menu) || this.getFocusedCanvasNodeId(container) || container.dataset.slLastNodeId;
+    const anchorNodeId = this.getCanvasMenuDomAnchorNodeId(menu) || this.getFocusedCanvasNodeId(leaf, container) || container.dataset.slLastNodeId;
     if (anchorNodeId) {
       menu.dataset.slAnchorNodeId = anchorNodeId;
       slconsolelog(DebugLevMap.DebugLevel_Informative, (_b = this.slComm) == null ? void 0 : _b.slview, `Canvas menu anchor update [${SL_DEBUG_BUILD}]: anchor=${anchorNodeId}`);
@@ -3743,7 +3763,8 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     const menu = container.querySelector(".canvas-menu");
     const domAnchor = menu ? this.getCanvasMenuDomAnchorNodeId(menu) : "";
     const menuAnchor = (menu == null ? void 0 : menu.dataset.slAnchorNodeId) || "";
-    const focusedAnchor = this.getFocusedCanvasNodeId(container) || "";
+    const leaf = this.findLeafForCanvasContainer(container);
+    const focusedAnchor = leaf ? this.getFocusedCanvasNodeId(leaf, container) || "" : "";
     const lastAnchor = container.dataset.slLastNodeId || "";
     slconsolelog(DebugLevMap.DebugLevel_Informative, (_a = this.slComm) == null ? void 0 : _a.slview, `Canvas menu anchor read [${SL_DEBUG_BUILD}]: dom=${domAnchor} menu=${menuAnchor} focused=${focusedAnchor} last=${lastAnchor}`);
     return domAnchor || menuAnchor || focusedAnchor || lastAnchor || void 0;
@@ -3790,6 +3811,20 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     }
     return bestId;
   }
+  findLeafForCanvasContainer(container) {
+    let found = void 0;
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      var _a;
+      if (found != void 0) {
+        return;
+      }
+      const leafContainer = (_a = leaf.view) == null ? void 0 : _a.containerEl;
+      if (leafContainer === container) {
+        found = leaf;
+      }
+    });
+    return found;
+  }
   extractCanvasDomNodeId(el) {
     const nodeId = el.getAttribute("data-node-id") || el.dataset.nodeId || "";
     if (nodeId.length > 0) {
@@ -3823,13 +3858,14 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     if (!canvasFile || !container) {
       return;
     }
-    if (!this.getFocusedCanvasEdge(container)) {
+    if (!this.hasFocusedCanvasEdge(leaf, container)) {
       return;
     }
     const menu = container.querySelector(".canvas-menu");
     if (!menu || menu.querySelector(".sl-canvas-menu-edge-mode")) {
       return;
     }
+    this.applyCanvasMenuResponsiveLayout(menu);
     if (!this.canvasEdgeModes.has(canvasFile.path)) {
       this.canvasEdgeModes.set(canvasFile.path, "as_Defined");
     }
@@ -4012,7 +4048,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     if (!bar) {
       return;
     }
-    bar.style.display = this.getFocusedCanvasNode(container) || this.getFocusedCanvasEdge(container) ? "none" : "flex";
+    bar.style.display = this.hasFocusedCanvasNode(leaf, container) || this.hasFocusedCanvasEdge(leaf, container) ? "none" : "flex";
   }
   ensureCanvasToolbar(leaf) {
     var _a, _b;
@@ -4073,7 +4109,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     if (!btn) {
       return;
     }
-    const focused = this.getFocusedCanvasNode(container);
+    const focused = this.getFocusedCanvasNode(leaf, container);
     if (!focused) {
       btn.style.display = "none";
       return;
@@ -4131,15 +4167,48 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     const match = raw.match(regex);
     return (_b = (_a = match == null ? void 0 : match[1]) == null ? void 0 : _a.trim()) != null ? _b : "";
   }
-  getFocusedCanvasNode(container) {
+  getCanvasSelectionEntries(leaf) {
+    var _a;
+    const canvas = (_a = leaf.view) == null ? void 0 : _a.canvas;
+    const selection = canvas == null ? void 0 : canvas.selection;
+    if (!selection) {
+      return [];
+    }
+    try {
+      return Array.from(selection);
+    } catch (e) {
+      return [];
+    }
+  }
+  extractCanvasSelectionId(entry) {
+    var _a, _b, _c, _d, _e;
+    return String((_e = (_d = (_b = entry == null ? void 0 : entry.id) != null ? _b : (_a = entry == null ? void 0 : entry.node) == null ? void 0 : _a.id) != null ? _d : (_c = entry == null ? void 0 : entry.data) == null ? void 0 : _c.id) != null ? _e : "");
+  }
+  isCanvasSelectionEdge(entry) {
+    var _a, _b;
+    return Boolean((entry == null ? void 0 : entry.fromNode) || (entry == null ? void 0 : entry.toNode) || ((_a = entry == null ? void 0 : entry.data) == null ? void 0 : _a.fromNode) || ((_b = entry == null ? void 0 : entry.data) == null ? void 0 : _b.toNode));
+  }
+  getFocusedCanvasNode(leaf, container) {
+    const selectedId = this.getFocusedCanvasNodeId(leaf, container);
+    if (selectedId) {
+      const byNodeId = container.querySelector(`[data-node-id="${selectedId}"]`);
+      if (byNodeId) {
+        return byNodeId;
+      }
+      const byDataId = container.querySelector(`[data-id="${selectedId}"]`);
+      if (byDataId) {
+        return byDataId;
+      }
+    }
     return container.querySelector(
       ".canvas-node.is-focused, .canvas-node.is-selected, .canvas-node.is-editing"
     );
   }
-  getFocusedCanvasEdge(container) {
-    return container.querySelector(
-      ".canvas-edge.is-focused, .canvas-edge.is-selected"
-    );
+  hasFocusedCanvasNode(leaf, container) {
+    return this.getFocusedCanvasNodeId(leaf, container) != void 0;
+  }
+  hasFocusedCanvasEdge(leaf, container) {
+    return this.getSelectedCanvasEdgeIds(leaf, container).length > 0;
   }
   async insertCanvasNode(leaf, nodeType, anchorNodeId) {
     var _a, _b, _c;
@@ -4150,7 +4219,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
       return;
     }
     const data = await this.readCanvasFileData(canvasFile);
-    const anchorId = anchorNodeId != null ? anchorNodeId : this.getFocusedCanvasNodeId(container);
+    const anchorId = anchorNodeId != null ? anchorNodeId : this.getFocusedCanvasNodeId(leaf, container);
     const anchorNode = anchorId ? data.nodes.find((node) => node.id == anchorId) : void 0;
     const suggestedId = this.suggestCanvasNodeId(nodeType, anchorNode, data.nodes);
     const requestedId = await this.promptCanvasNodeId(nodeType, suggestedId);
@@ -4167,7 +4236,12 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
       new import_obsidian8.Notice("OR insertion cancelled.");
       return;
     }
-    const nextNode = this.buildCanvasNode(nodeType, requestedId, anchorNode, { orConfig });
+    const attributeValue = nodeType == "ATTRIBUTE" ? await this.promptCanvasAttributeValue("") : void 0;
+    if (nodeType == "ATTRIBUTE" && attributeValue == void 0) {
+      new import_obsidian8.Notice("ATTRIBUTE insertion cancelled.");
+      return;
+    }
+    const nextNode = this.buildCanvasNode(nodeType, requestedId, anchorNode, { orConfig, value: attributeValue });
     data.nodes.push(nextNode);
     if (anchorNode) {
       data.edges.push(this.buildCanvasEdge(anchorNode, nextNode, data.edges, (_b = this.canvasEdgeModes.get(canvasFile.path)) != null ? _b : "as_Defined"));
@@ -4185,6 +4259,12 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
   async promptCanvasOrConfig() {
     return await new Promise((resolve) => {
       const modal = new CanvasOrConfigModal(this.app, resolve);
+      modal.open();
+    });
+  }
+  async promptCanvasAttributeValue(initialValue) {
+    return await new Promise((resolve) => {
+      const modal = new CanvasAttributeValueModal(this.app, initialValue, resolve);
       modal.open();
     });
   }
@@ -4211,6 +4291,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     node.height = dimensions.height;
     node.color = this.getCanvasNodeColor(nodeType);
     node.text = this.buildCanvasNodeText(nodeType, node.id, contentConfig);
+    this.refreshCanvasEdgesForNode(data, node.id);
     await this.writeCanvasFileData(canvasFile, data);
     await leaf.openFile(canvasFile, { active: false });
   }
@@ -4224,14 +4305,36 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     }
     return {};
   }
-  getFocusedCanvasNodeId(container) {
-    const focused = this.getFocusedCanvasNode(container);
+  getFocusedCanvasNodeId(leaf, container) {
+    var _a;
+    for (const entry of this.getCanvasSelectionEntries(leaf)) {
+      if (this.isCanvasSelectionEdge(entry)) {
+        continue;
+      }
+      const id = this.extractCanvasSelectionId(entry);
+      if (id.length > 0) {
+        slconsolelog(DebugLevMap.DebugLevel_Informative, (_a = this.slComm) == null ? void 0 : _a.slview, `Canvas selection node [${SL_DEBUG_BUILD}]: ${id}`);
+        return id;
+      }
+    }
+    const focused = container.querySelector(
+      ".canvas-node.is-focused, .canvas-node.is-selected, .canvas-node.is-editing, [data-node-id], .canvas-node[data-id]"
+    );
     return (focused == null ? void 0 : focused.getAttribute("data-node-id")) || (focused == null ? void 0 : focused.getAttribute("data-id")) || (focused == null ? void 0 : focused.dataset.nodeId) || (focused == null ? void 0 : focused.dataset.id) || void 0;
   }
-  getSelectedCanvasNodeIds(container) {
-    const focusedId = this.getFocusedCanvasNodeId(container);
+  getSelectedCanvasNodeIds(leaf, container) {
     const ids = [];
-    if (focusedId) {
+    for (const entry of this.getCanvasSelectionEntries(leaf)) {
+      if (this.isCanvasSelectionEdge(entry)) {
+        continue;
+      }
+      const id = this.extractCanvasSelectionId(entry);
+      if (id && !ids.includes(id)) {
+        ids.push(id);
+      }
+    }
+    const focusedId = this.getFocusedCanvasNodeId(leaf, container);
+    if (focusedId && !ids.includes(focusedId)) {
       ids.push(focusedId);
     }
     const selectedNodes = Array.from(container.querySelectorAll(".canvas-node.is-selected, .canvas-node.is-focused, .canvas-node.is-editing"));
@@ -4243,8 +4346,19 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     }
     return ids.slice(0, 2);
   }
-  getSelectedCanvasEdgeIds(container) {
+  getSelectedCanvasEdgeIds(leaf, container) {
+    var _a;
     const ids = [];
+    for (const entry of this.getCanvasSelectionEntries(leaf)) {
+      if (!this.isCanvasSelectionEdge(entry)) {
+        continue;
+      }
+      const id = this.extractCanvasSelectionId(entry);
+      if (id && !ids.includes(id)) {
+        slconsolelog(DebugLevMap.DebugLevel_Informative, (_a = this.slComm) == null ? void 0 : _a.slview, `Canvas selection edge [${SL_DEBUG_BUILD}]: ${id}`);
+        ids.push(id);
+      }
+    }
     const selectedEdges = Array.from(container.querySelectorAll(".canvas-edge.is-selected, .canvas-edge.is-focused"));
     for (const edge of selectedEdges) {
       const id = edge.getAttribute("data-edge-id") || edge.getAttribute("data-id") || edge.dataset.edgeId || edge.dataset.id;
@@ -4262,7 +4376,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     if (!canvasFile || !container) {
       return;
     }
-    const selectedEdgeIds = this.getSelectedCanvasEdgeIds(container);
+    const selectedEdgeIds = this.getSelectedCanvasEdgeIds(leaf, container);
     if (selectedEdgeIds.length == 0) {
       return;
     }
@@ -4387,17 +4501,11 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     return relation == "as_Defined" || relation == "as_calculated" ? relation : void 0;
   }
   getCanvasEdgeSides(sourceNode, targetNode) {
-    var _a, _b, _c, _d;
-    const sourceCenterX = sourceNode.x + ((_a = sourceNode.width) != null ? _a : 260) / 2;
-    const sourceCenterY = sourceNode.y + ((_b = sourceNode.height) != null ? _b : 100) / 2;
-    const targetCenterX = targetNode.x + ((_c = targetNode.width) != null ? _c : 260) / 2;
-    const targetCenterY = targetNode.y + ((_d = targetNode.height) != null ? _d : 100) / 2;
-    const deltaX = targetCenterX - sourceCenterX;
-    const deltaY = targetCenterY - sourceCenterY;
-    if (Math.abs(deltaX) >= Math.abs(deltaY)) {
-      return deltaX >= 0 ? { fromSide: "right", toSide: "left" } : { fromSide: "left", toSide: "right" };
+    const targetConcept = this.getCanvasNodeConcept(targetNode);
+    if (targetConcept == "LEAF") {
+      return { fromSide: "right", toSide: "left" };
     }
-    return deltaY >= 0 ? { fromSide: "bottom", toSide: "top" } : { fromSide: "top", toSide: "bottom" };
+    return { fromSide: "bottom", toSide: "top" };
   }
   buildCanvasEdge(sourceNode, targetNode, existingEdges, edgeType) {
     const sides = this.getCanvasEdgeSides(sourceNode, targetNode);
@@ -4416,6 +4524,28 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
         SL_RelationType: edgeType
       }
     };
+  }
+  refreshCanvasEdgesForNode(data, nodeId) {
+    const nodeMap = new Map(data.nodes.map((node) => [node.id, node]));
+    for (const edge of data.edges) {
+      if (edge.fromNode != nodeId && edge.toNode != nodeId) {
+        continue;
+      }
+      const sourceNode = nodeMap.get(edge.fromNode);
+      const targetNode = nodeMap.get(edge.toNode);
+      if (!sourceNode || !targetNode) {
+        continue;
+      }
+      const sides = this.getCanvasEdgeSides(sourceNode, targetNode);
+      edge.fromSide = sides.fromSide;
+      edge.toSide = sides.toSide;
+    }
+  }
+  getCanvasNodeConcept(node) {
+    var _a, _b, _c;
+    const text = String((_a = node.text) != null ? _a : "");
+    const match = text.match(/^Concept:\s*(.+)$/im);
+    return (_c = (_b = match == null ? void 0 : match[1]) == null ? void 0 : _b.trim().toUpperCase()) != null ? _c : "";
   }
   createUniqueCanvasId(baseId, existingIds) {
     if (!existingIds.has(baseId)) {
