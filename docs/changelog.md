@@ -2,6 +2,13 @@
 
 The PlugIn for SemaLogic is under development.
 
+### 2.3.4 / 2026-07-07 - SL-Interpret OpenAPI update
+
+Enhancements:
+
+* SL-Interpret now sends the marked editor text in the `interprete` request parameter
+* SL-Interpret now sends the full active editor content as contextual `text`
+
 ### 2.3.0 / 2026-01-29 - Canvas tooltips + SL-Interpreter UX
 
 Enhancements:

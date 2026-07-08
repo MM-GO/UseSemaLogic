@@ -672,6 +672,8 @@ export default class SemaLogicPlugin extends Plugin {
 	canvasTooltipObservers: WeakMap<WorkspaceLeaf, MutationObserver> = new WeakMap()
 	interpreterModalEl: HTMLElement | undefined
 	interpreterModalCleanup: (() => void) | undefined
+	interpreterBusy: boolean = false
+	interpreterBusyEl: HTMLElement | undefined
 	selectionActionPopupEl: HTMLElement | undefined
 	selectionActionHideDebounce: number | undefined
 	selectionActionUpdateDebounce: number | undefined
@@ -1434,54 +1436,99 @@ export default class SemaLogicPlugin extends Plugin {
 		popup.style.display = "flex"
 	}
 
-	private async startSLInterpreterRequest(selection: string, requestText: string, useNlp: boolean, trackSelection?: { view: MarkdownView; from: { line: number; ch: number }; to: { line: number; ch: number } }): Promise<void> {
-		if (!this.pluginEnabled || selection.length == 0) { return }
-		if (!(await this.ensureSemaLogicViewForRequest())) { return }
+	private getFullEditorText(view: MarkdownView): string {
+		const editor = view.editor
+		return editor.getRange({ line: 0, ch: 0 }, { line: editor.lastLine(), ch: editor.getLine(editor.lastLine()).length })
+	}
 
-		const shouldTrackSelection = trackSelection != undefined
-		if (this.interpreterInterval != undefined) {
-			window.clearInterval(this.interpreterInterval)
-			this.interpreterInterval = undefined
-		}
-		if (shouldTrackSelection) {
-			this.pauseAllRequests = true
-			this.updateOutstanding = false
-			this.updateTransferOutstanding = false
-			this.interpreterSelection = { ...trackSelection, sourceText: selection, original: selection }
-		} else {
-			this.interpreterSelection = undefined
-		}
-		this.interpreterLastCanvas = ""
-		const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID + (useNlp ? "&NLP=true" : "");
-		const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", requestText, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1])
-		if (response && this.isCanvasJsonResponse(response)) {
-			await this.processCanvasResponse(response, this.interpreterCanvasPath, false)
-			await this.openInterpreterCanvas()
-			if (shouldTrackSelection) {
-				await this.tickSLInterpreter()
-				this.interpreterInterval = window.setInterval(() => {
-					this.tickSLInterpreter()
-				}, 500)
-			}
+	private async startSLInterpreterRequest(selection: string, contextText: string, interpreteText: string, useNlp: boolean, trackSelection?: { view: MarkdownView; from: { line: number; ch: number }; to: { line: number; ch: number } }): Promise<void> {
+		if (!this.pluginEnabled || selection.length == 0) { return }
+		if (this.interpreterBusy) {
+			slconsolelog(DebugLevMap.DebugLevel_Informative, undefined, "SL-Interpreter: request already running, ignoring re-trigger")
+			new Notice("SL-Interpreter is already running …")
 			return
 		}
-		if (response && response.trim().length > 0) {
-			slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm?.slview, "SL-Interpreter response (modal)", response)
-			this.showInterpreterResponseModal(response)
+		this.interpreterBusy = true
+		this.showInterpreterBusy()
+		try {
+			if (!(await this.ensureSemaLogicViewForRequest())) { return }
+
+			const shouldTrackSelection = trackSelection != undefined
+			if (this.interpreterInterval != undefined) {
+				window.clearInterval(this.interpreterInterval)
+				this.interpreterInterval = undefined
+			}
+			if (shouldTrackSelection) {
+				this.pauseAllRequests = true
+				this.updateOutstanding = false
+				this.updateTransferOutstanding = false
+				this.interpreterSelection = { ...trackSelection, sourceText: selection, original: selection }
+			} else {
+				this.interpreterSelection = undefined
+			}
+			this.interpreterLastCanvas = ""
+			const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID + (useNlp ? "&NLP=true" : "");
+			const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", contextText, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1], interpreteText)
+			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, "SL-Interpreter LLM response", response)
+			if (response && this.isCanvasJsonResponse(response)) {
+				await this.processCanvasResponse(response, this.interpreterCanvasPath, false)
+				await this.openInterpreterCanvas()
+				if (shouldTrackSelection) {
+					await this.tickSLInterpreter()
+					this.interpreterInterval = window.setInterval(() => {
+						this.tickSLInterpreter()
+					}, 500)
+				}
+				return
+			}
+			if (response && response.trim().length > 0) {
+				slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm?.slview, "SL-Interpreter response (modal)", response)
+				this.showInterpreterResponseModal(response)
+			}
+			this.interpreterSelection = undefined
+			this.interpreterLastCanvas = ""
+			if (shouldTrackSelection) {
+				this.pauseAllRequests = false
+			}
+		} finally {
+			this.hideInterpreterBusy()
+			this.interpreterBusy = false
 		}
-		this.interpreterSelection = undefined
-		this.interpreterLastCanvas = ""
-		if (shouldTrackSelection) {
-			this.pauseAllRequests = false
+	}
+
+	private showInterpreterBusy(): void {
+		this.hideInterpreterBusy()
+		const overlay = document.createElement("div")
+		overlay.className = "sl-interpreter-busy"
+		const box = document.createElement("div")
+		box.className = "sl-interpreter-busy-box"
+		const spinner = document.createElement("div")
+		spinner.className = "sl-interpreter-busy-spinner"
+		const label = document.createElement("div")
+		label.className = "sl-interpreter-busy-label"
+		label.textContent = "SL-Interpreter is running …"
+		box.appendChild(spinner)
+		box.appendChild(label)
+		overlay.appendChild(box)
+		document.body.appendChild(overlay)
+		this.interpreterBusyEl = overlay
+	}
+
+	private hideInterpreterBusy(): void {
+		if (this.interpreterBusyEl) {
+			this.interpreterBusyEl.remove()
+			this.interpreterBusyEl = undefined
 		}
 	}
 
 	private async startSLInterpreterFromText(selection: string, trackSelection?: { view: MarkdownView; from: { line: number; ch: number }; to: { line: number; ch: number } }): Promise<void> {
-		await this.startSLInterpreterRequest(selection, selection, true, trackSelection)
+		const contextText = trackSelection != undefined ? this.getFullEditorText(trackSelection.view) : selection
+		await this.startSLInterpreterRequest(selection, contextText, selection, true, trackSelection)
 	}
 
 	private async startSLInterpreterFromSLText(selection: string, slText: string, trackSelection?: { view: MarkdownView; from: { line: number; ch: number }; to: { line: number; ch: number } }): Promise<void> {
-		await this.startSLInterpreterRequest(selection, slText, false, trackSelection)
+		const contextText = trackSelection != undefined ? this.getFullEditorText(trackSelection.view) : selection
+		await this.startSLInterpreterRequest(selection, contextText, slText, false, trackSelection)
 	}
 
 	private async processCanvasResponse(raw: string, canvasPath: string, allowFiles: boolean): Promise<void> {
@@ -1491,11 +1538,12 @@ export default class SemaLogicPlugin extends Plugin {
 		}
 		try {
 			const parsed = JSON.parse(raw)
-			if (parsed && Array.isArray(parsed.nodes) && Array.isArray(parsed.edges)) {
+			if (parsed && Array.isArray(parsed.nodes) && (parsed.edges == undefined || Array.isArray(parsed.edges))) {
 				if (allowFiles && Array.isArray(parsed.files)) {
 					await this.createFilesFromResponse(parsed.files)
 				}
-				const canvas = { nodes: parsed.nodes, edges: parsed.edges }
+				// Accept nodes without relations; normalise a missing/empty edges list to an empty array.
+				const canvas = { nodes: parsed.nodes, edges: Array.isArray(parsed.edges) ? parsed.edges : [] }
 				await this.writeCanvasFile(canvasPath, JSON.stringify(canvas))
 				return;
 			}
@@ -1848,7 +1896,8 @@ export default class SemaLogicPlugin extends Plugin {
 	private isCanvasJsonResponse(raw: string): boolean {
 		try {
 			const parsed = JSON.parse(raw)
-			return Array.isArray(parsed?.nodes) && Array.isArray(parsed?.edges)
+			// A canvas needs nodes; edges may be missing/empty (nodes without relations is a valid result).
+			return Array.isArray(parsed?.nodes) && (parsed?.edges == undefined || Array.isArray(parsed?.edges))
 		} catch (e) {
 			return false
 		}

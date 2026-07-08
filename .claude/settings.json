@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(& \"D:\\\\Neuorga\\\\Programmierung\\\\Obsidian\\\\SemaLogicInObsidian\\\\UseSemaLogicInObsidian\\\\Build_obsidian.ps1\")"
+    ]
+  }
+}

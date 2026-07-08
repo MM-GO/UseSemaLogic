@@ -777,7 +777,7 @@ var SemaLogicView2 = class extends import_obsidian3.ItemView {
       this.slComm.slPlugin.myStatus.setText("SemaLogic is off");
     }
   }
-  createSemaLogicRequestBody(dialectID, bodytext, outPutFormat) {
+  createSemaLogicRequestBody(dialectID, bodytext, outPutFormat, interpreteText) {
     slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, "Context: " + dialectID + " Bodytext: " + bodytext);
     let semaLogicJsonRequestBody = {
       "text": [
@@ -791,6 +791,15 @@ var SemaLogicView2 = class extends import_obsidian3.ItemView {
       "persistency": false,
       "rulesettype": outPutFormat
     };
+    if (interpreteText != void 0) {
+      semaLogicJsonRequestBody["interprete"] = [
+        {
+          "textID": "InterpretingOnTheFly",
+          "dialectID": dialectID,
+          "rules": interpreteText
+        }
+      ];
+    }
     return semaLogicJsonRequestBody;
   }
   createSemaLogicRequest(settings, vAPI_URL, semaLogicJsonRequestBody) {
@@ -876,7 +885,7 @@ var SemaLogicView2 = class extends import_obsidian3.ItemView {
     }
     this.getCurrHTML();
   }
-  async getSemaLogicParse(settings, vAPI_URL, dialectID, bodytext, parseOnTheFly, parsingFormat) {
+  async getSemaLogicParse(settings, vAPI_URL, dialectID, bodytext, parseOnTheFly, parsingFormat, interpreteText) {
     this.bodytext = bodytext;
     this.apiURL = vAPI_URL;
     this.dialectID = dialectID;
@@ -887,7 +896,7 @@ var SemaLogicView2 = class extends import_obsidian3.ItemView {
     } else {
       outPutFormat = this.getOutPutFormat();
     }
-    let semaLogicJsonRequestBody = this.createSemaLogicRequestBody(dialectID, bodytext, outPutFormat);
+    let semaLogicJsonRequestBody = this.createSemaLogicRequestBody(dialectID, bodytext, outPutFormat, interpreteText);
     let semaLogicRequest = this.createSemaLogicRequest(settings, vAPI_URL, semaLogicJsonRequestBody);
     try {
       const response = await (0, import_obsidian3.requestUrl)(semaLogicRequest);
@@ -2180,6 +2189,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     this.view_utils = new ViewUtils();
     this.lastParsedHash = "";
     this.canvasTooltipObservers = /* @__PURE__ */ new WeakMap();
+    this.interpreterBusy = false;
     this.selectionActionHeaderButtons = /* @__PURE__ */ new WeakMap();
     this.canvasNodeFileCache = /* @__PURE__ */ new Map();
     this.canvasNodeInsertSelections = /* @__PURE__ */ new Map();
@@ -2937,56 +2947,98 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     popup.style.left = `${left}px`;
     popup.style.display = "flex";
   }
-  async startSLInterpreterRequest(selection, requestText, useNlp, trackSelection) {
+  getFullEditorText(view) {
+    const editor = view.editor;
+    return editor.getRange({ line: 0, ch: 0 }, { line: editor.lastLine(), ch: editor.getLine(editor.lastLine()).length });
+  }
+  async startSLInterpreterRequest(selection, contextText, interpreteText, useNlp, trackSelection) {
     var _a;
     if (!this.pluginEnabled || selection.length == 0) {
       return;
     }
-    if (!await this.ensureSemaLogicViewForRequest()) {
+    if (this.interpreterBusy) {
+      slconsolelog(DebugLevMap.DebugLevel_Informative, void 0, "SL-Interpreter: request already running, ignoring re-trigger");
+      new import_obsidian8.Notice("SL-Interpreter is already running \u2026");
       return;
     }
-    const shouldTrackSelection = trackSelection != void 0;
-    if (this.interpreterInterval != void 0) {
-      window.clearInterval(this.interpreterInterval);
-      this.interpreterInterval = void 0;
-    }
-    if (shouldTrackSelection) {
-      this.pauseAllRequests = true;
-      this.updateOutstanding = false;
-      this.updateTransferOutstanding = false;
-      this.interpreterSelection = { ...trackSelection, sourceText: selection, original: selection };
-    } else {
-      this.interpreterSelection = void 0;
-    }
-    this.interpreterLastCanvas = "";
-    const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID + (useNlp ? "&NLP=true" : "");
-    const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", requestText, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1]);
-    if (response && this.isCanvasJsonResponse(response)) {
-      await this.processCanvasResponse(response, this.interpreterCanvasPath, false);
-      await this.openInterpreterCanvas();
-      if (shouldTrackSelection) {
-        await this.tickSLInterpreter();
-        this.interpreterInterval = window.setInterval(() => {
-          this.tickSLInterpreter();
-        }, 500);
+    this.interpreterBusy = true;
+    this.showInterpreterBusy();
+    try {
+      if (!await this.ensureSemaLogicViewForRequest()) {
+        return;
       }
-      return;
+      const shouldTrackSelection = trackSelection != void 0;
+      if (this.interpreterInterval != void 0) {
+        window.clearInterval(this.interpreterInterval);
+        this.interpreterInterval = void 0;
+      }
+      if (shouldTrackSelection) {
+        this.pauseAllRequests = true;
+        this.updateOutstanding = false;
+        this.updateTransferOutstanding = false;
+        this.interpreterSelection = { ...trackSelection, sourceText: selection, original: selection };
+      } else {
+        this.interpreterSelection = void 0;
+      }
+      this.interpreterLastCanvas = "";
+      const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID + (useNlp ? "&NLP=true" : "");
+      const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", contextText, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1], interpreteText);
+      slconsolelog(DebugLevMap.DebugLevel_Chatty, void 0, "SL-Interpreter LLM response", response);
+      if (response && this.isCanvasJsonResponse(response)) {
+        await this.processCanvasResponse(response, this.interpreterCanvasPath, false);
+        await this.openInterpreterCanvas();
+        if (shouldTrackSelection) {
+          await this.tickSLInterpreter();
+          this.interpreterInterval = window.setInterval(() => {
+            this.tickSLInterpreter();
+          }, 500);
+        }
+        return;
+      }
+      if (response && response.trim().length > 0) {
+        slconsolelog(DebugLevMap.DebugLevel_Chatty, (_a = this.slComm) == null ? void 0 : _a.slview, "SL-Interpreter response (modal)", response);
+        this.showInterpreterResponseModal(response);
+      }
+      this.interpreterSelection = void 0;
+      this.interpreterLastCanvas = "";
+      if (shouldTrackSelection) {
+        this.pauseAllRequests = false;
+      }
+    } finally {
+      this.hideInterpreterBusy();
+      this.interpreterBusy = false;
     }
-    if (response && response.trim().length > 0) {
-      slconsolelog(DebugLevMap.DebugLevel_Chatty, (_a = this.slComm) == null ? void 0 : _a.slview, "SL-Interpreter response (modal)", response);
-      this.showInterpreterResponseModal(response);
-    }
-    this.interpreterSelection = void 0;
-    this.interpreterLastCanvas = "";
-    if (shouldTrackSelection) {
-      this.pauseAllRequests = false;
+  }
+  showInterpreterBusy() {
+    this.hideInterpreterBusy();
+    const overlay = document.createElement("div");
+    overlay.className = "sl-interpreter-busy";
+    const box = document.createElement("div");
+    box.className = "sl-interpreter-busy-box";
+    const spinner = document.createElement("div");
+    spinner.className = "sl-interpreter-busy-spinner";
+    const label = document.createElement("div");
+    label.className = "sl-interpreter-busy-label";
+    label.textContent = "SL-Interpreter is running \u2026";
+    box.appendChild(spinner);
+    box.appendChild(label);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+    this.interpreterBusyEl = overlay;
+  }
+  hideInterpreterBusy() {
+    if (this.interpreterBusyEl) {
+      this.interpreterBusyEl.remove();
+      this.interpreterBusyEl = void 0;
     }
   }
   async startSLInterpreterFromText(selection, trackSelection) {
-    await this.startSLInterpreterRequest(selection, selection, true, trackSelection);
+    const contextText = trackSelection != void 0 ? this.getFullEditorText(trackSelection.view) : selection;
+    await this.startSLInterpreterRequest(selection, contextText, selection, true, trackSelection);
   }
   async startSLInterpreterFromSLText(selection, slText, trackSelection) {
-    await this.startSLInterpreterRequest(selection, slText, false, trackSelection);
+    const contextText = trackSelection != void 0 ? this.getFullEditorText(trackSelection.view) : selection;
+    await this.startSLInterpreterRequest(selection, contextText, slText, false, trackSelection);
   }
   async processCanvasResponse(raw, canvasPath, allowFiles) {
     if (!raw || raw.length == 0) {
@@ -2995,11 +3047,11 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     }
     try {
       const parsed = JSON.parse(raw);
-      if (parsed && Array.isArray(parsed.nodes) && Array.isArray(parsed.edges)) {
+      if (parsed && Array.isArray(parsed.nodes) && (parsed.edges == void 0 || Array.isArray(parsed.edges))) {
         if (allowFiles && Array.isArray(parsed.files)) {
           await this.createFilesFromResponse(parsed.files);
         }
-        const canvas = { nodes: parsed.nodes, edges: parsed.edges };
+        const canvas = { nodes: parsed.nodes, edges: Array.isArray(parsed.edges) ? parsed.edges : [] };
         await this.writeCanvasFile(canvasPath, JSON.stringify(canvas));
         return;
       }
@@ -3380,7 +3432,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
   isCanvasJsonResponse(raw) {
     try {
       const parsed = JSON.parse(raw);
-      return Array.isArray(parsed == null ? void 0 : parsed.nodes) && Array.isArray(parsed == null ? void 0 : parsed.edges);
+      return Array.isArray(parsed == null ? void 0 : parsed.nodes) && ((parsed == null ? void 0 : parsed.edges) == void 0 || Array.isArray(parsed == null ? void 0 : parsed.edges));
     } catch (e) {
       return false;
     }

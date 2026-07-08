@@ -266,9 +266,9 @@ export class SemaLogicView extends ItemView {
 
   }
 
-  createSemaLogicRequestBody(dialectID: string, bodytext: string, outPutFormat: string): any {
+  createSemaLogicRequestBody(dialectID: string, bodytext: string, outPutFormat: string, interpreteText?: string): any {
     slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, 'Context: ' + dialectID + ' Bodytext: ' + bodytext)
-    let semaLogicJsonRequestBody = {
+    let semaLogicJsonRequestBody: any = {
       "text": [
         {
           "textID": "ParsingOnTheFly",
@@ -279,6 +279,15 @@ export class SemaLogicView extends ItemView {
       "filter": {},
       "persistency": false,
       "rulesettype": outPutFormat
+    }
+    if (interpreteText != undefined) {
+      semaLogicJsonRequestBody["interprete"] = [
+        {
+          "textID": "InterpretingOnTheFly",
+          "dialectID": dialectID,
+          "rules": interpreteText
+        }
+      ]
     }
     return semaLogicJsonRequestBody
   }
@@ -379,7 +388,7 @@ export class SemaLogicView extends ItemView {
     this.getCurrHTML()
   }
 
-  public async getSemaLogicParse(settings: SemaLogicPluginSettings, vAPI_URL: string, dialectID: string, bodytext: string, parseOnTheFly: boolean, parsingFormat?: string): Promise<string> {
+  public async getSemaLogicParse(settings: SemaLogicPluginSettings, vAPI_URL: string, dialectID: string, bodytext: string, parseOnTheFly: boolean, parsingFormat?: string, interpreteText?: string): Promise<string> {
     this.bodytext = bodytext
     this.apiURL = vAPI_URL
     this.dialectID = dialectID
@@ -387,7 +396,7 @@ export class SemaLogicView extends ItemView {
     let resulthttp: string
 
     if (parsingFormat !== undefined) { outPutFormat = parsingFormat } else { outPutFormat = this.getOutPutFormat() }
-    let semaLogicJsonRequestBody = this.createSemaLogicRequestBody(dialectID, bodytext, outPutFormat)
+    let semaLogicJsonRequestBody = this.createSemaLogicRequestBody(dialectID, bodytext, outPutFormat, interpreteText)
     let semaLogicRequest = this.createSemaLogicRequest(settings, vAPI_URL, semaLogicJsonRequestBody)
 
     try {

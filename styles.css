@@ -97,6 +97,44 @@ If your plugin does not need CSS, delete this file.
     align-self: flex-end;
 }
 
+.sl-interpreter-busy {
+    position: fixed;
+    bottom: 18px;
+    right: 18px;
+    z-index: 10003;
+    pointer-events: none;
+}
+
+.sl-interpreter-busy-box {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 14px;
+    background: #1f1f1f;
+    color: #f5f5f5;
+    border: 1px solid #3a3a3a;
+    border-radius: 8px;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+    font-size: 0.9em;
+    opacity: 0.95;
+}
+
+.sl-interpreter-busy-spinner {
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(255, 255, 255, 0.25);
+    border-top-color: #f5f5f5;
+    border-radius: 50%;
+    animation: sl-interpreter-spin 0.8s linear infinite;
+    flex: 0 0 auto;
+}
+
+@keyframes sl-interpreter-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
 .sl-selection-actions {
     position: absolute;
     z-index: 10002;
