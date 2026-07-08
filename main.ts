@@ -2219,10 +2219,12 @@ export default class SemaLogicPlugin extends Plugin {
 		container.addEventListener("pointerdown", (evt) => trackTarget(evt.target), true)
 		container.addEventListener("click", (evt) => trackTarget(evt.target), true)
 		this.registerDomEvent(document, "pointerdown", (evt: PointerEvent) => {
-			trackTarget(evt.target)
+			const target = evt.target
+			trackTarget(target)
 		})
 		this.registerDomEvent(document, "click", (evt: MouseEvent) => {
-			trackTarget(evt.target)
+			const target = evt.target
+			trackTarget(target)
 		})
 	}
 
