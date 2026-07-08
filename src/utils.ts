@@ -1,4 +1,4 @@
-import { MarkdownRenderChild, MarkdownView, Notice } from 'obsidian';
+import { MarkdownRenderChild, MarkdownView, Notice, sanitizeHTMLToDom } from 'obsidian';
 import { requestUrl, RequestUrlParam, RequestUrlResponse } from 'obsidian';
 import { DebugLevel, SemaLogicPluginSettings, mygSID } from "../main";
 import { API_Defaults, semaLogicCommand, semaLogicHelp, DebugLevMap, RulesettypesCommands, Rstypes_ASP } from "./const"
@@ -460,7 +460,7 @@ async function showParseWithFilter(filter: string, rulessettype: string, setting
     slconsolelog(DebugLevMap.DebugLevel_Important, undefined, "SemaLogic: Parse with http-status " + responseParse.status.toString())
     if (responseParse.status == 200) {
       let resulthttp = responseParse.text;
-      const fragment = (new Range()).createContextualFragment(resulthttp);
+      const fragment = sanitizeHTMLToDom(resulthttp);
       //buildcontainerEl = createEl("h4", { text: API_Defaults.viewheader });
       buildcontainerEl = createEl("p")
       buildcontainerEl.appendChild(fragment);

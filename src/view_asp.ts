@@ -261,21 +261,10 @@ export class ASPView extends ItemView {
       slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm.slview, e.toString())
 
       let text = new DocumentFragment()
-      text.createEl("p")
-      let textfragment = (new Range()).createContextualFragment(e.toString());
-      text.appendChild(textfragment)
-
-      text.createEl("p")
-      textfragment = (new Range()).createContextualFragment("See for information about the error-code of http: https://de.wikipedia.org/wiki/HTTP-Statuscode ");
-      text.append(textfragment)
-
-      text.createEl("p")
-      textfragment = (new Range()).createContextualFragment(optionsParse.url);
-      text.append(textfragment)
-
-      text.createEl("p")
-      textfragment = (new Range()).createContextualFragment(String(optionsParse.body));
-      text.append(textfragment)
+      text.createEl("p", { text: e.toString() })
+      text.createEl("p", { text: "See for information about the error-code of http: https://de.wikipedia.org/wiki/HTTP-Statuscode " })
+      text.createEl("p", { text: optionsParse.url })
+      text.createEl("p", { text: String(optionsParse.body) })
       this.contentEl.empty()
       this.contentEl.createEl("br")
       this.contentEl.append(text)

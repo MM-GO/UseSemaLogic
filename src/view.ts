@@ -1,4 +1,4 @@
-import { DropdownComponent, ItemView, WorkspaceLeaf, ButtonComponent, RequestUrlParam, requestUrl } from "obsidian";
+import { DropdownComponent, ItemView, WorkspaceLeaf, ButtonComponent, RequestUrlParam, requestUrl, sanitizeHTMLToDom } from "obsidian";
 import { slTexts, DebugLevMap, RulesettypesCommands, Rstypes_Semalogic, Rstypes_SemanticTree, Rstypes_KnowledgeGraph, Rstypes_Picture, Rstypes_ASP } from "./const"
 import { SemaLogicPluginComm, DebugLevel, SemaLogicPluginSettings } from "../main"
 import { slconsolelog } from './utils'
@@ -383,7 +383,7 @@ export class SemaLogicView extends ItemView {
         })
       } else {
         responseContent.createEl("p", { text: " " })
-        responseContent.insertAdjacentHTML("afterend", this.getCurrResult())
+        responseContent.after(sanitizeHTMLToDom(this.getCurrResult()))
       }
     }
     //return responseContent
@@ -442,18 +442,10 @@ export class SemaLogicView extends ItemView {
       slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, `Catcherror of removing context ${vAPI_URL}`)
       slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, e.toString())
       let text = new DocumentFragment()
-      text.createEl("p")
-      let textfragment = (new Range()).createContextualFragment(e.toString());
-      text.appendChild(textfragment)
-      text.createEl("p")
-      textfragment = (new Range()).createContextualFragment("See for information about the error-code of http: https://de.wikipedia.org/wiki/HTTP-Statuscode ");
-      text.append(textfragment)
-      text.createEl("p")
-      textfragment = (new Range()).createContextualFragment(semaLogicRequest.url);
-      text.append(textfragment)
-      text.createEl("p")
-      textfragment = (new Range()).createContextualFragment(String(semaLogicRequest.body));
-      text.append(textfragment)
+      text.createEl("p", { text: e.toString() })
+      text.createEl("p", { text: "See for information about the error-code of http: https://de.wikipedia.org/wiki/HTTP-Statuscode " })
+      text.createEl("p", { text: semaLogicRequest.url })
+      text.createEl("p", { text: String(semaLogicRequest.body) })
       this.showError(text)
       throw e
     }

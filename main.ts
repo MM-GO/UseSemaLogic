@@ -1170,9 +1170,11 @@ export default class SemaLogicPlugin extends Plugin {
 	}
 
 	private decodeHtmlEntities(text: string): string {
-		const textarea = document.createElement("textarea");
-		textarea.innerHTML = text;
-		return textarea.value;
+		// Decode HTML entities without an unsafe innerHTML sink. The inputs are
+		// entity-escaped attribute/anchor text, so DOMParser + textContent is
+		// equivalent to the old detached-textarea trick and lint-safe.
+		const doc = new DOMParser().parseFromString(text, "text/html");
+		return doc.body.textContent ?? "";
 	}
 
 	private buildSLInterpreterAnchor(originalText: string, interpretedText: string): string {
