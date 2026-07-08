@@ -1133,8 +1133,9 @@ export default class SemaLogicPlugin extends Plugin {
 			term = term.replace(/\\\)/g, ")").replace(/\\\(/g, "(").replace(/\\\\/g, "\\");
 			return term;
 		});
-		const anchorRe = /<a\b[^>]*\bdata-sl-interpreter\s*=\s*(['\"])1\1[^>]*>([\s\S]*?)<\/a>/gi;
-		return normalizedLegacy.replace(anchorRe, (_m, _quote, inner) => this.decodeHtmlEntities(String(inner ?? "")));
+		// const anchorRe = /<a\b[^>]*\bdata-sl-interpreter\s*=\s*(['\"])1\1[^>]*>([\s\S]*?)<\/a>/gi;
+		// return normalizedLegacy.replace(anchorRe, (_m, _quote, inner) => this.decodeHtmlEntities(String(inner ?? "")));
+		return normalizedLegacy;
 	}
 	private encodeSLTerm(text: string): string {
 		const utf8 = encodeURIComponent(text).replace(/%([0-9A-F]{2})/g, (_m, p1) => {

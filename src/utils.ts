@@ -20,6 +20,20 @@ export const isSemaLogicCommand = (n: Node): boolean =>
 
 let lastVersionNoticeKey: string | undefined
 
+function createLoggedSemaLogicRequest(optionsParse: RequestUrlParam, bodytext: string) {
+  const headers = { ...(optionsParse.headers ?? {}) } as Record<string, string>
+  if (headers["Authorization"] != undefined) {
+    headers["Authorization"] = "<redacted>"
+  }
+  return {
+    url: optionsParse.url,
+    method: optionsParse.method,
+    headers,
+    body: optionsParse.body,
+    rulesLength: bodytext.length
+  }
+}
+
 
 // check if the node has to be replaced must be do before 
 export const replaceWithEmptyNode = (containerEl: HTMLElement): Node[] => {
@@ -439,7 +453,7 @@ async function showParseWithFilter(filter: string, rulessettype: string, setting
 
   let res: string;
   slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, `Context: ${dialectID}, Bodytext: ${bodytext}`)
-  slconsolelog(DebugLevMap.DebugLevel_Important, undefined, optionsParse)
+  slconsolelog(DebugLevMap.DebugLevel_Informative, undefined, "SemaLogic parse request", createLoggedSemaLogicRequest(optionsParse, bodytext))
   try {
     const responseParse = await requestUrl(optionsParse)
     const remJson = responseParse.text;

@@ -6,6 +6,21 @@ import { ViewUtils } from "./view_utils";
 
 export const SemaLogicViewType = "SemaLogicService";
 
+function createLoggedSemaLogicRequest(request: RequestUrlParam, semaLogicJsonRequestBody: any) {
+  const headers = { ...(request.headers ?? {}) } as Record<string, string>
+  if (headers["Authorization"] != undefined) {
+    headers["Authorization"] = "<redacted>"
+  }
+  return {
+    url: request.url,
+    method: request.method,
+    headers,
+    body: request.body,
+    rulesLength: semaLogicJsonRequestBody?.text?.[0]?.rules?.length ?? 0,
+    interpreteLength: semaLogicJsonRequestBody?.interprete?.[0]?.rules?.length ?? 0
+  }
+}
+
 export class SemaLogicView extends ItemView {
   view_utils: ViewUtils
   myAction: HTMLElement
@@ -315,7 +330,7 @@ export class SemaLogicView extends ItemView {
     }
     slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, 'Parsingsstring')
     slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, semaLogicJsonRequestBody)
-    slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, request)
+    slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm.slview, "SemaLogic parse request", createLoggedSemaLogicRequest(request, semaLogicJsonRequestBody))
     return request
   }
 

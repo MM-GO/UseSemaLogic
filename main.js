@@ -153,6 +153,20 @@ var isSemaLogicCommand = (n) => {
   return n.nodeType === Node.TEXT_NODE && Boolean((_a = n.textContent) == null ? void 0 : _a.startsWith(semaLogicCommand.command_start));
 };
 var lastVersionNoticeKey;
+function createLoggedSemaLogicRequest(optionsParse, bodytext) {
+  var _a;
+  const headers = { ...(_a = optionsParse.headers) != null ? _a : {} };
+  if (headers["Authorization"] != void 0) {
+    headers["Authorization"] = "<redacted>";
+  }
+  return {
+    url: optionsParse.url,
+    method: optionsParse.method,
+    headers,
+    body: optionsParse.body,
+    rulesLength: bodytext.length
+  };
+}
 var replaceWithEmptyNode = (containerEl) => {
   const results = [];
   return results;
@@ -499,7 +513,7 @@ async function showParseWithFilter(filter, rulessettype, settings) {
   }
   let res;
   slconsolelog(DebugLevMap.DebugLevel_Chatty, void 0, `Context: ${dialectID}, Bodytext: ${bodytext}`);
-  slconsolelog(DebugLevMap.DebugLevel_Important, void 0, optionsParse);
+  slconsolelog(DebugLevMap.DebugLevel_Informative, void 0, "SemaLogic parse request", createLoggedSemaLogicRequest(optionsParse, bodytext));
   try {
     const responseParse = await (0, import_obsidian2.requestUrl)(optionsParse);
     const remJson = responseParse.text;
@@ -591,6 +605,21 @@ var ViewUtils = class {
 
 // src/view.ts
 var SemaLogicViewType = "SemaLogicService";
+function createLoggedSemaLogicRequest2(request, semaLogicJsonRequestBody) {
+  var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+  const headers = { ...(_a = request.headers) != null ? _a : {} };
+  if (headers["Authorization"] != void 0) {
+    headers["Authorization"] = "<redacted>";
+  }
+  return {
+    url: request.url,
+    method: request.method,
+    headers,
+    body: request.body,
+    rulesLength: (_e = (_d = (_c = (_b = semaLogicJsonRequestBody == null ? void 0 : semaLogicJsonRequestBody.text) == null ? void 0 : _b[0]) == null ? void 0 : _c.rules) == null ? void 0 : _d.length) != null ? _e : 0,
+    interpreteLength: (_i = (_h = (_g = (_f = semaLogicJsonRequestBody == null ? void 0 : semaLogicJsonRequestBody.interprete) == null ? void 0 : _f[0]) == null ? void 0 : _g.rules) == null ? void 0 : _h.length) != null ? _i : 0
+  };
+}
 var SemaLogicView2 = class extends import_obsidian3.ItemView {
   constructor(leaf) {
     super(leaf);
@@ -824,7 +853,7 @@ var SemaLogicView2 = class extends import_obsidian3.ItemView {
     }
     slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, "Parsingsstring");
     slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, semaLogicJsonRequestBody);
-    slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, request);
+    slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm.slview, "SemaLogic parse request", createLoggedSemaLogicRequest2(request, semaLogicJsonRequestBody));
     return request;
   }
   getRequestEmbed(content) {
@@ -2645,8 +2674,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
       term = term.replace(/\\\)/g, ")").replace(/\\\(/g, "(").replace(/\\\\/g, "\\");
       return term;
     });
-    const anchorRe = /<a\b[^>]*\bdata-sl-interpreter\s*=\s*(['\"])1\1[^>]*>([\s\S]*?)<\/a>/gi;
-    return normalizedLegacy.replace(anchorRe, (_m, _quote, inner) => this.decodeHtmlEntities(String(inner != null ? inner : "")));
+    return normalizedLegacy;
   }
   encodeSLTerm(text) {
     const utf8 = encodeURIComponent(text).replace(/%([0-9A-F]{2})/g, (_m, p1) => {
