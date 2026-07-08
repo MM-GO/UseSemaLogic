@@ -4,3 +4,4 @@ new-version.md
 node_modules/
 data copy.json
 scripts/publish.mjs
+.vscode/
