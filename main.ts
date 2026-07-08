@@ -696,7 +696,7 @@ export default class SemaLogicPlugin extends Plugin {
 	interpreterLeaf: WorkspaceLeaf | undefined
 	interpreterInterval: number | undefined
 	interpreterLastCanvas: string = ""
-	interpreterSelection: { view: MarkdownView; from: { line: number; ch: number }; to: { line: number; ch: number }; sourceText: string; original: string } | undefined
+	interpreterSelection: { view: MarkdownView; from: { line: number; ch: number }; to: { line: number; ch: number }; sourceText: string; original: string; persist: boolean } | undefined
 	interpreterDebounce: number | undefined
 	pauseAllRequests: boolean = false
 
@@ -1452,8 +1452,6 @@ export default class SemaLogicPlugin extends Plugin {
 		this.showInterpreterBusy()
 		try {
 			if (!(await this.ensureSemaLogicViewForRequest())) { return }
-			// Only one session at a time: tear down a running SL-Edit session before starting SL-Interpreter.
-			await this.stopKnowledgeEdit()
 
 			const shouldTrackSelection = trackSelection != undefined
 			if (this.interpreterInterval != undefined) {
@@ -1464,7 +1462,9 @@ export default class SemaLogicPlugin extends Plugin {
 				this.pauseAllRequests = true
 				this.updateOutstanding = false
 				this.updateTransferOutstanding = false
-				this.interpreterSelection = { ...trackSelection, sourceText: selection, original: selection }
+				// Persist the interpretation as an HTML anchor only for genuine NLP interpretations;
+				// pure technical SemaLogic (useNlp == false) is already SL and needs no persistence.
+				this.interpreterSelection = { ...trackSelection, sourceText: selection, original: selection, persist: useNlp }
 			} else {
 				this.interpreterSelection = undefined
 			}
@@ -3394,7 +3394,16 @@ export default class SemaLogicPlugin extends Plugin {
 		const editor = sel.view.editor
 		const current = editor.getRange(sel.from, sel.to)
 		if (current != sel.original) {
-			slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, "KnowledgeEdit: selection changed, skip replace")
+			// The editor was edited manually in the tracked range. Don't clobber that edit and
+			// don't freeze the session: adopt the current editor text as the new baseline and
+			// keep the SemaLogic view live, then resume on the next canvas change.
+			slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, "KnowledgeEdit: editor changed manually, re-sync baseline")
+			const fromOffset = editor.posToOffset(sel.from)
+			sel.to = editor.offsetToPos(fromOffset + current.length)
+			sel.original = current
+			this.pauseAllRequests = false
+			this.semaLogicUpdate()
+			this.pauseAllRequests = true
 			return
 		}
 
@@ -3417,8 +3426,6 @@ export default class SemaLogicPlugin extends Plugin {
 		const selectionRange = existingAnchor != undefined
 			? this.findSLInterpreterSelectionForAnchor(view, existingAnchor.visibleText, existingAnchor.slText)
 			: this.findTextSelectionRange(view, selection)
-		// Only one session at a time: tear down a running SL-Interpreter session before starting SL-Edit.
-		await this.stopSLInterpreter()
 		this.pauseAllRequests = true
 		this.updateOutstanding = false
 		this.updateTransferOutstanding = false
@@ -3527,6 +3534,8 @@ export default class SemaLogicPlugin extends Plugin {
 
 	private async tickSLInterpreter(): Promise<void> {
 		if (!this.pauseAllRequests || this.interpreterSelection == undefined) { return }
+		// Only hold the interpretation for next time when it is not pure technical SemaLogic.
+		if (!this.interpreterSelection.persist) { return }
 		const file = await this.ensureInterpreterCanvasFile()
 		const content = await this.app.vault.adapter.read((file as TFile).path)
 		if (content == this.interpreterLastCanvas) { return }
@@ -3698,6 +3707,20 @@ export default class SemaLogicPlugin extends Plugin {
 
 	handleUpdate = (update: ViewUpdate) => {
 		if (this.pauseAllRequests) {
+			// During an active SL-Edit session the global pause blocks the normal render path.
+			// Keep the parallel SemaLogic view live for edits made directly in the editor by
+			// rendering in a short unpause window (same pattern as the KnowledgeEdit tick).
+			if (this.knowledgeEditSelection != undefined && update != null && update.docChanged && this.statusSL) {
+				if (this.parseDebounce != undefined) {
+					window.clearTimeout(this.parseDebounce)
+				}
+				this.parseDebounce = window.setTimeout(() => {
+					const wasPaused = this.pauseAllRequests
+					this.pauseAllRequests = false
+					this.semaLogicUpdate()
+					if (wasPaused) { this.pauseAllRequests = true }
+				}, 400)
+			}
 			return;
 		}
 		if (this.statusSL) {

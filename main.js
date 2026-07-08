@@ -2205,6 +2205,19 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     this.pauseAllRequests = false;
     this.handleUpdate = (update) => {
       if (this.pauseAllRequests) {
+        if (this.knowledgeEditSelection != void 0 && update != null && update.docChanged && this.statusSL) {
+          if (this.parseDebounce != void 0) {
+            window.clearTimeout(this.parseDebounce);
+          }
+          this.parseDebounce = window.setTimeout(() => {
+            const wasPaused = this.pauseAllRequests;
+            this.pauseAllRequests = false;
+            this.semaLogicUpdate();
+            if (wasPaused) {
+              this.pauseAllRequests = true;
+            }
+          }, 400);
+        }
         return;
       }
       if (this.statusSL) {
@@ -2967,7 +2980,6 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
       if (!await this.ensureSemaLogicViewForRequest()) {
         return;
       }
-      await this.stopKnowledgeEdit();
       const shouldTrackSelection = trackSelection != void 0;
       if (this.interpreterInterval != void 0) {
         window.clearInterval(this.interpreterInterval);
@@ -2977,7 +2989,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
         this.pauseAllRequests = true;
         this.updateOutstanding = false;
         this.updateTransferOutstanding = false;
-        this.interpreterSelection = { ...trackSelection, sourceText: selection, original: selection };
+        this.interpreterSelection = { ...trackSelection, sourceText: selection, original: selection, persist: useNlp };
       } else {
         this.interpreterSelection = void 0;
       }
@@ -4954,7 +4966,13 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     const editor = sel.view.editor;
     const current = editor.getRange(sel.from, sel.to);
     if (current != sel.original) {
-      slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, "KnowledgeEdit: selection changed, skip replace");
+      slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, "KnowledgeEdit: editor changed manually, re-sync baseline");
+      const fromOffset2 = editor.posToOffset(sel.from);
+      sel.to = editor.offsetToPos(fromOffset2 + current.length);
+      sel.original = current;
+      this.pauseAllRequests = false;
+      this.semaLogicUpdate();
+      this.pauseAllRequests = true;
       return;
     }
     editor.replaceRange(response, sel.from, sel.to);
@@ -4977,7 +4995,6 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     const existingAnchor = this.extractSLInterpreterAnchorData(selection);
     const normalizedSelection = (existingAnchor == null ? void 0 : existingAnchor.slText) || (existingAnchor == null ? void 0 : existingAnchor.visibleText) || selection;
     const selectionRange = existingAnchor != void 0 ? this.findSLInterpreterSelectionForAnchor(view, existingAnchor.visibleText, existingAnchor.slText) : this.findTextSelectionRange(view, selection);
-    await this.stopSLInterpreter();
     this.pauseAllRequests = true;
     this.updateOutstanding = false;
     this.updateTransferOutstanding = false;
@@ -5077,6 +5094,9 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
   async tickSLInterpreter() {
     var _a;
     if (!this.pauseAllRequests || this.interpreterSelection == void 0) {
+      return;
+    }
+    if (!this.interpreterSelection.persist) {
       return;
     }
     const file = await this.ensureInterpreterCanvasFile();
