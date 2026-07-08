@@ -1452,6 +1452,8 @@ export default class SemaLogicPlugin extends Plugin {
 		this.showInterpreterBusy()
 		try {
 			if (!(await this.ensureSemaLogicViewForRequest())) { return }
+			// Only one session at a time: tear down a running SL-Edit session before starting SL-Interpreter.
+			await this.stopKnowledgeEdit()
 
 			const shouldTrackSelection = trackSelection != undefined
 			if (this.interpreterInterval != undefined) {
@@ -3415,6 +3417,8 @@ export default class SemaLogicPlugin extends Plugin {
 		const selectionRange = existingAnchor != undefined
 			? this.findSLInterpreterSelectionForAnchor(view, existingAnchor.visibleText, existingAnchor.slText)
 			: this.findTextSelectionRange(view, selection)
+		// Only one session at a time: tear down a running SL-Interpreter session before starting SL-Edit.
+		await this.stopSLInterpreter()
 		this.pauseAllRequests = true
 		this.updateOutstanding = false
 		this.updateTransferOutstanding = false
@@ -3424,14 +3428,25 @@ export default class SemaLogicPlugin extends Plugin {
 		const to = selectionRange?.to ?? view.editor.getCursor("to")
 		this.knowledgeEditSelection = { view, from, to, original: selection }
 
-		const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
-		const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", normalizedSelection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1])
-		await this.processCanvasResponse(response, this.knowledgeEditCanvasPath, false)
-		await this.openKnowledgeEditCanvas()
+		try {
+			const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
+			const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", normalizedSelection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1])
+			await this.processCanvasResponse(response, this.knowledgeEditCanvasPath, false)
+			await this.openKnowledgeEditCanvas()
 
-		if (this.knowledgeEditInterval != undefined) {
-			window.clearInterval(this.knowledgeEditInterval)
-			this.knowledgeEditInterval = undefined
+			if (this.knowledgeEditInterval != undefined) {
+				window.clearInterval(this.knowledgeEditInterval)
+				this.knowledgeEditInterval = undefined
+			}
+		} catch (e) {
+			// A failed request must not leave the global lock stuck: release it so normal
+			// text -> canvas updates keep working. On success the lock stays set on purpose
+			// for the running SL-Edit session (reset later in stopKnowledgeEdit).
+			slconsolelog(DebugLevMap.DebugLevel_Error, undefined, "KnowledgeEdit (SL-Edit) request failed", e)
+			new Notice("SL-Edit failed – live updates re-enabled. See console for details.")
+			this.knowledgeEditSelection = undefined
+			this.knowledgeEditLastCanvas = ""
+			this.pauseAllRequests = false
 		}
 	}
 

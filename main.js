@@ -2967,6 +2967,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
       if (!await this.ensureSemaLogicViewForRequest()) {
         return;
       }
+      await this.stopKnowledgeEdit();
       const shouldTrackSelection = trackSelection != void 0;
       if (this.interpreterInterval != void 0) {
         window.clearInterval(this.interpreterInterval);
@@ -4976,6 +4977,7 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     const existingAnchor = this.extractSLInterpreterAnchorData(selection);
     const normalizedSelection = (existingAnchor == null ? void 0 : existingAnchor.slText) || (existingAnchor == null ? void 0 : existingAnchor.visibleText) || selection;
     const selectionRange = existingAnchor != void 0 ? this.findSLInterpreterSelectionForAnchor(view, existingAnchor.visibleText, existingAnchor.slText) : this.findTextSelectionRange(view, selection);
+    await this.stopSLInterpreter();
     this.pauseAllRequests = true;
     this.updateOutstanding = false;
     this.updateTransferOutstanding = false;
@@ -4983,13 +4985,21 @@ var SemaLogicPlugin = class extends import_obsidian8.Plugin {
     const from = (_b = selectionRange == null ? void 0 : selectionRange.from) != null ? _b : view.editor.getCursor("from");
     const to = (_c = selectionRange == null ? void 0 : selectionRange.to) != null ? _c : view.editor.getCursor("to");
     this.knowledgeEditSelection = { view, from, to, original: selection };
-    const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
-    const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", normalizedSelection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1]);
-    await this.processCanvasResponse(response, this.knowledgeEditCanvasPath, false);
-    await this.openKnowledgeEditCanvas();
-    if (this.knowledgeEditInterval != void 0) {
-      window.clearInterval(this.knowledgeEditInterval);
-      this.knowledgeEditInterval = void 0;
+    try {
+      const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID;
+      const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", normalizedSelection, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1]);
+      await this.processCanvasResponse(response, this.knowledgeEditCanvasPath, false);
+      await this.openKnowledgeEditCanvas();
+      if (this.knowledgeEditInterval != void 0) {
+        window.clearInterval(this.knowledgeEditInterval);
+        this.knowledgeEditInterval = void 0;
+      }
+    } catch (e) {
+      slconsolelog(DebugLevMap.DebugLevel_Error, void 0, "KnowledgeEdit (SL-Edit) request failed", e);
+      new import_obsidian8.Notice("SL-Edit failed \u2013 live updates re-enabled. See console for details.");
+      this.knowledgeEditSelection = void 0;
+      this.knowledgeEditLastCanvas = "";
+      this.pauseAllRequests = false;
     }
   }
   async stopKnowledgeEdit() {
