@@ -22,7 +22,9 @@
     ]
   },
   "include": [
-    "**/*.ts",
-    "../../../SemaLogic/main_view.ts"
+    "**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
   ]
 }
