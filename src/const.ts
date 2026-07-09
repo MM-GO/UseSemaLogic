@@ -75,6 +75,19 @@ export const RulesettypesCommands: string[][] = [
 	["KnwoledgeGraph", "KnowledgeGraph"]
 ]
 
+// Additional SemaLogic-view dropdown entries. They trigger an SL-Interpret style
+// /rules/parse request for the current editor selection, but with the OpenAPI
+// `engine` query parameter set (dialect generation v1/v2). Unlike SL-Interpret,
+// the response is shown in the SemaLogic view instead of the editor/canvas.
+export const DialectV1_Label = "Dialect_v1"
+export const DialectV2_Label = "Dialect_v2"
+export const EngineDialectV1 = "dialectgen_v1"
+export const EngineDialectV2 = "dialectgen_v2"
+// rulesettype expected by the server when calling the dialect engines (per OpenAPI).
+export const RulesettypeDialectEngine = "DialectEngine"
+// Dropdown entry shown in the SemaLogic view while a dialect-engine result is displayed.
+export const DialectGen_Label = "DialectGen"
+
 export const DebugLevelNames: string[] =
 	[
 		'DebugLevel_Off',

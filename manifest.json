@@ -3,7 +3,7 @@
 	"name": "UseSemaLogic",
 	"version": "2.3.7",
 	"minAppVersion": "1.4.16",
-	"description": "Real-time use of the SemaLogic formal language",
+	"description": "Real-time use of the SemaLogic formal language.",
 	"author": "SemaLogic UG",
 	"authorUrl": "https://SemaLogic.de",
 	"isDesktopOnly": false

@@ -4,7 +4,7 @@ import { SemaLogicView, SemaLogicViewType } from "./src/view";
 import { ASPView, ASPViewType } from "./src/view_asp";
 import { ViewUpdate, EditorView } from "@codemirror/view";
 import { SemaLogicRenderedElement, searchForSemaLogicCommands, getHostPort, semaLogicPing, slconsolelog } from "./src/utils";
-import { API_Defaults, Value_Defaults, semaLogicCommand, RulesettypesCommands, Rstypes_Semalogic, Rstypes_Picture, Rstypes_ASP, DebugLevMap, DebugLevelNames, Rstypes_KnowledgeGraph, Rstypes_SemanticTree } from "./src/const"
+import { API_Defaults, Value_Defaults, semaLogicCommand, RulesettypesCommands, Rstypes_Semalogic, Rstypes_Picture, Rstypes_ASP, DebugLevMap, DebugLevelNames, Rstypes_KnowledgeGraph, Rstypes_SemanticTree, DialectV1_Label, DialectV2_Label, EngineDialectV1, EngineDialectV2, RulesettypeDialectEngine, DialectGen_Label } from "./src/const"
 import { ViewUtils } from 'src/view_utils';
 import { createTemplateFolder } from 'src/template';
 import { createExamples } from 'src/examples';
@@ -776,6 +776,18 @@ export default class SemaLogicPlugin extends Plugin {
 						this.startSLInterpreter(view as MarkdownView, selection);
 					});
 			});
+			menu.addItem((item) => {
+				item.setTitle(DialectV1_Label)
+					.onClick(() => {
+						this.runDialectInView(view as MarkdownView, selection, EngineDialectV1);
+					});
+			});
+			menu.addItem((item) => {
+				item.setTitle(DialectV2_Label)
+					.onClick(() => {
+						this.runDialectInView(view as MarkdownView, selection, EngineDialectV2);
+					});
+			});
 		}));
 
 		this.registerEvent(this.app.workspace.on("layout-change", () => {
@@ -1267,8 +1279,36 @@ export default class SemaLogicPlugin extends Plugin {
 			await this.startSLInterpreter(selection.view, selection.text)
 		})
 
+		const dialectV1Btn = document.createElement("button")
+		dialectV1Btn.type = "button"
+		dialectV1Btn.className = "sl-selection-action-btn"
+		dialectV1Btn.textContent = DialectV1_Label
+		dialectV1Btn.addEventListener("click", async (evt) => {
+			evt.preventDefault()
+			evt.stopPropagation()
+			const selection = this.getSelectionActionContext()
+			if (selection == undefined) { return }
+			this.hideSelectionActionPopup()
+			await this.runDialectInView(selection.view, selection.text, EngineDialectV1)
+		})
+
+		const dialectV2Btn = document.createElement("button")
+		dialectV2Btn.type = "button"
+		dialectV2Btn.className = "sl-selection-action-btn"
+		dialectV2Btn.textContent = DialectV2_Label
+		dialectV2Btn.addEventListener("click", async (evt) => {
+			evt.preventDefault()
+			evt.stopPropagation()
+			const selection = this.getSelectionActionContext()
+			if (selection == undefined) { return }
+			this.hideSelectionActionPopup()
+			await this.runDialectInView(selection.view, selection.text, EngineDialectV2)
+		})
+
 		popup.appendChild(editBtn)
 		popup.appendChild(interpretBtn)
+		popup.appendChild(dialectV1Btn)
+		popup.appendChild(dialectV2Btn)
 		document.body.appendChild(popup)
 		this.selectionActionPopupEl = popup
 		return popup
@@ -1534,6 +1574,36 @@ export default class SemaLogicPlugin extends Plugin {
 	private async startSLInterpreterFromSLText(selection: string, slText: string, trackSelection?: { view: MarkdownView; from: { line: number; ch: number }; to: { line: number; ch: number } }): Promise<void> {
 		const contextText = trackSelection != undefined ? this.getFullEditorText(trackSelection.view) : selection
 		await this.startSLInterpreterRequest(selection, contextText, slText, false, trackSelection)
+	}
+
+	// Triggered by the "Dialect_v1" / "Dialect_v2" selection-action buttons and
+	// editor-menu items (mirroring SL-Interpret). Sends the same /rules/parse
+	// request as SL-Interpret for the given selection (full note as context,
+	// selection as interprete), but adds the OpenAPI `engine` query parameter
+	// (dialectgen_v1/_v2). Unlike SL-Interpret the response is not integrated into
+	// the editor/canvas; it is rendered in the SemaLogic view.
+	public async runDialectInView(view: MarkdownView, selection: string, engineValue: string): Promise<void> {
+		const interpreteText = selection?.trim() ?? ""
+		console.log(`[SL-Dialect] runDialectInView engine=${engineValue} selectionLen=${interpreteText.length}`)
+		if (view == undefined || interpreteText.length == 0) {
+			console.log("[SL-Dialect] aborted: no markdown editor or empty selection")
+			new Notice("SL-Dialect: bitte zuerst Text markieren.")
+			return
+		}
+		if (!(await this.ensureSemaLogicViewForRequest())) {
+			console.log("[SL-Dialect] aborted: SemaLogic view not available")
+			return
+		}
+		const contextText = this.getFullEditorText(view)
+		const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID
+		// The server expects rulesettype=dialectengine for the dialect engines.
+		const dialectFormat = RulesettypeDialectEngine
+		// Reflect the dialect mode in the SemaLogic view dropdown (display marker only).
+		this.slComm.slview.setOutPutFormat(DialectGen_Label)
+		console.log(`[SL-Dialect] sending parse request url=${vAPI_URL}&engine=${engineValue} dialectID=default rulesettype=${dialectFormat} interpreteLen=${interpreteText.length} contextLen=${contextText.length}`)
+		// parseOnTheFly = false -> the result is stored and rendered in the SemaLogic view.
+		const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", contextText, false, dialectFormat, interpreteText, engineValue)
+		console.log(`[SL-Dialect] response received length=${response?.length ?? 0}`)
 	}
 
 	private async processCanvasResponse(raw: string, canvasPath: string, allowFiles: boolean): Promise<void> {

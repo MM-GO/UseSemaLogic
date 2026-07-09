@@ -1,5 +1,5 @@
 import { DropdownComponent, ItemView, WorkspaceLeaf, ButtonComponent, RequestUrlParam, requestUrl, sanitizeHTMLToDom } from "obsidian";
-import { slTexts, DebugLevMap, RulesettypesCommands, Rstypes_Semalogic, Rstypes_SemanticTree, Rstypes_KnowledgeGraph, Rstypes_Picture, Rstypes_ASP } from "./const"
+import { slTexts, DebugLevMap, RulesettypesCommands, Rstypes_Semalogic, Rstypes_SemanticTree, Rstypes_KnowledgeGraph, Rstypes_Picture, Rstypes_ASP, DialectGen_Label } from "./const"
 import { SemaLogicPluginComm, DebugLevel, SemaLogicPluginSettings } from "../main"
 import { slconsolelog } from './utils'
 import { ViewUtils } from "./view_utils";
@@ -47,6 +47,14 @@ export class SemaLogicView extends ItemView {
 
   public getOutPutFormat(): string {
     return this.dropdownButton.getValue()
+  }
+
+  // Reflect the current output mode in the dropdown (e.g. "DialectGen" after a
+  // dialect-engine call). setValue does not fire onChange, so this is display-only.
+  public setOutPutFormat(value: string): void {
+    if (this.dropdownButton != undefined) {
+      this.dropdownButton.setValue(value)
+    }
   }
 
   public getDebugInline(): boolean {
@@ -125,6 +133,7 @@ export class SemaLogicView extends ItemView {
       .addOption(RulesettypesCommands[Rstypes_Picture][1], RulesettypesCommands[Rstypes_Picture][0])
       .addOption(RulesettypesCommands[Rstypes_SemanticTree][1], RulesettypesCommands[Rstypes_SemanticTree][0])
       .addOption(RulesettypesCommands[Rstypes_KnowledgeGraph][1], RulesettypesCommands[Rstypes_KnowledgeGraph][0])
+      .addOption(DialectGen_Label, DialectGen_Label)
       .setValue(dropDownValue)
       .onChange(async (value) => {
         slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm.slview, 'Set ViewOutputFormat: ' + value);
@@ -132,6 +141,12 @@ export class SemaLogicView extends ItemView {
         dropDownValue = value
         this.dropdownButton.setValue(value)
         this.updateScaleControls(value)
+        if (value == DialectGen_Label) {
+          // Marker state set when a dialect engine was invoked (via button/menu);
+          // there is no live re-parse for this entry.
+          console.log('[SL-Dialect] dropdown set to DialectGen (marker, no re-parse)')
+          return
+        }
         if (value == RulesettypesCommands[Rstypes_KnowledgeGraph][1]) {
           await this.slComm.slPlugin.activateKnowledgeView()
         }
@@ -307,25 +322,32 @@ export class SemaLogicView extends ItemView {
     return semaLogicJsonRequestBody
   }
 
-  createSemaLogicRequest(settings: SemaLogicPluginSettings, vAPI_URL: string, semaLogicJsonRequestBody: any): RequestUrlParam {
+  createSemaLogicRequest(settings: SemaLogicPluginSettings, vAPI_URL: string, semaLogicJsonRequestBody: any, engine?: string): RequestUrlParam {
+    // Optional OpenAPI `engine` query parameter (e.g. dialectgen_v1/_v2).
+    const url = (engine != undefined && engine != '')
+      ? vAPI_URL + (vAPI_URL.includes('?') ? '&' : '?') + 'engine=' + encodeURIComponent(engine)
+      : vAPI_URL
     let request: RequestUrlParam = {
-      url: vAPI_URL,
+      url: url,
       method: 'POST',
       headers: {
         "content-type": "application/json"
       },
-      body: JSON.stringify(semaLogicJsonRequestBody)
+      body: JSON.stringify(semaLogicJsonRequestBody),
+      // Do not throw on 4xx/5xx so we can read the server's error body (e.g. 422 reason).
+      throw: false
     }
 
     if (settings.mySLSettings[settings.mySetting].myUseHttpsSL && settings.mySLSettings[settings.mySetting].myUserSL != '') {
       request = {
-        url: vAPI_URL,
+        url: url,
         method: 'POST',
         headers: {
           "content-type": "application/json",
           "Authorization": "Basic " + btoa(settings.mySLSettings[settings.mySetting].myUserSL + ":" + settings.mySLSettings[settings.mySetting].myPasswordSL)
         },
-        body: JSON.stringify(semaLogicJsonRequestBody)
+        body: JSON.stringify(semaLogicJsonRequestBody),
+        throw: false
       }
     }
     slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, 'Parsingsstring')
@@ -403,7 +425,7 @@ export class SemaLogicView extends ItemView {
     this.getCurrHTML()
   }
 
-  public async getSemaLogicParse(settings: SemaLogicPluginSettings, vAPI_URL: string, dialectID: string, bodytext: string, parseOnTheFly: boolean, parsingFormat?: string, interpreteText?: string): Promise<string> {
+  public async getSemaLogicParse(settings: SemaLogicPluginSettings, vAPI_URL: string, dialectID: string, bodytext: string, parseOnTheFly: boolean, parsingFormat?: string, interpreteText?: string, engine?: string): Promise<string> {
     this.bodytext = bodytext
     this.apiURL = vAPI_URL
     this.dialectID = dialectID
@@ -412,7 +434,7 @@ export class SemaLogicView extends ItemView {
 
     if (parsingFormat !== undefined) { outPutFormat = parsingFormat } else { outPutFormat = this.getOutPutFormat() }
     let semaLogicJsonRequestBody = this.createSemaLogicRequestBody(dialectID, bodytext, outPutFormat, interpreteText)
-    let semaLogicRequest = this.createSemaLogicRequest(settings, vAPI_URL, semaLogicJsonRequestBody)
+    let semaLogicRequest = this.createSemaLogicRequest(settings, vAPI_URL, semaLogicJsonRequestBody, engine)
 
     try {
       const response = await requestUrl(semaLogicRequest)
@@ -427,6 +449,19 @@ export class SemaLogicView extends ItemView {
         if (!parseOnTheFly) {
           this.updateView()
         }
+      } else {
+        // Surface the server's error body (e.g. the reason for a 422) instead of a bare status.
+        const serverBody = response.text
+        console.log(`[SemaLogic] parse failed: status=${response.status} url=${semaLogicRequest.url} body=${serverBody}`)
+        let text = new DocumentFragment()
+        text.createEl("p", { text: `Request failed, status ${response.status}` })
+        text.createEl("p", { text: "Server response:" })
+        text.createEl("p", { text: serverBody })
+        text.createEl("p", { text: "See for information about the error-code of http: https://de.wikipedia.org/wiki/HTTP-Statuscode " })
+        text.createEl("p", { text: semaLogicRequest.url })
+        text.createEl("p", { text: String(semaLogicRequest.body) })
+        this.showError(text)
+        throw new Error(`Request failed, status ${response.status}`)
       }
 
       if (this.slComm.slaspview != undefined) {
