@@ -5,6 +5,7 @@ export const API_Defaults = {
 	Base_URL: "service.semalogic.ddns.net",
 	Port: "443",
 	rules_parse: "/rules/parse",
+	rules_progress: "/rules/progress",
 	reset: "/reset",
 	Version: "/APIVersion",
 	PostDialect: "/dialect/define",

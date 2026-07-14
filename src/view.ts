@@ -1,8 +1,9 @@
 import { DropdownComponent, ItemView, WorkspaceLeaf, ButtonComponent, RequestUrlParam, requestUrl, sanitizeHTMLToDom } from "obsidian";
-import { slTexts, DebugLevMap, RulesettypesCommands, Rstypes_Semalogic, Rstypes_SemanticTree, Rstypes_KnowledgeGraph, Rstypes_Picture, Rstypes_ASP, DialectGen_Label } from "./const"
+import { slTexts, DebugLevMap, RulesettypesCommands, Rstypes_Semalogic, Rstypes_SemanticTree, Rstypes_KnowledgeGraph, Rstypes_Picture, Rstypes_ASP, DialectGen_Label, API_Defaults } from "./const"
 import { SemaLogicPluginComm, DebugLevel, SemaLogicPluginSettings } from "../main"
 import { slconsolelog } from './utils'
 import { ViewUtils } from "./view_utils";
+import { getHostPort } from "./utils";
 
 export const SemaLogicViewType = "SemaLogicService";
 
@@ -19,6 +20,32 @@ function createLoggedSemaLogicRequest(request: RequestUrlParam, semaLogicJsonReq
     rulesLength: semaLogicJsonRequestBody?.text?.[0]?.rules?.length ?? 0,
     interpreteLength: semaLogicJsonRequestBody?.interprete?.[0]?.rules?.length ?? 0
   }
+}
+
+type DialectEnginePayload = {
+  rulesettype?: string
+  rules?: {
+    contentType?: string
+    engine?: string
+    output?: string
+  }
+}
+
+type DialectProgressPayload = {
+  phase?: string
+  message?: string
+  itemsDone?: number
+  itemsTotal?: number
+  llmCalls?: number
+  chunk?: string
+  elapsedMs?: number
+  done?: boolean
+}
+
+type DialectProgressResponse = {
+  sid?: string
+  running?: boolean
+  progress?: DialectProgressPayload
 }
 
 export class SemaLogicView extends ItemView {
@@ -42,6 +69,14 @@ export class SemaLogicView extends ItemView {
   scaleControlsEl: HTMLElement
   resultEl: HTMLElement
   errorEl: HTMLElement
+  dialectProgressToken: number
+  dialectProgressEl: HTMLElement | undefined
+  dialectProgressPhaseEl: HTMLElement | undefined
+  dialectProgressElapsedEl: HTMLElement | undefined
+  dialectProgressMessageEl: HTMLElement | undefined
+  dialectProgressMetaEl: HTMLElement | undefined
+  dialectProgressBarEl: HTMLElement | undefined
+  dialectProgressFillEl: HTMLElement | undefined
 
   public debugInline: boolean
 
@@ -94,6 +129,7 @@ export class SemaLogicView extends ItemView {
     this.view_utils = new ViewUtils
     this.debugInline = false
     this.debugContent = []
+    this.dialectProgressToken = 0
   }
 
   public setComm(comm: SemaLogicPluginComm) {
@@ -277,7 +313,7 @@ export class SemaLogicView extends ItemView {
   }
 
   async onClose() {
-    // Nothing to clean up.
+    this.hideDialectProgress()
   }
 
   showError(fragment: DocumentFragment) {
@@ -288,6 +324,7 @@ export class SemaLogicView extends ItemView {
     this.errorEl.appendChild(fragment)
   }
   onunload(): void {
+    this.hideDialectProgress()
 
     if (this.slComm.slPlugin != undefined) {
       this.slComm.slPlugin.activated = false
@@ -322,6 +359,15 @@ export class SemaLogicView extends ItemView {
     return semaLogicJsonRequestBody
   }
 
+  private createAuthorizationHeader(settings: SemaLogicPluginSettings): Record<string, string> {
+    if (settings.mySLSettings[settings.mySetting].myUseHttpsSL && settings.mySLSettings[settings.mySetting].myUserSL != '') {
+      return {
+        "Authorization": "Basic " + btoa(settings.mySLSettings[settings.mySetting].myUserSL + ":" + settings.mySLSettings[settings.mySetting].myPasswordSL)
+      }
+    }
+    return {}
+  }
+
   createSemaLogicRequest(settings: SemaLogicPluginSettings, vAPI_URL: string, semaLogicJsonRequestBody: any, engine?: string): RequestUrlParam {
     // Optional OpenAPI `engine` query parameter (e.g. dialectgen_v1/_v2).
     const url = (engine != undefined && engine != '')
@@ -331,7 +377,8 @@ export class SemaLogicView extends ItemView {
       url: url,
       method: 'POST',
       headers: {
-        "content-type": "application/json"
+        "content-type": "application/json",
+        ...this.createAuthorizationHeader(settings)
       },
       body: JSON.stringify(semaLogicJsonRequestBody),
       // Do not throw on 4xx/5xx so we can read the server's error body (e.g. 422 reason).
@@ -344,7 +391,7 @@ export class SemaLogicView extends ItemView {
         method: 'POST',
         headers: {
           "content-type": "application/json",
-          "Authorization": "Basic " + btoa(settings.mySLSettings[settings.mySetting].myUserSL + ":" + settings.mySLSettings[settings.mySetting].myPasswordSL)
+          ...this.createAuthorizationHeader(settings)
         },
         body: JSON.stringify(semaLogicJsonRequestBody),
         throw: false
@@ -354,6 +401,153 @@ export class SemaLogicView extends ItemView {
     slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, semaLogicJsonRequestBody)
     slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm.slview, "SemaLogic parse request", createLoggedSemaLogicRequest(request, semaLogicJsonRequestBody))
     return request
+  }
+
+  private createDialectProgressRequest(settings: SemaLogicPluginSettings, sid: string): RequestUrlParam {
+    return {
+      url: getHostPort(settings) + API_Defaults.rules_progress + "?sid=" + encodeURIComponent(sid),
+      method: 'GET',
+      headers: {
+        "accept": "application/json",
+        ...this.createAuthorizationHeader(settings)
+      },
+      throw: false
+    }
+  }
+
+  public startDialectProgress(settings: SemaLogicPluginSettings, sid: string, engine: string): number {
+    const token = ++this.dialectProgressToken
+    this.renderDialectProgress({
+      phase: "baseline",
+      message: `Running ${engine} ...`,
+      itemsDone: 0,
+      itemsTotal: 0,
+      llmCalls: 0,
+      chunk: "",
+      elapsedMs: 0,
+      done: false
+    })
+    void this.pollDialectProgress(settings, sid, token)
+    return token
+  }
+
+  public stopDialectProgress(token: number): void {
+    if (token != this.dialectProgressToken) {
+      return
+    }
+    this.dialectProgressToken++
+    this.hideDialectProgress()
+  }
+
+  private async pollDialectProgress(settings: SemaLogicPluginSettings, sid: string, token: number): Promise<void> {
+    let sawProgress = false
+    while (token == this.dialectProgressToken) {
+      try {
+        const response = await requestUrl(this.createDialectProgressRequest(settings, sid))
+        if (response.status == 200) {
+          const snapshot = JSON.parse(response.text) as DialectProgressResponse
+          if (snapshot.progress != undefined) {
+            sawProgress = true
+            this.renderDialectProgress(snapshot.progress)
+            if (snapshot.progress.done) {
+              return
+            }
+          }
+          if (snapshot.running == false && sawProgress) {
+            return
+          }
+        } else {
+          slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Dialect progress poll status ${response.status}`)
+        }
+      } catch (e) {
+        slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Dialect progress poll failed: ${String(e)}`)
+      }
+      if (token != this.dialectProgressToken) {
+        return
+      }
+      await this.sleep(700)
+    }
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => window.setTimeout(resolve, ms))
+  }
+
+  private ensureDialectProgressElements(): void {
+    if (this.dialectProgressEl != undefined) {
+      return
+    }
+    const root = document.body.createEl("div", { cls: "sl-dialect-progress" })
+    const box = root.createEl("div", { cls: "sl-dialect-progress-box" })
+    const header = box.createEl("div", { cls: "sl-dialect-progress-header" })
+    this.dialectProgressPhaseEl = header.createEl("span", { cls: "sl-dialect-progress-phase" })
+    this.dialectProgressElapsedEl = header.createEl("span", { cls: "sl-dialect-progress-elapsed" })
+    this.dialectProgressMessageEl = box.createEl("div", { cls: "sl-dialect-progress-message" })
+    this.dialectProgressBarEl = box.createEl("div", { cls: "sl-dialect-progress-bar" })
+    this.dialectProgressFillEl = this.dialectProgressBarEl.createEl("div", { cls: "sl-dialect-progress-fill" })
+    this.dialectProgressMetaEl = box.createEl("div", { cls: "sl-dialect-progress-meta" })
+    this.dialectProgressEl = root
+  }
+
+  private renderDialectProgress(progress: DialectProgressPayload): void {
+    this.ensureDialectProgressElements()
+    const phase = progress.phase?.trim() || "baseline"
+    const message = progress.message?.trim() || "Running dialect generation ..."
+    const itemsDone = progress.itemsDone ?? 0
+    const itemsTotal = progress.itemsTotal ?? 0
+    const llmCalls = progress.llmCalls ?? 0
+    const chunk = progress.chunk?.trim() ?? ""
+    const elapsedMs = progress.elapsedMs ?? 0
+    if (this.dialectProgressPhaseEl != undefined) {
+      this.dialectProgressPhaseEl.setText(`Dialect ${phase}`)
+    }
+    if (this.dialectProgressElapsedEl != undefined) {
+      this.dialectProgressElapsedEl.setText(this.formatElapsedMs(elapsedMs))
+    }
+    if (this.dialectProgressMessageEl != undefined) {
+      this.dialectProgressMessageEl.setText(message)
+    }
+    if (this.dialectProgressMetaEl != undefined) {
+      const metaParts = [`${itemsDone}/${itemsTotal} item(s)`, `${llmCalls} LLM call(s)`]
+      if (chunk.length > 0) {
+        metaParts.push(`chunk ${chunk}`)
+      }
+      this.dialectProgressMetaEl.setText(metaParts.join(" · "))
+    }
+    this.updateDialectProgressBar(itemsDone, itemsTotal)
+  }
+
+  private updateDialectProgressBar(itemsDone: number, itemsTotal: number): void {
+    if (this.dialectProgressBarEl == undefined || this.dialectProgressFillEl == undefined) {
+      return
+    }
+    const total = itemsTotal > 0 ? itemsTotal : 0
+    if (total == 0) {
+      this.dialectProgressBarEl.addClass("is-indeterminate")
+      this.dialectProgressFillEl.style.width = "42%"
+      return
+    }
+    this.dialectProgressBarEl.removeClass("is-indeterminate")
+    const ratio = Math.max(0, Math.min(1, itemsDone / total))
+    this.dialectProgressFillEl.style.width = `${Math.round(ratio * 100)}%`
+  }
+
+  private formatElapsedMs(elapsedMs: number): string {
+    if (elapsedMs <= 0) {
+      return "0.0 s"
+    }
+    return `${(elapsedMs / 1000).toFixed(1)} s`
+  }
+
+  private hideDialectProgress(): void {
+    this.dialectProgressEl?.remove()
+    this.dialectProgressEl = undefined
+    this.dialectProgressPhaseEl = undefined
+    this.dialectProgressElapsedEl = undefined
+    this.dialectProgressMessageEl = undefined
+    this.dialectProgressMetaEl = undefined
+    this.dialectProgressBarEl = undefined
+    this.dialectProgressFillEl = undefined
   }
 
   getRequestEmbed(content: string): string {
@@ -381,7 +575,51 @@ export class SemaLogicView extends ItemView {
     }
   }
 
+  private getDialectEngineHtml(content: string): string {
+    const payload = this.tryParseDialectEnginePayload(content)
+    if (payload?.rules?.output != undefined) {
+      return this.repairUtf8Mojibake(payload.rules.output)
+    }
+    return this.repairUtf8Mojibake(content)
+  }
+
+  private tryParseDialectEnginePayload(content: string): DialectEnginePayload | undefined {
+    try {
+      const parsed = JSON.parse(content) as DialectEnginePayload
+      if (parsed?.rulesettype == "DialectEngine" || typeof parsed?.rules?.output == "string") {
+        return parsed
+      }
+    } catch (e) {
+      slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `DialectEngine response is not JSON: ${String(e)}`)
+    }
+    return undefined
+  }
+
+  private repairUtf8Mojibake(content: string): string {
+    if (!/[ÃÂâ]/.test(content)) {
+      return content
+    }
+    try {
+      const latin1Bytes = Uint8Array.from(Array.from(content), (char) => char.charCodeAt(0) & 0xff)
+      const decoded = new TextDecoder("utf-8").decode(latin1Bytes)
+      if (this.countMojibakeMarkers(decoded) < this.countMojibakeMarkers(content)) {
+        return decoded
+      }
+    } catch (e) {
+      slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `UTF-8 repair skipped: ${String(e)}`)
+    }
+    return content
+  }
+
+  private countMojibakeMarkers(content: string): number {
+    const matches = content.match(/[ÃÂâ]/g)
+    return matches?.length ?? 0
+  }
+
   getCurrResult(): string {
+    if (this.getOutPutFormat() == DialectGen_Label) {
+      return this.getDialectEngineHtml(this.currResult)
+    }
     return this.getRequestEmbed(this.currResult)
   }
 

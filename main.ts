@@ -1594,16 +1594,22 @@ export default class SemaLogicPlugin extends Plugin {
 			console.log("[SL-Dialect] aborted: SemaLogic view not available")
 			return
 		}
+		const dialectSid = `${Date.now()}-${Math.round(Math.random() * 999999)}`
 		const contextText = this.getFullEditorText(view)
-		const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID
+		const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + encodeURIComponent(dialectSid)
 		// The server expects rulesettype=dialectengine for the dialect engines.
 		const dialectFormat = RulesettypeDialectEngine
 		// Reflect the dialect mode in the SemaLogic view dropdown (display marker only).
 		this.slComm.slview.setOutPutFormat(DialectGen_Label)
-		console.log(`[SL-Dialect] sending parse request url=${vAPI_URL}&engine=${engineValue} dialectID=default rulesettype=${dialectFormat} interpreteLen=${interpreteText.length} contextLen=${contextText.length}`)
-		// parseOnTheFly = false -> the result is stored and rendered in the SemaLogic view.
-		const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", contextText, false, dialectFormat, interpreteText, engineValue)
-		console.log(`[SL-Dialect] response received length=${response?.length ?? 0}`)
+		const progressToken = this.slComm.slview.startDialectProgress(this.settings, dialectSid, engineValue)
+		console.log(`[SL-Dialect] sending parse request url=${vAPI_URL}&engine=${engineValue} dialectID=default rulesettype=${dialectFormat} sid=${dialectSid} interpreteLen=${interpreteText.length} contextLen=${contextText.length}`)
+		try {
+			// parseOnTheFly = false -> the result is stored and rendered in the SemaLogic view.
+			const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", contextText, false, dialectFormat, interpreteText, engineValue)
+			console.log(`[SL-Dialect] response received length=${response?.length ?? 0}`)
+		} finally {
+			this.slComm.slview.stopDialectProgress(progressToken)
+		}
 	}
 
 	private async processCanvasResponse(raw: string, canvasPath: string, allowFiles: boolean): Promise<void> {
