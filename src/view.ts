@@ -84,11 +84,26 @@ export class SemaLogicView extends ItemView {
     return this.dropdownButton.getValue()
   }
 
-  // Reflect the current output mode in the dropdown (e.g. "DialectGen" after a
+  // Reflect the current output mode in the dropdown (e.g. "DialectEngine" after a
   // dialect-engine call). setValue does not fire onChange, so this is display-only.
   public setOutPutFormat(value: string): void {
     if (this.dropdownButton != undefined) {
       this.dropdownButton.setValue(value)
+    }
+  }
+
+  public showDialectEngineHint(): void {
+    this.currResult = ""
+    if (this.headerEl == undefined || this.controlsEl == undefined || this.resultEl == undefined) {
+      this.setNewInitial(this.getOutPutFormat(), false)
+    }
+    this.updateScaleControls(this.getOutPutFormat())
+    if (this.errorEl != undefined) {
+      this.errorEl.empty()
+    }
+    if (this.resultEl != undefined) {
+      this.resultEl.empty()
+      this.resultEl.createEl("p", { text: "Bitte Text markieren und über die direkten Buttons oder Menueinträge die DialectEngine auswählen." })
     }
   }
 
@@ -180,7 +195,8 @@ export class SemaLogicView extends ItemView {
         if (value == DialectGen_Label) {
           // Marker state set when a dialect engine was invoked (via button/menu);
           // there is no live re-parse for this entry.
-          console.log('[SL-Dialect] dropdown set to DialectGen (marker, no re-parse)')
+          console.log('[SL-Dialect] dropdown set to DialectEngine (marker, no re-parse)')
+          this.showDialectEngineHint()
           return
         }
         if (value == RulesettypesCommands[Rstypes_KnowledgeGraph][1]) {
@@ -689,17 +705,20 @@ export class SemaLogicView extends ItemView {
         }
       } else {
         // Surface the server's error body (e.g. the reason for a 422) instead of a bare status.
-        const serverBody = response.text
+        const serverBody = response.text?.trim() ?? ""
+        const detailedMessage = serverBody.length > 0
+          ? `Request failed, status ${response.status}: ${serverBody}`
+          : `Request failed, status ${response.status}`
         console.log(`[SemaLogic] parse failed: status=${response.status} url=${semaLogicRequest.url} body=${serverBody}`)
         let text = new DocumentFragment()
         text.createEl("p", { text: `Request failed, status ${response.status}` })
         text.createEl("p", { text: "Server response:" })
-        text.createEl("p", { text: serverBody })
+        text.createEl("p", { text: serverBody.length > 0 ? serverBody : "<empty response body>" })
         text.createEl("p", { text: "See for information about the error-code of http: https://de.wikipedia.org/wiki/HTTP-Statuscode " })
         text.createEl("p", { text: semaLogicRequest.url })
         text.createEl("p", { text: String(semaLogicRequest.body) })
         this.showError(text)
-        throw new Error(`Request failed, status ${response.status}`)
+        throw new Error(detailedMessage)
       }
 
       if (this.slComm.slaspview != undefined) {
@@ -714,6 +733,9 @@ export class SemaLogicView extends ItemView {
       slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm.slview, `Request failed: ${semaLogicRequest.url}`)
       slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, `Catcherror of removing context ${vAPI_URL}`)
       slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, e.toString())
+      if (e instanceof Error && e.message.startsWith("Request failed, status ")) {
+        throw e
+      }
       let text = new DocumentFragment()
       text.createEl("p", { text: e.toString() })
       text.createEl("p", { text: "See for information about the error-code of http: https://de.wikipedia.org/wiki/HTTP-Statuscode " })

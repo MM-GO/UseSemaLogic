@@ -1013,6 +1013,10 @@ export default class SemaLogicPlugin extends Plugin {
 			slconsolelog(DebugLevMap.DebugLevel_Informative, undefined, "Skip SemaLogicParse: slview not ready")
 			return [];
 		}
+		if (this.slComm.slview.getOutPutFormat() == DialectGen_Label) {
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm.slview, "Skip SemaLogicParse: DialectEngine blocks automatic follow-up requests")
+			return [];
+		}
 
 		slconsolelog(DebugLevMap.DebugLevel_, this.slComm.slview, 'Start SemaLogicParse')
 		let results: Node[] = [];
@@ -1597,9 +1601,10 @@ export default class SemaLogicPlugin extends Plugin {
 		const dialectSid = `${Date.now()}-${Math.round(Math.random() * 999999)}`
 		const contextText = this.getFullEditorText(view)
 		const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + encodeURIComponent(dialectSid)
-		// The server expects rulesettype=dialectengine for the dialect engines.
+		// The server requires rulesettype=DialectEngine for dialectgen_v1/v2,
+		// together with the explicit engine query parameter and an interprete block.
 		const dialectFormat = RulesettypeDialectEngine
-		// Reflect the dialect mode in the SemaLogic view dropdown (display marker only).
+		// Reflect the dialect mode in the SemaLogic view dropdown.
 		this.slComm.slview.setOutPutFormat(DialectGen_Label)
 		const progressToken = this.slComm.slview.startDialectProgress(this.settings, dialectSid, engineValue)
 		console.log(`[SL-Dialect] sending parse request url=${vAPI_URL}&engine=${engineValue} dialectID=default rulesettype=${dialectFormat} sid=${dialectSid} interpreteLen=${interpreteText.length} contextLen=${contextText.length}`)

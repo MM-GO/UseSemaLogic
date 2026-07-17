@@ -87,7 +87,7 @@ export const EngineDialectV2 = "dialectgen_v2"
 // rulesettype expected by the server when calling the dialect engines (per OpenAPI).
 export const RulesettypeDialectEngine = "DialectEngine"
 // Dropdown entry shown in the SemaLogic view while a dialect-engine result is displayed.
-export const DialectGen_Label = "DialectGen"
+export const DialectGen_Label = "DialectEngine"
 
 export const DebugLevelNames: string[] =
 	[
