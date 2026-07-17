@@ -50,25 +50,25 @@ type DialectProgressResponse = {
 
 export class SemaLogicView extends ItemView {
   view_utils: ViewUtils
-  myAction: HTMLElement
-  dropdownButton: DropdownComponent
-  copyButton: ButtonComponent
-  debugButton: ButtonComponent
+  myAction!: HTMLElement
+  dropdownButton!: DropdownComponent
+  copyButton!: ButtonComponent
+  debugButton!: ButtonComponent
   debugContent: string[]
-  zoomIn: ButtonComponent
-  zoomRatio: ButtonComponent
-  zoomOut: ButtonComponent
-  slComm: SemaLogicPluginComm
+  zoomIn!: ButtonComponent
+  zoomRatio!: ButtonComponent
+  zoomOut!: ButtonComponent
+  slComm!: SemaLogicPluginComm
   scaleRatio: number
-  currResult: string
-  bodytext: string
-  apiURL: string
-  dialectID: string
-  headerEl: HTMLElement
-  controlsEl: HTMLElement
-  scaleControlsEl: HTMLElement
-  resultEl: HTMLElement
-  errorEl: HTMLElement
+  currResult: string = ""
+  bodytext: string = ""
+  apiURL: string = ""
+  dialectID: string = ""
+  headerEl!: HTMLElement
+  controlsEl!: HTMLElement
+  scaleControlsEl!: HTMLElement
+  resultEl!: HTMLElement
+  errorEl!: HTMLElement
   dialectProgressToken: number
   dialectProgressEl: HTMLElement | undefined
   dialectProgressPhaseEl: HTMLElement | undefined
