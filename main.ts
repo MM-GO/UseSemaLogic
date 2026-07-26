@@ -2054,7 +2054,7 @@ export default class SemaLogicPlugin extends Plugin {
 		if (!menu || menu.querySelector(".sl-canvas-node-select")) { return }
 		this.applyCanvasMenuResponsiveLayout(menu)
 		const currentAnchorNodeId = this.getFocusedCanvasNodeId(leaf, container)
-			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas insert controls [${SL_DEBUG_BUILD}]: focused anchor=${currentAnchorNodeId ?? ""}`)
+		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas insert controls [${SL_DEBUG_BUILD}]: focused anchor=${currentAnchorNodeId ?? ""}`)
 		if (currentAnchorNodeId) {
 			menu.dataset.slAnchorNodeId = currentAnchorNodeId
 			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Canvas insert controls: menu anchor set=${menu.dataset.slAnchorNodeId}`)

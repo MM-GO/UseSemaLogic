@@ -250,6 +250,7 @@ span[data-sl-ref] {
     0% {
         margin-left: -38%;
     }
+
     100% {
         margin-left: 100%;
     }
