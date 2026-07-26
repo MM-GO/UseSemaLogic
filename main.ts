@@ -267,8 +267,11 @@ export interface SLSectionStyle {
 	indent: string;               // CSS length applied as margin-left, empty = not set
 }
 
+export const SL_DEFAULT_LEVEL_INDENT = "0.8em";
+
 export interface SLSectionStyleSlot {
 	name: string;
+	levelIndent: string;  // base left indent added per nesting level (data-sl-level)
 	styles: Record<SLSectionClass, SLSectionStyle>;
 	annotations: Record<SLAnnotationKey, SLSectionStyle>;
 }
@@ -289,7 +292,7 @@ export function defaultSectionStyleSlot(name: string): SLSectionStyleSlot {
 	SL_SECTION_CLASSES.forEach((cls) => { styles[cls] = emptySectionStyle(); });
 	// Sensible starting point: numbered items get an extra indent.
 	styles.number.indent = "1.5em";
-	return { name, styles, annotations: defaultAnnotationStyles() };
+	return { name, levelIndent: SL_DEFAULT_LEVEL_INDENT, styles, annotations: defaultAnnotationStyles() };
 }
 
 export interface SLSetting {
@@ -773,6 +776,19 @@ class SemaLogicSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 					this.plugin.applySectionStyles();
 					this.display();
+				}));
+
+		// Base indent applied per nesting level (data-sl-level) — a snippet-style base value
+		new Setting(containerEl)
+			.setName('Base indent per level')
+			.setDesc('Left indent added at each nesting level (data-sl-level), e.g. 0.8em. Level 1 stays flush. Saved in the selected style-set.')
+			.addText(text => text
+				.setPlaceholder(SL_DEFAULT_LEVEL_INDENT)
+				.setValue(activeSlot.levelIndent)
+				.onChange(async (value) => {
+					activeSlot.levelIndent = value;
+					await this.plugin.saveSettings();
+					this.plugin.applySectionStyles();
 				}));
 
 		// SL-Interpreter for data-sl-text (the interpreter anchor)
@@ -4051,6 +4067,7 @@ export default class SemaLogicPlugin extends Plugin {
 		}
 		this.settings.sectionStyleSlots.forEach((slot, i) => {
 			if (typeof slot.name != "string" || slot.name.length == 0) { slot.name = `Style-Set ${i + 1}` }
+			if (typeof slot.levelIndent != "string") { slot.levelIndent = SL_DEFAULT_LEVEL_INDENT }
 			if (slot.styles == undefined) { slot.styles = {} as Record<SLSectionClass, SLSectionStyle> }
 			SL_SECTION_CLASSES.forEach((cls) => {
 				const base = emptySectionStyle()
@@ -4091,44 +4108,75 @@ export default class SemaLogicPlugin extends Plugin {
 		return decls
 	}
 
-	// Reading-view CSS selectors for the inline interpreter/reference annotations.
-	// The interpreter case also covers the href-qualified variant so the injected
-	// rule reliably overrides the equally-specific baseline rules in styles.css.
-	private annotationSelector(key: SLAnnotationKey, scope: string): string {
+	// Selector bodies (without scope prefix) for the inline interpreter/reference
+	// annotations. The interpreter case also covers the href-qualified variant so
+	// the injected rule reliably overrides the equally-specific styles.css rules.
+	private annotationSelectorBodies(key: SLAnnotationKey): string[] {
 		switch (key) {
-			case "interpreter": return `${scope} a[data-sl-interpreter="1"],${scope} a[href="#sl-interpreter"][data-sl-interpreter="1"]`
-			case "ref": return `${scope} span[data-sl-ref]`
+			case "interpreter": return [`a[data-sl-interpreter="1"]`, `a[href="#sl-interpreter"][data-sl-interpreter="1"]`]
+			case "ref": return [`span[data-sl-ref]`]
 		}
 	}
 
 	private buildSectionStyleCss(): string {
-		const scope = ".markdown-rendered"
+		// Apply in both the reading view (.markdown-rendered) and the editing view /
+		// Live Preview (.markdown-source-view), where embedded HTML is also rendered.
+		const scopes = [".markdown-rendered", ".markdown-source-view"]
 		const lines: string[] = []
-		// Fixed level-based default: each nested section is indented so the hierarchy
-		// (data-sl-level) stays visible. Level 1 (the outermost law) is flush left.
-		lines.push(`${scope} section[data-sl-level]{display:block;margin-left:0.8em;}`)
-		lines.push(`${scope} section[data-sl-level="1"]{margin-left:0;}`)
+		// Emit one rule that combines every scope prefix with every selector body.
+		const emit = (bodies: string[], decls: string[]) => {
+			if (decls.length == 0) { return }
+			const selector = bodies.flatMap(body => scopes.map(scope => `${scope} ${body}`)).join(",")
+			lines.push(`${selector}{${decls.join(";")};}`)
+		}
 
 		const slot = this.settings.sectionStyleSlots[this.settings.sectionStyleSlot]
+
+		// Level-based default: each nested section is indented so the hierarchy
+		// (data-sl-level) stays visible. The per-level base indent is configurable in
+		// the style-set; level 1 (the outermost law) is always flush left.
+		const levelIndent = this.sanitizeCssValue(slot?.levelIndent ?? SL_DEFAULT_LEVEL_INDENT)
+		emit([`section[data-sl-level]`], [`display:block`, `margin-left:${levelIndent.length > 0 ? levelIndent : "0"}`])
+		emit([`section[data-sl-level="1"]`], [`margin-left:0`])
+		// Give every SemaLogic section an explicit default color. An explicitly set
+		// color wins over an inherited one, so a parent section's color no longer
+		// leaks into its nested child sections (each per-class rule below still wins
+		// on its own element via higher specificity).
+		emit([`section[data-sl-id]`], [`color:var(--text-normal)`])
+
 		if (slot != undefined) {
 			SL_SECTION_CLASSES.forEach((cls) => {
 				const s = slot.styles[cls]
 				if (s == undefined) { return }
-				const decls = this.sectionStyleDeclarations(s)
-				if (decls.length > 0) {
-					// Constrain to SemaLogic annotations via data-sl-id so generic class
-					// names (paragraph/number/...) elsewhere are never affected.
-					lines.push(`${scope} .${cls}[data-sl-id]{${decls.join(";")};}`)
-				}
+				const color = this.sanitizeCssValue(s.color)
+				const tdc = this.sanitizeCssValue(s.textDecorationColor)
+				const tdl = this.sanitizeCssValue(s.textDecorationLine)
+				const tds = this.sanitizeCssValue(s.textDecorationStyle)
+				const indent = this.sanitizeCssValue(s.indent)
+
+				// Element-level, non-inheriting props on the section itself (constrained
+				// to SemaLogic sections via data-sl-id). color no longer cascades because
+				// of the default-color baseline above; margin-left is not inherited.
+				const elementDecls: string[] = []
+				if (color.length > 0) { elementDecls.push(`color:${color}`) }
+				if (indent.length > 0) { elementDecls.push(`margin-left:${indent}`) }
+				emit([`.${cls}[data-sl-id]`], elementDecls)
+
+				// text-decoration propagates into descendant content in Chromium and
+				// cannot be removed by children, so apply it only to the section's own
+				// heading (headings never contain nested sections). This keeps the
+				// decoration on the level's own label without cascading to sub-levels.
+				const decorationDecls: string[] = []
+				if (tdc.length > 0) { decorationDecls.push(`text-decoration-color:${tdc}`) }
+				if (tdl.length > 0) { decorationDecls.push(`text-decoration-line:${tdl}`) }
+				if (tds.length > 0) { decorationDecls.push(`text-decoration-style:${tds}`) }
+				emit([`.${cls}[data-sl-id] > :is(h1,h2,h3,h4,h5,h6)`], decorationDecls)
 			})
 			// Inline interpreter (a[data-sl-interpreter]) and reference (span[data-sl-ref]) annotations
 			SL_ANNOTATION_KEYS.forEach((key) => {
 				const s = slot.annotations?.[key]
 				if (s == undefined) { return }
-				const decls = this.sectionStyleDeclarations(s)
-				if (decls.length > 0) {
-					lines.push(`${this.annotationSelector(key, scope)}{${decls.join(";")};}`)
-				}
+				emit(this.annotationSelectorBodies(key), this.sectionStyleDeclarations(s))
 			})
 		}
 		return lines.join("\n")
