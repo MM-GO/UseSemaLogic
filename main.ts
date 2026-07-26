@@ -242,6 +242,56 @@ class CanvasAttributeValueModal extends Modal {
 	}
 }
 
+// Section-class annotations (e.g. law/division/.../number) come from external HTML
+// embedded into notes and are rendered directly in the reading view. The plugin can
+// style them: a fixed level-based default (toggleable) plus per-class overrides that
+// are stored in named "style slots" (at least 3) inside data.json.
+export const SL_SECTION_CLASSES = ["law", "division", "subdivision", "paragraph", "subsection", "number"] as const;
+export type SLSectionClass = typeof SL_SECTION_CLASSES[number];
+
+// Inline SemaLogic annotations that share the same styleable properties as the
+// section classes: the SL-Interpreter anchor (a[data-sl-interpreter="1"], carrying
+// data-sl-text) and the SL-reference span (span[data-sl-ref]). Baseline defaults
+// mirror styles.css so the look is preserved when a slot keeps its defaults.
+export const SL_ANNOTATION_KEYS = ["interpreter", "ref"] as const;
+export type SLAnnotationKey = typeof SL_ANNOTATION_KEYS[number];
+
+export const SL_TEXT_DECORATION_LINES = ["", "none", "underline", "overline", "line-through"] as const;
+export const SL_TEXT_DECORATION_STYLES = ["", "solid", "dashed", "dotted", "double", "wavy"] as const;
+
+export interface SLSectionStyle {
+	color: string;                // CSS color, empty = inherit/not set
+	textDecorationColor: string;  // CSS color, empty = not set
+	textDecorationLine: string;   // none | underline | overline | line-through | ""
+	textDecorationStyle: string;  // solid | dashed | dotted | double | wavy | ""
+	indent: string;               // CSS length applied as margin-left, empty = not set
+}
+
+export interface SLSectionStyleSlot {
+	name: string;
+	styles: Record<SLSectionClass, SLSectionStyle>;
+	annotations: Record<SLAnnotationKey, SLSectionStyle>;
+}
+
+export function emptySectionStyle(): SLSectionStyle {
+	return { color: "", textDecorationColor: "", textDecorationLine: "", textDecorationStyle: "", indent: "" };
+}
+
+export function defaultAnnotationStyles(): Record<SLAnnotationKey, SLSectionStyle> {
+	return {
+		interpreter: { color: "white", textDecorationColor: "grey", textDecorationLine: "underline", textDecorationStyle: "dashed", indent: "" },
+		ref: { color: "white", textDecorationColor: "teal", textDecorationLine: "underline", textDecorationStyle: "solid", indent: "" },
+	};
+}
+
+export function defaultSectionStyleSlot(name: string): SLSectionStyleSlot {
+	const styles = {} as Record<SLSectionClass, SLSectionStyle>;
+	SL_SECTION_CLASSES.forEach((cls) => { styles[cls] = emptySectionStyle(); });
+	// Sensible starting point: numbered items get an extra indent.
+	styles.number.indent = "1.5em";
+	return { name, styles, annotations: defaultAnnotationStyles() };
+}
+
 export interface SLSetting {
 	myPort: string;
 	myOutputFormat: string;
@@ -265,6 +315,9 @@ export interface SemaLogicPluginSettings {
 	mySetting: number;
 	myDebugLevel: number;
 	showSelectionActionButtons: boolean;
+	sectionStyleEnabled: boolean;           // master on/off for the section-class styling
+	sectionStyleSlot: number;               // index of the active style slot
+	sectionStyleSlots: SLSectionStyleSlot[]; // named, independently switchable style slots
 }
 export const Default_profile: SemaLogicPluginSettings = {
 	mySLSettings: [{
@@ -322,6 +375,13 @@ export const Default_profile: SemaLogicPluginSettings = {
 	mySetting: 0,
 	myDebugLevel: 0,
 	showSelectionActionButtons: false,
+	sectionStyleEnabled: true,
+	sectionStyleSlot: 0,
+	sectionStyleSlots: [
+		defaultSectionStyleSlot("Style-Set 1"),
+		defaultSectionStyleSlot("Style-Set 2"),
+		defaultSectionStyleSlot("Style-Set 3"),
+	],
 }
 
 
@@ -548,6 +608,9 @@ class SemaLogicSettingTab extends PluginSettingTab {
 					this.plugin.updateSelectionActionButtonUi()
 				}));
 
+		// Sub-group: styling of section-class annotations from embedded HTML snippets
+		this.renderSectionStyleSettings(containerEl);
+
 		// Headline for SettingsTab
 		containerEl.createEl('h1', { text: '_______________________________' });
 		containerEl.createEl('h2', { text: 'Settings for Transfer/ASP-View:' });
@@ -622,16 +685,165 @@ class SemaLogicSettingTab extends PluginSettingTab {
 
 
 	}
+
+	// Sub-group of settings for styling the section-class annotations (law, division,
+	// subdivision, paragraph, subsection, number) that come from embedded HTML snippets.
+	private renderSectionStyleSettings(containerEl: HTMLElement): void {
+		this.plugin.ensureSectionStyleSettings();
+
+		containerEl.createEl('h1', { text: '_______________________________' });
+		containerEl.createEl('h2', { text: 'Section styles (SemaLogic snippets):' });
+
+		// Master on/off for the whole section styling
+		new Setting(containerEl)
+			.setName('Enable section styles')
+			.setDesc('Apply default styles (based on data-sl-level) plus the per-class and interpreter/reference overrides below. When off, the built-in defaults from styles.css apply.')
+			.addToggle(setting => setting
+				.setValue(this.plugin.settings.sectionStyleEnabled)
+				.onChange(async (value) => {
+					this.plugin.settings.sectionStyleEnabled = value;
+					await this.plugin.saveSettings();
+					this.plugin.applySectionStyles();
+					this.display();
+				}));
+
+		if (!this.plugin.settings.sectionStyleEnabled) { return }
+
+		const slots = this.plugin.settings.sectionStyleSlots;
+
+		// Choose which of the (>=3) style slots is active
+		new Setting(containerEl)
+			.setName('Active style-set')
+			.setDesc('Switch between independently stored style-sets. All edits below are saved into the selected style-set.')
+			.addDropdown(dropDown => {
+				slots.forEach((slot, i) => dropDown.addOption(String(i), slot.name || `Style-Set ${i + 1}`));
+				dropDown
+					.setValue(String(this.plugin.settings.sectionStyleSlot))
+					.onChange(async (value) => {
+						this.plugin.settings.sectionStyleSlot = parseInt(value);
+						await this.plugin.saveSettings();
+						this.plugin.applySectionStyles();
+						this.display();
+					});
+			});
+
+		const activeSlot = slots[this.plugin.settings.sectionStyleSlot];
+
+		// Rename the active slot
+		new Setting(containerEl)
+			.setName('Style-set name')
+			.setDesc('A label for the selected style-set.')
+			.addText(text => text
+				.setValue(activeSlot.name)
+				.onChange(async (value) => {
+					activeSlot.name = value;
+					await this.plugin.saveSettings();
+					// no full redisplay while typing; dropdown label refreshes on next open
+				}));
+
+		// Reset the active slot to defaults
+		new Setting(containerEl)
+			.setName('Reset this style-set')
+			.setDesc('Restore the selected style-set to its default values.')
+			.addButton(button => button
+				.setButtonText('Reset')
+				.setWarning()
+				.onClick(async () => {
+					const reset = defaultSectionStyleSlot(activeSlot.name);
+					slots[this.plugin.settings.sectionStyleSlot] = reset;
+					await this.plugin.saveSettings();
+					this.plugin.applySectionStyles();
+					this.display();
+				}));
+
+		// Per-class style controls
+		SL_SECTION_CLASSES.forEach((cls) => {
+			this.renderStyleControls(containerEl, activeSlot.styles[cls], `section.${cls}`, true);
+		});
+
+		// Inline interpreter / reference annotation styles (share the same style-set)
+		containerEl.createEl('h3', { text: 'Interpreter / reference annotations' });
+		this.renderStyleControls(containerEl, activeSlot.annotations.interpreter, 'SL-Interpreter (a[data-sl-interpreter], data-sl-text)', false);
+		this.renderStyleControls(containerEl, activeSlot.annotations.ref, 'SL-Reference (span[data-sl-ref])', false);
+	}
+
+	private renderStyleControls(containerEl: HTMLElement, style: SLSectionStyle, heading: string, includeIndent: boolean): void {
+		containerEl.createEl('h4', { text: heading });
+
+		new Setting(containerEl)
+			.setName('color')
+			.setDesc('Text color, e.g. #b97900 or teal. Leave empty for the default.')
+			.addText(text => text
+				.setPlaceholder('(default)')
+				.setValue(style.color)
+				.onChange(async (value) => {
+					style.color = value;
+					await this.plugin.saveSettings();
+					this.plugin.applySectionStyles();
+				}));
+
+		new Setting(containerEl)
+			.setName('text-decoration-color')
+			.setDesc('Color of the underline/decoration line. Leave empty for the default.')
+			.addText(text => text
+				.setPlaceholder('(default)')
+				.setValue(style.textDecorationColor)
+				.onChange(async (value) => {
+					style.textDecorationColor = value;
+					await this.plugin.saveSettings();
+					this.plugin.applySectionStyles();
+				}));
+
+		new Setting(containerEl)
+			.setName('text-decoration-line')
+			.addDropdown(dropDown => {
+				SL_TEXT_DECORATION_LINES.forEach(opt => dropDown.addOption(opt, opt.length == 0 ? '(default)' : opt));
+				dropDown
+					.setValue(style.textDecorationLine)
+					.onChange(async (value) => {
+						style.textDecorationLine = value;
+						await this.plugin.saveSettings();
+						this.plugin.applySectionStyles();
+					});
+			});
+
+		new Setting(containerEl)
+			.setName('text-decoration-style')
+			.addDropdown(dropDown => {
+				SL_TEXT_DECORATION_STYLES.forEach(opt => dropDown.addOption(opt, opt.length == 0 ? '(default)' : opt));
+				dropDown
+					.setValue(style.textDecorationStyle)
+					.onChange(async (value) => {
+						style.textDecorationStyle = value;
+						await this.plugin.saveSettings();
+						this.plugin.applySectionStyles();
+					});
+			});
+
+		if (includeIndent) {
+			new Setting(containerEl)
+				.setName('indent (margin-left)')
+				.setDesc('Extra left indent, e.g. 1.5em or 20px. Leave empty for the default.')
+				.addText(text => text
+					.setPlaceholder('(default)')
+					.setValue(style.indent)
+					.onChange(async (value) => {
+						style.indent = value;
+						await this.plugin.saveSettings();
+						this.plugin.applySectionStyles();
+					}));
+		}
+	}
 }
 
 // CommunicationClass for interaction between SLview and editor window
 export class SemaLogicPluginComm {
-	slview: SemaLogicView
-	slPlugin: SemaLogicPlugin
-	slaspview: ASPView
+	slview!: SemaLogicView
+	slPlugin!: SemaLogicPlugin
+	slaspview!: ASPView
 	activatedASP: boolean = false;
 	activatedKnowledge: boolean = false;
-	slUsedMDView: MarkdownView
+	slUsedMDView!: MarkdownView
 
 	setSlView(view: SemaLogicView) {
 		this.slview = view
@@ -647,9 +859,9 @@ export class SemaLogicPluginComm {
 }
 
 export default class SemaLogicPlugin extends Plugin {
-	settings: SemaLogicPluginSettings;
-	semaLogicView: SemaLogicView;
-	myStatus: HTMLElement;
+	settings!: SemaLogicPluginSettings;
+	semaLogicView!: SemaLogicView;
+	myStatus!: HTMLElement;
 	statusTransfer: boolean = false
 	statusSL: boolean = true;
 	pluginEnabled: boolean = true;
@@ -662,10 +874,10 @@ export default class SemaLogicPlugin extends Plugin {
 	updateOutstandingSetting: boolean = false;
 	waitingForResponse = false;
 	UpdateProcessing: boolean = false;
-	slComm: SemaLogicPluginComm;
-	lastactiveView: MarkdownView;
+	slComm!: SemaLogicPluginComm;
+	lastactiveView!: MarkdownView;
 	view_utils = new ViewUtils
-	interval: number
+	interval!: number
 	parseDebounce: number | undefined
 	lastParsedHash: string = ""
 	canvasTooltipEl: HTMLElement | undefined
@@ -700,6 +912,7 @@ export default class SemaLogicPlugin extends Plugin {
 	interpreterSelection: { view: MarkdownView; from: { line: number; ch: number }; to: { line: number; ch: number }; sourceText: string; original: string; persist: boolean } | undefined
 	interpreterDebounce: number | undefined
 	pauseAllRequests: boolean = false
+	sectionStyleEl: HTMLStyleElement | undefined
 
 	// Due to change in Sprint 1/2023 to inline dialects, detection of contexts will be needed in later sprints 
 	private getContextFromLine(mydialectID: string) {
@@ -714,7 +927,7 @@ export default class SemaLogicPlugin extends Plugin {
 	}
 
 	private getActiveView(): MarkdownView | undefined {
-		const activeView = app.workspace.getActiveViewOfType(MarkdownView);
+		const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (activeView === null) {
 			if (this.lastactiveView === null) {
 				slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, "ActiveView could not be defined through SemaLogic")
@@ -909,6 +1122,7 @@ export default class SemaLogicPlugin extends Plugin {
 		await this.loadSettings();
 		this.pluginEnabled = true
 		DebugLevel = this.settings.myDebugLevel
+		this.applySectionStyles()
 		this.app.workspace.onLayoutReady(() => {
 			this.syncSelectionActionHeaderButtons()
 		})
@@ -970,8 +1184,8 @@ export default class SemaLogicPlugin extends Plugin {
 			id: "sl_create_template",
 			name: "SemaLogic create template",
 			callback: () => {
-				createTemplateFolder(app.vault);
-				createExamples(app.vault);
+				createTemplateFolder(this.app.vault);
+				createExamples(this.app.vault);
 			},
 		});
 
@@ -981,14 +1195,14 @@ export default class SemaLogicPlugin extends Plugin {
 			id: "sl_create_test_canvas",
 			name: "UseSemaLogic: test canvas simple",
 			callback: () => {
-				createTestCanvas(app.vault);
+				createTestCanvas(this.app.vault);
 			},
 		});
 		this.addCommand({
 			id: "sl_create_template_canvas",
 			name: "UseSemaLogic: test canvas komplex",
 			callback: () => {
-				createTemplateCanvas(app.vault);
+				createTemplateCanvas(this.app.vault);
 			},
 		});
 
@@ -3744,6 +3958,8 @@ export default class SemaLogicPlugin extends Plugin {
 		}
 		this.selectionActionPopupEl?.remove()
 		this.selectionActionPopupEl = undefined
+		this.sectionStyleEl?.remove()
+		this.sectionStyleEl = undefined
 		// commented out due to publishing process - see PlugInGuideline - could be deleted
 		this.app.workspace.detachLeavesOfType(SemaLogicViewType);
 		this.app.workspace.detachLeavesOfType(ASPViewType);
@@ -3763,6 +3979,7 @@ export default class SemaLogicPlugin extends Plugin {
 			this.settings.showSelectionActionButtons = Platform.isAndroidApp;
 			await this.saveData(this.settings);
 		}
+		this.ensureSectionStyleSettings();
 	}
 
 	async saveSettings() {
@@ -3770,6 +3987,122 @@ export default class SemaLogicPlugin extends Plugin {
 		if (this.slComm.slview != undefined) { this.slComm.slview.setNewInitial(this.settings.mySLSettings[this.settings.mySetting].myOutputFormat, false) }
 		this.updateOutstanding = true;
 		//this.semaLogicParse();
+	}
+
+	// Backfill / repair the section-style settings so older data.json files and
+	// partially written slots always expose the full structure.
+	ensureSectionStyleSettings() {
+		if (typeof this.settings.sectionStyleEnabled != "boolean") {
+			this.settings.sectionStyleEnabled = Default_profile.sectionStyleEnabled
+		}
+		if (!Array.isArray(this.settings.sectionStyleSlots) || this.settings.sectionStyleSlots.length == 0) {
+			this.settings.sectionStyleSlots = Default_profile.sectionStyleSlots.map((slot, i) => defaultSectionStyleSlot(slot.name || `Style-Set ${i + 1}`))
+		}
+		// Guarantee at least 3 slots and a complete style record per slot.
+		while (this.settings.sectionStyleSlots.length < 3) {
+			this.settings.sectionStyleSlots.push(defaultSectionStyleSlot(`Style-Set ${this.settings.sectionStyleSlots.length + 1}`))
+		}
+		this.settings.sectionStyleSlots.forEach((slot, i) => {
+			if (typeof slot.name != "string" || slot.name.length == 0) { slot.name = `Style-Set ${i + 1}` }
+			if (slot.styles == undefined) { slot.styles = {} as Record<SLSectionClass, SLSectionStyle> }
+			SL_SECTION_CLASSES.forEach((cls) => {
+				const base = emptySectionStyle()
+				slot.styles[cls] = Object.assign(base, slot.styles[cls])
+			})
+			if (slot.annotations == undefined) { slot.annotations = defaultAnnotationStyles() }
+			const annotationDefaults = defaultAnnotationStyles()
+			SL_ANNOTATION_KEYS.forEach((key) => {
+				slot.annotations[key] = Object.assign(annotationDefaults[key], slot.annotations[key])
+			})
+		})
+		if (typeof this.settings.sectionStyleSlot != "number"
+			|| this.settings.sectionStyleSlot < 0
+			|| this.settings.sectionStyleSlot >= this.settings.sectionStyleSlots.length) {
+			this.settings.sectionStyleSlot = 0
+		}
+	}
+
+	// Strip characters that could break out of a CSS declaration. Users only style
+	// their own vault, but keeping the injected stylesheet well-formed avoids surprises.
+	private sanitizeCssValue(value: string): string {
+		return (value ?? "").replace(/[{}<>;]/g, "").replace(/[\r\n]+/g, " ").trim()
+	}
+
+	// Turn a style entry into CSS declarations, skipping unset (empty) values.
+	private sectionStyleDeclarations(s: SLSectionStyle): string[] {
+		const decls: string[] = []
+		const color = this.sanitizeCssValue(s.color)
+		const tdc = this.sanitizeCssValue(s.textDecorationColor)
+		const tdl = this.sanitizeCssValue(s.textDecorationLine)
+		const tds = this.sanitizeCssValue(s.textDecorationStyle)
+		const indent = this.sanitizeCssValue(s.indent)
+		if (color.length > 0) { decls.push(`color:${color}`) }
+		if (tdc.length > 0) { decls.push(`text-decoration-color:${tdc}`) }
+		if (tdl.length > 0) { decls.push(`text-decoration-line:${tdl}`) }
+		if (tds.length > 0) { decls.push(`text-decoration-style:${tds}`) }
+		if (indent.length > 0) { decls.push(`margin-left:${indent}`) }
+		return decls
+	}
+
+	// Reading-view CSS selectors for the inline interpreter/reference annotations.
+	// The interpreter case also covers the href-qualified variant so the injected
+	// rule reliably overrides the equally-specific baseline rules in styles.css.
+	private annotationSelector(key: SLAnnotationKey, scope: string): string {
+		switch (key) {
+			case "interpreter": return `${scope} a[data-sl-interpreter="1"],${scope} a[href="#sl-interpreter"][data-sl-interpreter="1"]`
+			case "ref": return `${scope} span[data-sl-ref]`
+		}
+	}
+
+	private buildSectionStyleCss(): string {
+		const scope = ".markdown-rendered"
+		const lines: string[] = []
+		// Fixed level-based default: each nested section is indented so the hierarchy
+		// (data-sl-level) stays visible. Level 1 (the outermost law) is flush left.
+		lines.push(`${scope} section[data-sl-level]{display:block;margin-left:0.8em;}`)
+		lines.push(`${scope} section[data-sl-level="1"]{margin-left:0;}`)
+
+		const slot = this.settings.sectionStyleSlots[this.settings.sectionStyleSlot]
+		if (slot != undefined) {
+			SL_SECTION_CLASSES.forEach((cls) => {
+				const s = slot.styles[cls]
+				if (s == undefined) { return }
+				const decls = this.sectionStyleDeclarations(s)
+				if (decls.length > 0) {
+					// Constrain to SemaLogic annotations via data-sl-id so generic class
+					// names (paragraph/number/...) elsewhere are never affected.
+					lines.push(`${scope} .${cls}[data-sl-id]{${decls.join(";")};}`)
+				}
+			})
+			// Inline interpreter (a[data-sl-interpreter]) and reference (span[data-sl-ref]) annotations
+			SL_ANNOTATION_KEYS.forEach((key) => {
+				const s = slot.annotations?.[key]
+				if (s == undefined) { return }
+				const decls = this.sectionStyleDeclarations(s)
+				if (decls.length > 0) {
+					lines.push(`${this.annotationSelector(key, scope)}{${decls.join(";")};}`)
+				}
+			})
+		}
+		return lines.join("\n")
+	}
+
+	// (Re)build and inject the section-style stylesheet, or remove it when disabled.
+	applySectionStyles(): void {
+		const id = "sl-section-style-tag"
+		let el = document.getElementById(id) as HTMLStyleElement | null
+		if (!this.settings.sectionStyleEnabled) {
+			if (el != null) { el.remove() }
+			this.sectionStyleEl = undefined
+			return
+		}
+		if (el == null) {
+			el = document.createElement("style")
+			el.id = id
+			document.head.appendChild(el)
+		}
+		this.sectionStyleEl = el
+		el.textContent = this.buildSectionStyleCss()
 	}
 
 	handlePing() {
@@ -3906,7 +4239,7 @@ export default class SemaLogicPlugin extends Plugin {
 		}
 		catch (e) {
 			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm.slview, `Catcherror by reset ${vAPI_URL_Reset}`)
-			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm.slview, e.toString())
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm.slview, e instanceof Error ? e.toString() : String(e))
 		}
 	}
 

@@ -730,14 +730,15 @@ export class SemaLogicView extends ItemView {
       });
     }
     catch (e) {
+      const errorText = e instanceof Error ? e.toString() : String(e)
       slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm.slview, `Request failed: ${semaLogicRequest.url}`)
       slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, `Catcherror of removing context ${vAPI_URL}`)
-      slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, e.toString())
+      slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, errorText)
       if (e instanceof Error && e.message.startsWith("Request failed, status ")) {
         throw e
       }
       let text = new DocumentFragment()
-      text.createEl("p", { text: e.toString() })
+      text.createEl("p", { text: errorText })
       text.createEl("p", { text: "See for information about the error-code of http: https://de.wikipedia.org/wiki/HTTP-Statuscode " })
       text.createEl("p", { text: semaLogicRequest.url })
       text.createEl("p", { text: String(semaLogicRequest.body) })

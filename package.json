@@ -14,7 +14,7 @@
 	"author": "SemaLogic UG",
 	"license": "Plugin under GnuGPLv3 (SemaLogic-service currently free use of a commercial license for testing)",
 	"devDependencies": {
-		"@types/jest": "^29.5.3",
+		"@types/jest": "^29.5.14",
 		"builtin-modules": "3.3.0",
 		"esbuild": "^0.14.54",
 		"esbuild-jest": "^0.5.0",

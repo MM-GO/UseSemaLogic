@@ -12,6 +12,9 @@
     "importHelpers": true,
     "isolatedModules": true,
     "allowSyntheticDefaultImports": true,
+    "types": [
+      "jest"
+    ],
     "strictNullChecks": true,
     "lib": [
       "DOM",
@@ -26,5 +29,9 @@
   ],
   "exclude": [
     "node_modules"
+  ],
+  "types": [
+    "jest",
+    "node"
   ]
 }
