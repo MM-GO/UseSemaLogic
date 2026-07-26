@@ -11,6 +11,33 @@ If your plugin does not need CSS, delete this file.
     white-space: pre
 }
 
+/* Collapsible settings groups */
+.sl-settings-group {
+    margin: 10px 0;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 8px;
+    padding: 4px 12px;
+}
+
+.sl-settings-group>summary {
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 1.05em;
+    padding: 8px 0;
+}
+
+.sl-settings-subgroup {
+    margin: 8px 0;
+    border-left: 2px solid var(--background-modifier-border);
+    padding: 2px 0 2px 12px;
+}
+
+.sl-settings-subgroup>summary {
+    cursor: pointer;
+    font-weight: 600;
+    padding: 6px 0;
+}
+
 .sl-term-hint {
     display: inline-block;
     margin-left: 4px;

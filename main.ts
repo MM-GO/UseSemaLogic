@@ -406,14 +406,40 @@ class SemaLogicSettingTab extends PluginSettingTab {
 		this.plugin = plugin;
 	}
 
-	display(): void {
+	// Remembers which collapsible groups the user has expanded, so a re-render
+	// (this.display() is called from many onChange handlers) keeps their state.
+	private groupOpen: Record<string, boolean> = {};
 
+	// Which section class is currently selected for editing in the Section-Style group.
+	private selectedSectionClass: SLSectionClass = SL_SECTION_CLASSES[0];
+
+	// Create a collapsible <details> group and persist its open/closed state.
+	private makeCollapsible(containerEl: HTMLElement, key: string, title: string, defaultOpen: boolean, cls: string): HTMLElement {
+		const details = containerEl.createEl('details', { cls });
+		details.open = this.groupOpen[key] ?? defaultOpen;
+		this.groupOpen[key] = details.open;
+		details.createEl('summary', { cls: `${cls}-summary`, text: title });
+		details.addEventListener('toggle', () => { this.groupOpen[key] = details.open; });
+		return details;
+	}
+
+	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
 
 		// Headline for SettingsTab
 		containerEl.createEl('h2', { text: 'Settings for SemaLogic:' });
 
+		// Group 1: profile settings (general SemaLogic + Transfer/ASP), expanded by default
+		const profileGroup = this.makeCollapsible(containerEl, 'profile', 'Profile settings', true, 'sl-settings-group');
+		this.renderProfileSettings(profileGroup);
+
+		// Group 2: SemaLogic snippet styles, collapsed by default
+		const snippetGroup = this.makeCollapsible(containerEl, 'snippet', 'SemaLogic Snippet-Styles', false, 'sl-settings-group');
+		this.renderSnippetStyleSettings(snippetGroup);
+	}
+
+	private renderProfileSettings(containerEl: HTMLElement): void {
 		// General Debug Level
 		new Setting(containerEl)
 			.setName('General DebugLevel')
@@ -608,12 +634,8 @@ class SemaLogicSettingTab extends PluginSettingTab {
 					this.plugin.updateSelectionActionButtonUi()
 				}));
 
-		// Sub-group: styling of section-class annotations from embedded HTML snippets
-		this.renderSectionStyleSettings(containerEl);
-
-		// Headline for SettingsTab
-		containerEl.createEl('h1', { text: '_______________________________' });
-		containerEl.createEl('h2', { text: 'Settings for Transfer/ASP-View:' });
+		// Transfer / ASP view is part of the profile settings
+		containerEl.createEl('h3', { text: 'Transfer / ASP view' });
 
 		// ASPBaseURL 
 		new Setting(containerEl)
@@ -686,18 +708,15 @@ class SemaLogicSettingTab extends PluginSettingTab {
 
 	}
 
-	// Sub-group of settings for styling the section-class annotations (law, division,
-	// subdivision, paragraph, subsection, number) that come from embedded HTML snippets.
-	private renderSectionStyleSettings(containerEl: HTMLElement): void {
+	// Styling for the embedded HTML snippets: the SL-Interpreter annotations
+	// (data-sl-text / data-sl-ref) and the section classes (law, division, ...).
+	private renderSnippetStyleSettings(containerEl: HTMLElement): void {
 		this.plugin.ensureSectionStyleSettings();
 
-		containerEl.createEl('h1', { text: '_______________________________' });
-		containerEl.createEl('h2', { text: 'Section styles (SemaLogic snippets):' });
-
-		// Master on/off for the whole section styling
+		// Master on/off for the whole snippet styling
 		new Setting(containerEl)
-			.setName('Enable section styles')
-			.setDesc('Apply default styles (based on data-sl-level) plus the per-class and interpreter/reference overrides below. When off, the built-in defaults from styles.css apply.')
+			.setName('Enable snippet styles')
+			.setDesc('Apply default styles (based on data-sl-level) plus the interpreter/reference and per-class overrides below. When off, the built-in defaults from styles.css apply.')
 			.addToggle(setting => setting
 				.setValue(this.plugin.settings.sectionStyleEnabled)
 				.onChange(async (value) => {
@@ -756,43 +775,71 @@ class SemaLogicSettingTab extends PluginSettingTab {
 					this.display();
 				}));
 
-		// Per-class style controls
-		SL_SECTION_CLASSES.forEach((cls) => {
-			this.renderStyleControls(containerEl, activeSlot.styles[cls], `section.${cls}`, true);
-		});
+		// SL-Interpreter for data-sl-text (the interpreter anchor)
+		const interpGroup = this.makeCollapsible(containerEl, 'snip-interp', 'SL-Interpreter für data-sl-text', false, 'sl-settings-subgroup');
+		this.renderStyleControls(interpGroup, activeSlot.annotations.interpreter, false);
 
-		// Inline interpreter / reference annotation styles (share the same style-set)
-		containerEl.createEl('h3', { text: 'Interpreter / reference annotations' });
-		this.renderStyleControls(containerEl, activeSlot.annotations.interpreter, 'SL-Interpreter (a[data-sl-interpreter], data-sl-text)', false);
-		this.renderStyleControls(containerEl, activeSlot.annotations.ref, 'SL-Reference (span[data-sl-ref])', false);
+		// SL-Interpreter for data-sl-ref (the reference span)
+		const refGroup = this.makeCollapsible(containerEl, 'snip-ref', 'SL-Interpreter für data-sl-ref', false, 'sl-settings-subgroup');
+		this.renderStyleControls(refGroup, activeSlot.annotations.ref, false);
+
+		// Section styles per class: pick a class from the dropdown, then edit only its
+		// properties — this keeps the number of visible fields small.
+		const sectionGroup = this.makeCollapsible(containerEl, 'snip-section', 'Section-Style', false, 'sl-settings-subgroup');
+		new Setting(sectionGroup)
+			.setName('Section class')
+			.setDesc('Choose which section class to style.')
+			.addDropdown(dropDown => {
+				SL_SECTION_CLASSES.forEach(cls => dropDown.addOption(cls, cls));
+				dropDown
+					.setValue(this.selectedSectionClass)
+					.onChange((value) => {
+						this.selectedSectionClass = value as SLSectionClass;
+						this.display();
+					});
+			});
+		this.renderStyleControls(sectionGroup, activeSlot.styles[this.selectedSectionClass], true);
 	}
 
-	private renderStyleControls(containerEl: HTMLElement, style: SLSectionStyle, heading: string, includeIndent: boolean): void {
-		containerEl.createEl('h4', { text: heading });
+	// A color row: free-text field (allows empty = default, and named colors),
+	// a native color picker as a click helper, and a button to clear the value.
+	private renderColorSetting(containerEl: HTMLElement, name: string, desc: string, getValue: () => string, setValue: (v: string) => void): void {
+		let textComp: TextComponent | undefined;
+		const apply = async (value: string) => {
+			setValue(value);
+			await this.plugin.saveSettings();
+			this.plugin.applySectionStyles();
+		};
+		const setting = new Setting(containerEl).setName(name).setDesc(desc);
+		setting.addText(text => {
+			textComp = text;
+			text.setPlaceholder('(default)')
+				.setValue(getValue())
+				.onChange(async (value) => { await apply(value); });
+		});
+		setting.addColorPicker(cp => {
+			const cur = getValue();
+			if (/^#[0-9a-fA-F]{6}$/.test(cur)) { cp.setValue(cur); }
+			cp.onChange(async (value) => {
+				await apply(value);
+				textComp?.setValue(value);
+			});
+		});
+		setting.addExtraButton(btn => btn
+			.setIcon('cross')
+			.setTooltip('Clear (use default)')
+			.onClick(async () => {
+				await apply('');
+				textComp?.setValue('');
+			}));
+	}
 
-		new Setting(containerEl)
-			.setName('color')
-			.setDesc('Text color, e.g. #b97900 or teal. Leave empty for the default.')
-			.addText(text => text
-				.setPlaceholder('(default)')
-				.setValue(style.color)
-				.onChange(async (value) => {
-					style.color = value;
-					await this.plugin.saveSettings();
-					this.plugin.applySectionStyles();
-				}));
+	private renderStyleControls(containerEl: HTMLElement, style: SLSectionStyle, includeIndent: boolean): void {
+		this.renderColorSetting(containerEl, 'color', 'Text color, e.g. #b97900 or teal. Leave empty for the default.',
+			() => style.color, (v) => { style.color = v; });
 
-		new Setting(containerEl)
-			.setName('text-decoration-color')
-			.setDesc('Color of the underline/decoration line. Leave empty for the default.')
-			.addText(text => text
-				.setPlaceholder('(default)')
-				.setValue(style.textDecorationColor)
-				.onChange(async (value) => {
-					style.textDecorationColor = value;
-					await this.plugin.saveSettings();
-					this.plugin.applySectionStyles();
-				}));
+		this.renderColorSetting(containerEl, 'text-decoration-color', 'Color of the underline/decoration line. Leave empty for the default.',
+			() => style.textDecorationColor, (v) => { style.textDecorationColor = v; });
 
 		new Setting(containerEl)
 			.setName('text-decoration-line')
