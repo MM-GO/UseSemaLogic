@@ -5,6 +5,7 @@ import { ASPView, ASPViewType } from "./src/view_asp";
 import { ViewUpdate, EditorView } from "@codemirror/view";
 import { SemaLogicRenderedElement, searchForSemaLogicCommands, getHostPort, semaLogicPing, slconsolelog } from "./src/utils";
 import { API_Defaults, Value_Defaults, semaLogicCommand, RulesettypesCommands, Rstypes_Semalogic, Rstypes_Picture, Rstypes_ASP, DebugLevMap, DebugLevelNames, Rstypes_KnowledgeGraph, Rstypes_SemanticTree, DialectV1_Label, DialectV2_Label, EngineDialectV1, EngineDialectV2, RulesettypeDialectEngine, DialectGen_Label } from "./src/const"
+import { buildSLInterpreterAnchor, extractSLInterpreterAnchorData } from "./src/sl_interpreter_helpers";
 import { ViewUtils } from 'src/view_utils';
 import { createTemplateFolder } from 'src/template';
 import { createExamples } from 'src/examples';
@@ -845,7 +846,7 @@ export default class SemaLogicPlugin extends Plugin {
 			const selection = link.textContent ?? ""
 			if (selection.length == 0) { return }
 			const view = this.app.workspace.getActiveViewOfType(MarkdownView)
-			const slText = link.getAttribute("data-sl-text")?.trim() || link.getAttribute("title")?.trim() || ""
+			const slText = link.getAttribute("data-sl-text")?.trim() || link.getAttribute("title")?.trim() || link.getAttribute("data-sl-ref")?.trim() || ""
 			const trackSelection = (view && slText.length > 0) ? this.findSLInterpreterSelectionForAnchor(view, selection, slText) : undefined
 			if (slText.length > 0) {
 				this.startSLInterpreterFromSLText(selection, slText, trackSelection)
@@ -1194,27 +1195,11 @@ export default class SemaLogicPlugin extends Plugin {
 	}
 
 	private buildSLInterpreterAnchor(originalText: string, interpretedText: string): string {
-		const escapedTitle = this.escapeHtmlAttribute(interpretedText);
-		const escapedSLText = this.escapeHtmlAttribute(interpretedText);
-		const escapedText = this.escapeHtmlText(originalText);
-		const style = "color: black; text-decoration-color: blue; text-decoration-line: underline; text-decoration-style: dashed;";
-		return `<a href="#sl-interpreter" data-sl-interpreter="1" data-sl-text="${escapedSLText}" title="${escapedTitle}" style="${style}">${escapedText}</a>`;
-	}
-
-	private extractHtmlAttributeValue(tagText: string, attributeName: string): string {
-		const escapedName = attributeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-		const re = new RegExp(`\\b${escapedName}\\s*=\\s*(['"])([\\s\\S]*?)\\1`, "i");
-		const match = tagText.match(re);
-		return match ? this.decodeHtmlEntities(match[2] ?? "") : "";
+		return buildSLInterpreterAnchor(originalText, interpretedText);
 	}
 
 	private extractSLInterpreterAnchorData(text: string): { visibleText: string; slText: string } | undefined {
-		const match = text.match(/<a\b[^>]*\bdata-sl-interpreter\s*=\s*(['"])1\1[^>]*>([\s\S]*?)<\/a>/i);
-		if (!match) { return undefined }
-		const tagText = match[0] ?? "";
-		const innerText = this.decodeHtmlEntities(match[2] ?? "");
-		const slText = this.extractHtmlAttributeValue(tagText, "data-sl-text") || this.extractHtmlAttributeValue(tagText, "title");
-		return { visibleText: innerText, slText };
+		return extractSLInterpreterAnchorData(text);
 	}
 
 	private findNearestTextOccurrence(haystack: string, needle: string, preferredOffset: number): number {

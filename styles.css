@@ -28,6 +28,22 @@ If your plugin does not need CSS, delete this file.
     text-underline-offset: 2px;
 }
 
+/* SL interpreter and SL ref annotations */
+a[data-sl-interpreter="1"],
+a[href="#sl-interpreter"][data-sl-interpreter="1"] {
+    color: white;
+    text-decoration-color: grey;
+    text-decoration-line: underline;
+    text-decoration-style: dashed;
+}
+
+span[data-sl-ref] {
+    color: white;
+    text-decoration-color: teal;
+    text-decoration-line: underline;
+    text-decoration-style: solid;
+}
+
 .sl-node-tooltip {
     position: fixed;
     z-index: 10000;
