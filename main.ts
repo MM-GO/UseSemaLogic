@@ -267,17 +267,36 @@ export interface SLSectionStyle {
 	indent: string;               // CSS length applied as margin-left, empty = not set
 }
 
+// A section-class style carries its own class name, so each style-set can define
+// its own list of section classes (add/remove/rename), not just the built-in six.
+export interface SLSectionClassStyle extends SLSectionStyle {
+	className: string;
+}
+
 export const SL_DEFAULT_LEVEL_INDENT = "0.8em";
 
 export interface SLSectionStyleSlot {
 	name: string;
 	levelIndent: string;  // base left indent added per nesting level (data-sl-level)
-	styles: Record<SLSectionClass, SLSectionStyle>;
+	classStyles: SLSectionClassStyle[];   // per-set, user-editable list of section classes
 	annotations: Record<SLAnnotationKey, SLSectionStyle>;
 }
 
 export function emptySectionStyle(): SLSectionStyle {
 	return { color: "", textDecorationColor: "", textDecorationLine: "", textDecorationStyle: "", indent: "" };
+}
+
+export function makeSectionClassStyle(className: string): SLSectionClassStyle {
+	return Object.assign({ className }, emptySectionStyle());
+}
+
+export function defaultSectionClassStyles(): SLSectionClassStyle[] {
+	return SL_SECTION_CLASSES.map((cls) => {
+		const s = makeSectionClassStyle(cls);
+		// Sensible starting point: numbered items get an extra indent.
+		if (cls == "number") { s.indent = "1.5em"; }
+		return s;
+	});
 }
 
 export function defaultAnnotationStyles(): Record<SLAnnotationKey, SLSectionStyle> {
@@ -288,11 +307,7 @@ export function defaultAnnotationStyles(): Record<SLAnnotationKey, SLSectionStyl
 }
 
 export function defaultSectionStyleSlot(name: string): SLSectionStyleSlot {
-	const styles = {} as Record<SLSectionClass, SLSectionStyle>;
-	SL_SECTION_CLASSES.forEach((cls) => { styles[cls] = emptySectionStyle(); });
-	// Sensible starting point: numbered items get an extra indent.
-	styles.number.indent = "1.5em";
-	return { name, levelIndent: SL_DEFAULT_LEVEL_INDENT, styles, annotations: defaultAnnotationStyles() };
+	return { name, levelIndent: SL_DEFAULT_LEVEL_INDENT, classStyles: defaultSectionClassStyles(), annotations: defaultAnnotationStyles() };
 }
 
 export interface SLSetting {
@@ -413,8 +428,9 @@ class SemaLogicSettingTab extends PluginSettingTab {
 	// (this.display() is called from many onChange handlers) keeps their state.
 	private groupOpen: Record<string, boolean> = {};
 
-	// Which section class is currently selected for editing in the Section-Style group.
-	private selectedSectionClass: SLSectionClass = SL_SECTION_CLASSES[0];
+	// Which section class (index into the active style-set's list) is currently
+	// selected for editing in the Section-Style group.
+	private selectedSectionIndex: number = 0;
 
 	// Create a collapsible <details> group and persist its open/closed state.
 	private makeCollapsible(containerEl: HTMLElement, key: string, title: string, defaultOpen: boolean, cls: string): HTMLElement {
@@ -799,22 +815,96 @@ class SemaLogicSettingTab extends PluginSettingTab {
 		const refGroup = this.makeCollapsible(containerEl, 'snip-ref', 'SL-Interpreter für data-sl-ref', false, 'sl-settings-subgroup');
 		this.renderStyleControls(refGroup, activeSlot.annotations.ref, false);
 
-		// Section styles per class: pick a class from the dropdown, then edit only its
-		// properties — this keeps the number of visible fields small.
+		// Section styles per class: the class list is editable per style-set (add /
+		// remove / rename). Pick a class from the dropdown, then edit only its props.
 		const sectionGroup = this.makeCollapsible(containerEl, 'snip-section', 'Section-Style', false, 'sl-settings-subgroup');
-		new Setting(sectionGroup)
-			.setName('Section class')
-			.setDesc('Choose which section class to style.')
-			.addDropdown(dropDown => {
-				SL_SECTION_CLASSES.forEach(cls => dropDown.addOption(cls, cls));
-				dropDown
-					.setValue(this.selectedSectionClass)
-					.onChange((value) => {
-						this.selectedSectionClass = value as SLSectionClass;
+		const classStyles = activeSlot.classStyles;
+		if (this.selectedSectionIndex >= classStyles.length) { this.selectedSectionIndex = Math.max(0, classStyles.length - 1); }
+
+		if (classStyles.length > 0) {
+			new Setting(sectionGroup)
+				.setName('Section class')
+				.setDesc('Choose which section class to style. The list is stored per style-set.')
+				.addDropdown(dropDown => {
+					classStyles.forEach((cs, i) => dropDown.addOption(String(i), cs.className || `(class ${i + 1})`));
+					dropDown
+						.setValue(String(this.selectedSectionIndex))
+						.onChange((value) => {
+							this.selectedSectionIndex = parseInt(value);
+							this.display();
+						});
+				});
+
+			const selected = classStyles[this.selectedSectionIndex];
+
+			// Rename the selected class
+			new Setting(sectionGroup)
+				.setName('Class name')
+				.setDesc('The section class this style targets (matches class="…" in the HTML).')
+				.addText(text => text
+					.setValue(selected.className)
+					.onChange(async (value) => {
+						selected.className = value;
+						await this.plugin.saveSettings();
+						this.plugin.applySectionStyles();
+						// dropdown label refreshes on next open
+					}));
+
+			this.renderStyleControls(sectionGroup, selected, true);
+
+			// Remove the selected class from this style-set
+			new Setting(sectionGroup)
+				.setName('Remove this class')
+				.setDesc('Delete the selected section class from this style-set.')
+				.addButton(button => button
+					.setButtonText('Remove')
+					.setWarning()
+					.onClick(async () => {
+						classStyles.splice(this.selectedSectionIndex, 1);
+						this.selectedSectionIndex = Math.max(0, this.selectedSectionIndex - 1);
+						await this.plugin.saveSettings();
+						this.plugin.applySectionStyles();
 						this.display();
-					});
-			});
-		this.renderStyleControls(sectionGroup, activeSlot.styles[this.selectedSectionClass], true);
+					}));
+		} else {
+			sectionGroup.createEl('p', { text: 'No section classes defined in this style-set yet.' });
+		}
+
+		// Add a new section class to this style-set
+		let newClassName = '';
+		new Setting(sectionGroup)
+			.setName('Add section class')
+			.setDesc('Add a class name (e.g. law, division, or a custom one) to this style-set.')
+			.addText(text => text
+				.setPlaceholder('class name')
+				.onChange((value) => { newClassName = value; }))
+			.addButton(button => button
+				.setButtonText('Add')
+				.setCta()
+				.onClick(async () => {
+					const name = newClassName.trim();
+					if (name.length == 0) { new Notice('Please enter a class name.'); return; }
+					classStyles.push(makeSectionClassStyle(name));
+					this.selectedSectionIndex = classStyles.length - 1;
+					await this.plugin.saveSettings();
+					this.plugin.applySectionStyles();
+					this.display();
+				}));
+
+		// Reset the class list of this style-set to the built-in defaults
+		new Setting(sectionGroup)
+			.setName('Reset class list')
+			.setDesc('Restore the default section classes (law, division, subdivision, paragraph, subsection, number) for this style-set.')
+			.addButton(button => button
+				.setButtonText('Reset classes')
+				.setWarning()
+				.onClick(async () => {
+					activeSlot.classStyles = defaultSectionClassStyles();
+					this.selectedSectionIndex = 0;
+					await this.plugin.saveSettings();
+					this.plugin.applySectionStyles();
+					this.display();
+				}));
 	}
 
 	// A color row: free-text field (allows empty = default, and named colors),
@@ -4068,10 +4158,23 @@ export default class SemaLogicPlugin extends Plugin {
 		this.settings.sectionStyleSlots.forEach((slot, i) => {
 			if (typeof slot.name != "string" || slot.name.length == 0) { slot.name = `Style-Set ${i + 1}` }
 			if (typeof slot.levelIndent != "string") { slot.levelIndent = SL_DEFAULT_LEVEL_INDENT }
-			if (slot.styles == undefined) { slot.styles = {} as Record<SLSectionClass, SLSectionStyle> }
-			SL_SECTION_CLASSES.forEach((cls) => {
-				const base = emptySectionStyle()
-				slot.styles[cls] = Object.assign(base, slot.styles[cls])
+			// Migrate the legacy fixed Record<class, style> to the editable list, if present.
+			const legacy = (slot as unknown as { styles?: Record<string, SLSectionStyle> }).styles
+			if (!Array.isArray(slot.classStyles)) {
+				if (legacy != undefined && typeof legacy == "object") {
+					slot.classStyles = SL_SECTION_CLASSES
+						.filter((cls) => legacy[cls] != undefined)
+						.map((cls) => Object.assign(makeSectionClassStyle(cls), legacy[cls]))
+					if (slot.classStyles.length == 0) { slot.classStyles = defaultSectionClassStyles() }
+				} else {
+					slot.classStyles = defaultSectionClassStyles()
+				}
+			}
+			delete (slot as unknown as { styles?: unknown }).styles
+			// Drop invalid entries and backfill any missing style fields per class.
+			slot.classStyles = slot.classStyles.filter((cs) => cs != undefined && typeof cs.className == "string")
+			slot.classStyles.forEach((cs, idx) => {
+				slot.classStyles[idx] = Object.assign(makeSectionClassStyle(cs.className), cs)
 			})
 			if (slot.annotations == undefined) { slot.annotations = defaultAnnotationStyles() }
 			const annotationDefaults = defaultAnnotationStyles()
@@ -4090,6 +4193,12 @@ export default class SemaLogicPlugin extends Plugin {
 	// their own vault, but keeping the injected stylesheet well-formed avoids surprises.
 	private sanitizeCssValue(value: string): string {
 		return (value ?? "").replace(/[{}<>;]/g, "").replace(/[\r\n]+/g, " ").trim()
+	}
+
+	// A class token used inside [class~="…"] must not contain whitespace or the
+	// characters that would break out of the attribute selector.
+	private sanitizeCssClassToken(value: string): string {
+		return (value ?? "").replace(/["'\\\]\s]/g, "").trim()
 	}
 
 	// Turn a style entry into CSS declarations, skipping unset (empty) values.
@@ -4145,9 +4254,11 @@ export default class SemaLogicPlugin extends Plugin {
 		emit([`section[data-sl-id]`], [`color:var(--text-normal)`])
 
 		if (slot != undefined) {
-			SL_SECTION_CLASSES.forEach((cls) => {
-				const s = slot.styles[cls]
-				if (s == undefined) { return }
+			slot.classStyles.forEach((s) => {
+				// A class~="name" attribute selector handles arbitrary class names
+				// without CSS-identifier escaping. Skip tokens that can't be a class name.
+				const cls = this.sanitizeCssClassToken(s.className)
+				if (cls.length == 0) { return }
 				const color = this.sanitizeCssValue(s.color)
 				const tdc = this.sanitizeCssValue(s.textDecorationColor)
 				const tdl = this.sanitizeCssValue(s.textDecorationLine)
@@ -4160,7 +4271,7 @@ export default class SemaLogicPlugin extends Plugin {
 				const elementDecls: string[] = []
 				if (color.length > 0) { elementDecls.push(`color:${color}`) }
 				if (indent.length > 0) { elementDecls.push(`margin-left:${indent}`) }
-				emit([`.${cls}[data-sl-id]`], elementDecls)
+				emit([`[class~="${cls}"][data-sl-id]`], elementDecls)
 
 				// text-decoration propagates into descendant content in Chromium and
 				// cannot be removed by children, so apply it only to the section's own
@@ -4170,7 +4281,7 @@ export default class SemaLogicPlugin extends Plugin {
 				if (tdc.length > 0) { decorationDecls.push(`text-decoration-color:${tdc}`) }
 				if (tdl.length > 0) { decorationDecls.push(`text-decoration-line:${tdl}`) }
 				if (tds.length > 0) { decorationDecls.push(`text-decoration-style:${tds}`) }
-				emit([`.${cls}[data-sl-id] > :is(h1,h2,h3,h4,h5,h6)`], decorationDecls)
+				emit([`[class~="${cls}"][data-sl-id] > :is(h1,h2,h3,h4,h5,h6)`], decorationDecls)
 			})
 			// Inline interpreter (a[data-sl-interpreter]) and reference (span[data-sl-ref]) annotations
 			SL_ANNOTATION_KEYS.forEach((key) => {
