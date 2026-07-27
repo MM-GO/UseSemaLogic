@@ -26,6 +26,20 @@ If your plugin does not need CSS, delete this file.
     padding: 8px 0;
 }
 
+/* Nested collapsible group inside a settings group (e.g. Transfer / ASP view) */
+.sl-settings-subgroup {
+    margin: 10px 0;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    padding: 2px 10px;
+}
+
+.sl-settings-subgroup>summary {
+    cursor: pointer;
+    font-weight: 600;
+    padding: 6px 0;
+}
+
 .sl-settings-subgroup {
     margin: 8px 0;
     border-left: 2px solid var(--background-modifier-border);

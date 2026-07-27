@@ -653,10 +653,14 @@ class SemaLogicSettingTab extends PluginSettingTab {
 					this.plugin.updateSelectionActionButtonUi()
 				}));
 
-		// Transfer / ASP view is part of the profile settings
-		containerEl.createEl('h3', { text: 'Transfer / ASP view' });
+		// Transfer / ASP view is part of the profile settings, but collapsed by default
+		const transferGroup = this.makeCollapsible(containerEl, 'transfer', 'Transfer / ASP view', false, 'sl-settings-subgroup');
+		this.renderTransferSettings(transferGroup);
+	}
 
-		// ASPBaseURL 
+	// Settings of the Transfer/ASP service (nested inside the profile settings).
+	private renderTransferSettings(containerEl: HTMLElement): void {
+		// ASPBaseURL
 		new Setting(containerEl)
 			.setName('BaseUrl for Transfer/ASP')
 			.setDesc('BaseURL for reaching Transfer/ASP-Service')
