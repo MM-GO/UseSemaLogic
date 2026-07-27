@@ -69,6 +69,34 @@ If your plugin does not need CSS, delete this file.
     text-underline-offset: 2px;
 }
 
+/* Every SemaLogic node starts with its own text color. Class-specific colors
+ * emitted by the settings stylesheet have higher specificity and may override
+ * this baseline, but a parent's color never leaks into a child node. */
+.markdown-rendered [data-sl-id],
+.markdown-source-view [data-sl-id] {
+    color: var(--text-normal);
+}
+
+/* Sentences are divs so they may contain structured sections. They do not
+ * create their own visual box, so text continues inline after a subsection
+ * label or number while nested sections remain valid HTML. */
+.markdown-rendered div.sentence[data-sl-id],
+.markdown-source-view div.sentence[data-sl-id] {
+    display: contents;
+}
+
+/* Default emphasis for structural labels. The following sentence content is
+ * reset to normal weight, so only labels such as (1) and 1. are bold. */
+section.number,
+section.subsection {
+    font-weight: 700;
+}
+
+section.number > .sentence,
+section.subsection > .sentence {
+    font-weight: normal;
+}
+
 /* SL interpreter and SL ref annotations */
 a[data-sl-interpreter="1"],
 a[href="#sl-interpreter"][data-sl-interpreter="1"] {
