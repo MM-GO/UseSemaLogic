@@ -246,7 +246,7 @@ class CanvasAttributeValueModal extends Modal {
 // embedded into notes and are rendered directly in the reading view. The plugin can
 // style them: a fixed level-based default (toggleable) plus per-class overrides that
 // are stored in named "style slots" (at least 3) inside data.json.
-export const SL_SECTION_CLASSES = ["law", "division", "subdivision", "paragraph", "subsection", "number"] as const;
+export const SL_SECTION_CLASSES = ["law", "division", "subdivision", "paragraph", "subsection", "number", "letter", "enumeration", "sentence", "preamble", "footnote"] as const;
 export type SLSectionClass = typeof SL_SECTION_CLASSES[number];
 
 // Inline SemaLogic annotations that share the same styleable properties as the
@@ -261,10 +261,25 @@ export const SL_TEXT_DECORATION_STYLES = ["", "solid", "dashed", "dotted", "doub
 
 export interface SLSectionStyle {
 	color: string;                // CSS color, empty = inherit/not set
+	fontFamily: string;           // CSS font-family, empty = inherit/not set
+	fontSize: string;             // CSS font-size, empty = inherit/not set
+	lineHeight: string;           // CSS line-height, empty = inherit/not set
+	fontWeight: string;           // CSS font-weight, empty = inherit/not set
 	textDecorationColor: string;  // CSS color, empty = not set
 	textDecorationLine: string;   // none | underline | overline | line-through | ""
 	textDecorationStyle: string;  // solid | dashed | dotted | double | wavy | ""
 	indent: string;               // CSS length applied as margin-left, empty = not set
+	marginTop: string;            // CSS margin-top, empty = not set
+	marginBottom: string;         // CSS margin-bottom, empty = not set
+	paddingTop: string;           // CSS padding-top, empty = not set
+	paddingBottom: string;        // CSS padding-bottom, empty = not set
+	borderTop: string;            // CSS border-top, empty = not set
+	headingColor: string;         // CSS color for headings directly inside this class
+	headingFontSize: string;      // CSS font-size for headings directly inside this class
+	headingFontWeight: string;    // CSS font-weight for headings directly inside this class
+	headingMarginBottom: string;  // CSS margin-bottom for headings directly inside this class
+	headingPaddingBottom: string; // CSS padding-bottom for headings directly inside this class
+	headingBorderBottom: string;  // CSS border-bottom for headings directly inside this class
 }
 
 // A section-class style carries its own class name, so each style-set can define
@@ -273,17 +288,42 @@ export interface SLSectionClassStyle extends SLSectionStyle {
 	className: string;
 }
 
-export const SL_DEFAULT_LEVEL_INDENT = "0.8em";
+export const SL_DEFAULT_LEVEL_INDENT = "0";
 
 export interface SLSectionStyleSlot {
 	name: string;
 	levelIndent: string;  // base left indent added per nesting level (data-sl-level)
 	classStyles: SLSectionClassStyle[];   // per-set, user-editable list of section classes
 	annotations: Record<SLAnnotationKey, SLSectionStyle>;
+	target: SLTargetStyle;
+}
+
+// A followed internal citation is addressed by the global :target pseudo-class,
+// so its look belongs to the style-set rather than to an individual class.
+export interface SLTargetStyle {
+	background: string;
+	borderRadius: string;
+	boxShadow: string;
+	scrollMarginTop: string;
+}
+
+export function defaultTargetStyle(): SLTargetStyle {
+	return {
+		background: "var(--sl-law-target)",
+		borderRadius: "2px",
+		boxShadow: "0 0 0 0.25rem var(--sl-law-target)",
+		scrollMarginTop: "2rem"
+	};
 }
 
 export function emptySectionStyle(): SLSectionStyle {
-	return { color: "", textDecorationColor: "", textDecorationLine: "", textDecorationStyle: "", indent: "" };
+	return {
+		color: "", fontFamily: "", fontSize: "", lineHeight: "", fontWeight: "",
+		textDecorationColor: "", textDecorationLine: "", textDecorationStyle: "", indent: "",
+		marginTop: "", marginBottom: "", paddingTop: "", paddingBottom: "", borderTop: "",
+		headingColor: "", headingFontSize: "", headingFontWeight: "", headingMarginBottom: "",
+		headingPaddingBottom: "", headingBorderBottom: ""
+	};
 }
 
 export function makeSectionClassStyle(className: string): SLSectionClassStyle {
@@ -293,21 +333,41 @@ export function makeSectionClassStyle(className: string): SLSectionClassStyle {
 export function defaultSectionClassStyles(): SLSectionClassStyle[] {
 	return SL_SECTION_CLASSES.map((cls) => {
 		const s = makeSectionClassStyle(cls);
-		// Sensible starting point: numbered items get an extra indent.
-		if (cls == "number") { s.indent = "1.5em"; }
+		// law.css-inspired defaults. Every value remains editable on the class,
+		// allowing one rule to style all occurrences of that structural class.
+		if (cls == "law") {
+			s.fontFamily = '"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif';
+			s.fontSize = "1.0625rem";
+			s.lineHeight = "1.62";
+		}
+		if (cls == "paragraph") {
+			s.marginTop = "2rem";
+			s.marginBottom = "2rem";
+			s.paddingTop = "1.1rem";
+			s.borderTop = "1px solid var(--background-modifier-border)";
+			s.headingColor = "#24548f";
+			s.headingFontSize = "1.05rem";
+			s.headingFontWeight = "700";
+			s.headingMarginBottom = "0.6rem";
+		}
+		if (cls == "subsection") { s.marginTop = "1rem"; s.marginBottom = "1rem"; }
+		if (cls == "number" || cls == "letter") { s.indent = "1.1em"; s.marginTop = "0.35rem"; }
+		if (cls == "enumeration") { s.marginTop = "0.45rem"; s.marginBottom = "0.55rem"; }
+		if (cls == "preamble") { s.marginTop = "1rem"; s.marginBottom = "2.5rem"; s.indent = "0.9rem"; }
+		if (cls == "footnote") { s.fontSize = "0.82em"; }
 		return s;
 	});
 }
 
 export function defaultAnnotationStyles(): Record<SLAnnotationKey, SLSectionStyle> {
 	return {
-		interpreter: { color: "white", textDecorationColor: "grey", textDecorationLine: "underline", textDecorationStyle: "dashed", indent: "" },
-		ref: { color: "white", textDecorationColor: "teal", textDecorationLine: "underline", textDecorationStyle: "solid", indent: "" },
+		interpreter: Object.assign(emptySectionStyle(), { color: "white", textDecorationColor: "grey", textDecorationLine: "underline", textDecorationStyle: "dashed" }),
+		ref: Object.assign(emptySectionStyle(), { color: "white", textDecorationColor: "teal", textDecorationLine: "underline", textDecorationStyle: "solid" }),
 	};
 }
 
 export function defaultSectionStyleSlot(name: string): SLSectionStyleSlot {
-	return { name, levelIndent: SL_DEFAULT_LEVEL_INDENT, classStyles: defaultSectionClassStyles(), annotations: defaultAnnotationStyles() };
+	return { name, levelIndent: SL_DEFAULT_LEVEL_INDENT, classStyles: defaultSectionClassStyles(), annotations: defaultAnnotationStyles(), target: defaultTargetStyle() };
 }
 
 export interface SLSetting {
@@ -944,9 +1004,31 @@ class SemaLogicSettingTab extends PluginSettingTab {
 			}));
 	}
 
+	private renderCssTextSetting(containerEl: HTMLElement, name: string, desc: string, getValue: () => string, setValue: (v: string) => void): void {
+		new Setting(containerEl)
+			.setName(name)
+			.setDesc(desc)
+			.addText(text => text
+				.setPlaceholder('(default)')
+				.setValue(getValue())
+				.onChange(async (value) => {
+					setValue(value);
+					await this.plugin.saveSettings();
+					this.plugin.applySectionStyles();
+				}));
+	}
+
 	private renderStyleControls(containerEl: HTMLElement, style: SLSectionStyle, includeIndent: boolean): void {
 		this.renderColorSetting(containerEl, 'color', 'Text color, e.g. #b97900 or teal. Leave empty for the default.',
 			() => style.color, (v) => { style.color = v; });
+		this.renderCssTextSetting(containerEl, 'font-family', 'Font stack for this class, e.g. Georgia, serif. Leave empty to inherit.',
+			() => style.fontFamily, (v) => { style.fontFamily = v; });
+		this.renderCssTextSetting(containerEl, 'font-size', 'Text size for this class, e.g. 1.0625rem. Leave empty to inherit.',
+			() => style.fontSize, (v) => { style.fontSize = v; });
+		this.renderCssTextSetting(containerEl, 'line-height', 'Line height for this class, e.g. 1.62. Leave empty to inherit.',
+			() => style.lineHeight, (v) => { style.lineHeight = v; });
+		this.renderCssTextSetting(containerEl, 'font-weight', 'Text weight for this class, e.g. 400 or 700. Leave empty to inherit.',
+			() => style.fontWeight, (v) => { style.fontWeight = v; });
 
 		this.renderColorSetting(containerEl, 'text-decoration-color', 'Color of the underline/decoration line. Leave empty for the default.',
 			() => style.textDecorationColor, (v) => { style.textDecorationColor = v; });
@@ -978,17 +1060,32 @@ class SemaLogicSettingTab extends PluginSettingTab {
 			});
 
 		if (includeIndent) {
-			new Setting(containerEl)
-				.setName('indent (margin-left)')
-				.setDesc('Extra left indent, e.g. 1.5em or 20px. Leave empty for the default.')
-				.addText(text => text
-					.setPlaceholder('(default)')
-					.setValue(style.indent)
-					.onChange(async (value) => {
-						style.indent = value;
-						await this.plugin.saveSettings();
-						this.plugin.applySectionStyles();
-					}));
+			this.renderCssTextSetting(containerEl, 'indent (margin-left)', 'Extra left indent, e.g. 1.1em or 20px. Leave empty for the default.',
+				() => style.indent, (v) => { style.indent = v; });
+			this.renderCssTextSetting(containerEl, 'margin-top', 'Space before every element of this class.',
+				() => style.marginTop, (v) => { style.marginTop = v; });
+			this.renderCssTextSetting(containerEl, 'margin-bottom', 'Space after every element of this class.',
+				() => style.marginBottom, (v) => { style.marginBottom = v; });
+			this.renderCssTextSetting(containerEl, 'padding-top', 'Inner space above every element of this class.',
+				() => style.paddingTop, (v) => { style.paddingTop = v; });
+			this.renderCssTextSetting(containerEl, 'padding-bottom', 'Inner space below every element of this class.',
+				() => style.paddingBottom, (v) => { style.paddingBottom = v; });
+			this.renderCssTextSetting(containerEl, 'border-top', 'Top rule for this class, e.g. 1px solid var(--background-modifier-border).',
+				() => style.borderTop, (v) => { style.borderTop = v; });
+
+			const headingGroup = this.makeCollapsible(containerEl, 'snip-heading', 'Heading inside this class', false, 'sl-settings-subgroup');
+			this.renderColorSetting(headingGroup, 'color', 'Color of a heading directly inside this class.',
+				() => style.headingColor, (v) => { style.headingColor = v; });
+			this.renderCssTextSetting(headingGroup, 'font-size', 'Heading size, e.g. 1.05rem.',
+				() => style.headingFontSize, (v) => { style.headingFontSize = v; });
+			this.renderCssTextSetting(headingGroup, 'font-weight', 'Heading weight, e.g. 700.',
+				() => style.headingFontWeight, (v) => { style.headingFontWeight = v; });
+			this.renderCssTextSetting(headingGroup, 'margin-bottom', 'Space following a heading in this class.',
+				() => style.headingMarginBottom, (v) => { style.headingMarginBottom = v; });
+			this.renderCssTextSetting(headingGroup, 'padding-bottom', 'Inner space beneath a heading in this class.',
+				() => style.headingPaddingBottom, (v) => { style.headingPaddingBottom = v; });
+			this.renderCssTextSetting(headingGroup, 'border-bottom', 'Rule beneath a heading in this class.',
+				() => style.headingBorderBottom, (v) => { style.headingBorderBottom = v; });
 		}
 	}
 }
@@ -4178,7 +4275,8 @@ export default class SemaLogicPlugin extends Plugin {
 			// Drop invalid entries and backfill any missing style fields per class.
 			slot.classStyles = slot.classStyles.filter((cs) => cs != undefined && typeof cs.className == "string")
 			slot.classStyles.forEach((cs, idx) => {
-				slot.classStyles[idx] = Object.assign(makeSectionClassStyle(cs.className), cs)
+				const builtInDefault = defaultSectionClassStyles().find(defaultStyle => defaultStyle.className == cs.className)
+				slot.classStyles[idx] = Object.assign(builtInDefault ?? makeSectionClassStyle(cs.className), cs)
 			})
 			if (slot.annotations == undefined) { slot.annotations = defaultAnnotationStyles() }
 			const annotationDefaults = defaultAnnotationStyles()
@@ -4209,11 +4307,19 @@ export default class SemaLogicPlugin extends Plugin {
 	private sectionStyleDeclarations(s: SLSectionStyle): string[] {
 		const decls: string[] = []
 		const color = this.sanitizeCssValue(s.color)
+		const fontFamily = this.sanitizeCssValue(s.fontFamily)
+		const fontSize = this.sanitizeCssValue(s.fontSize)
+		const lineHeight = this.sanitizeCssValue(s.lineHeight)
+		const fontWeight = this.sanitizeCssValue(s.fontWeight)
 		const tdc = this.sanitizeCssValue(s.textDecorationColor)
 		const tdl = this.sanitizeCssValue(s.textDecorationLine)
 		const tds = this.sanitizeCssValue(s.textDecorationStyle)
 		const indent = this.sanitizeCssValue(s.indent)
 		if (color.length > 0) { decls.push(`color:${color}`) }
+		if (fontFamily.length > 0) { decls.push(`font-family:${fontFamily}`) }
+		if (fontSize.length > 0) { decls.push(`font-size:${fontSize}`) }
+		if (lineHeight.length > 0) { decls.push(`line-height:${lineHeight}`) }
+		if (fontWeight.length > 0) { decls.push(`font-weight:${fontWeight}`) }
 		if (tdc.length > 0) { decls.push(`text-decoration-color:${tdc}`) }
 		if (tdl.length > 0) { decls.push(`text-decoration-line:${tdl}`) }
 		if (tds.length > 0) { decls.push(`text-decoration-style:${tds}`) }
@@ -4245,9 +4351,9 @@ export default class SemaLogicPlugin extends Plugin {
 
 		const slot = this.settings.sectionStyleSlots[this.settings.sectionStyleSlot]
 
-		// Level-based default: each nested section is indented so the hierarchy
-		// (data-sl-level) stays visible. The per-level base indent is configurable in
-		// the style-set; level 1 (the outermost law) is always flush left.
+		// An optional level-based indent remains available for non-law style-sets.
+		// The law-inspired default is zero because enumeration classes own their
+		// alignment and their margins must not compound at every nesting level.
 		const levelIndent = this.sanitizeCssValue(slot?.levelIndent ?? SL_DEFAULT_LEVEL_INDENT)
 		emit([`section[data-sl-level]`], [`display:block`, `margin-left:${levelIndent.length > 0 ? levelIndent : "0"}`])
 		emit([`section[data-sl-level="1"]`], [`margin-left:0`])
@@ -4263,29 +4369,46 @@ export default class SemaLogicPlugin extends Plugin {
 				// without CSS-identifier escaping. Skip tokens that can't be a class name.
 				const cls = this.sanitizeCssClassToken(s.className)
 				if (cls.length == 0) { return }
-				const color = this.sanitizeCssValue(s.color)
-				const tdc = this.sanitizeCssValue(s.textDecorationColor)
-				const tdl = this.sanitizeCssValue(s.textDecorationLine)
-				const tds = this.sanitizeCssValue(s.textDecorationStyle)
-				const indent = this.sanitizeCssValue(s.indent)
+				const elementDecls = this.sectionStyleDeclarations(s)
+				const marginTop = this.sanitizeCssValue(s.marginTop)
+				const marginBottom = this.sanitizeCssValue(s.marginBottom)
+				const paddingTop = this.sanitizeCssValue(s.paddingTop)
+				const paddingBottom = this.sanitizeCssValue(s.paddingBottom)
+				const borderTop = this.sanitizeCssValue(s.borderTop)
+				if (marginTop.length > 0) { elementDecls.push(`margin-top:${marginTop}`) }
+				if (marginBottom.length > 0) { elementDecls.push(`margin-bottom:${marginBottom}`) }
+				if (paddingTop.length > 0) { elementDecls.push(`padding-top:${paddingTop}`) }
+				if (paddingBottom.length > 0) { elementDecls.push(`padding-bottom:${paddingBottom}`) }
+				if (borderTop.length > 0) { elementDecls.push(`border-top:${borderTop}`) }
 
-				// Element-level, non-inheriting props on the section itself (constrained
-				// to SemaLogic sections via data-sl-id). color no longer cascades because
-				// of the default-color baseline above; margin-left is not inherited.
-				const elementDecls: string[] = []
-				if (color.length > 0) { elementDecls.push(`color:${color}`) }
-				if (indent.length > 0) { elementDecls.push(`margin-left:${indent}`) }
-				emit([`[class~="${cls}"][data-sl-id]`], elementDecls)
+				// Class settings intentionally match every occurrence of the selected
+				// class. Some structural wrappers (e.g. enumeration) do not have an id.
+				emit([`[class~="${cls}"]`], elementDecls)
 
 				// text-decoration propagates into descendant content in Chromium and
 				// cannot be removed by children, so apply it only to the section's own
 				// heading (headings never contain nested sections). This keeps the
 				// decoration on the level's own label without cascading to sub-levels.
 				const decorationDecls: string[] = []
+				const headingColor = this.sanitizeCssValue(s.headingColor)
+				const headingFontSize = this.sanitizeCssValue(s.headingFontSize)
+				const headingFontWeight = this.sanitizeCssValue(s.headingFontWeight)
+				const headingMarginBottom = this.sanitizeCssValue(s.headingMarginBottom)
+				const headingPaddingBottom = this.sanitizeCssValue(s.headingPaddingBottom)
+				const headingBorderBottom = this.sanitizeCssValue(s.headingBorderBottom)
+				const tdc = this.sanitizeCssValue(s.textDecorationColor)
+				const tdl = this.sanitizeCssValue(s.textDecorationLine)
+				const tds = this.sanitizeCssValue(s.textDecorationStyle)
+				if (headingColor.length > 0) { decorationDecls.push(`color:${headingColor}`) }
+				if (headingFontSize.length > 0) { decorationDecls.push(`font-size:${headingFontSize}`) }
+				if (headingFontWeight.length > 0) { decorationDecls.push(`font-weight:${headingFontWeight}`) }
+				if (headingMarginBottom.length > 0) { decorationDecls.push(`margin-bottom:${headingMarginBottom}`) }
+				if (headingPaddingBottom.length > 0) { decorationDecls.push(`padding-bottom:${headingPaddingBottom}`) }
+				if (headingBorderBottom.length > 0) { decorationDecls.push(`border-bottom:${headingBorderBottom}`) }
 				if (tdc.length > 0) { decorationDecls.push(`text-decoration-color:${tdc}`) }
 				if (tdl.length > 0) { decorationDecls.push(`text-decoration-line:${tdl}`) }
 				if (tds.length > 0) { decorationDecls.push(`text-decoration-style:${tds}`) }
-				emit([`[class~="${cls}"][data-sl-id] > :is(h1,h2,h3,h4,h5,h6)`], decorationDecls)
+				emit([`[class~="${cls}"] > :is(h1,h2,h3,h4,h5,h6)`], decorationDecls)
 			})
 			// Inline interpreter (a[data-sl-interpreter]) and reference (span[data-sl-ref]) annotations
 			SL_ANNOTATION_KEYS.forEach((key) => {
