@@ -10,7 +10,6 @@ If your plugin does not need CSS, delete this file.
 .debuginline {
     white-space: pre
 }
-
 /* Theme-aware law.css default for the configurable :target citation highlight. */
 :root {
     --sl-law-target: #fff3c4;
@@ -94,6 +93,15 @@ If your plugin does not need CSS, delete this file.
 .markdown-rendered div.sentence[data-sl-id],
 .markdown-source-view div.sentence[data-sl-id] {
     display: contents;
+}
+
+/* The law annotation deliberately keeps each sentence inline so a subsection
+ * marker such as "(1)" flows with its first sentence.  This selector is more
+ * specific than the generic SemaLogic node baseline above and therefore also
+ * applies in Live Preview. */
+.markdown-rendered .law div.sentence[data-sl-id],
+.markdown-source-view .law div.sentence[data-sl-id] {
+    display: inline;
 }
 
 /* Default emphasis for structural labels. The following sentence content is
@@ -333,5 +341,355 @@ span[data-sl-ref] {
 
     100% {
         margin-left: 100%;
+    }
+}
+
+/* SemaLogic law annotation presentation layer. */
+/*
+ * law.css â€” presentation layer for the annotate HTML output (WP01).
+ *
+ * Selectors are class-based only. They never mention section/span/div/li, so
+ * the same stylesheet applies to the current flat shape
+ *
+ *     <div class="sentence"><section class="number">1. <div â€¦>â€¦</div></section></div>
+ *
+ * (a sentence renders as a div, not a span, wherever it may own an
+ * enumeration: a nested <section> is flow content and cannot sit inside a
+ * span's phrasing content â€” the div is kept visually inline below)
+ *
+ * and to a future list shape
+ *
+ *     <div class="sentence"><ol class="enumeration"><li class="number">
+ *       <span class="marker">1.</span><div class="sentence">â€¦</div></li></ol></div>
+ *
+ * Markers ("(1)", "1.", "a)") are literal text in the document, not generated
+ * content: a label may be "3a", which <li value> (integers only) cannot express
+ * and which carries meaning, so it must survive copy & paste. Alignment is done
+ * with a hanging indent (padding-left + negative text-indent), which works both
+ * for a bare text node and for a <span class="marker">.
+ */
+
+:root {
+    --lw-text: #1a1c1f;
+    --lw-muted: #5c6470;
+    --lw-rule: #dcdfe5;
+    --lw-accent: #24548f;
+    --lw-target: #fff3c4;
+    --lw-measure: 44rem;
+
+    /* Hanging indents â€” keep in sync with the widest marker of each stage. */
+    --lw-hang-num: 2.3em;
+    --lw-hang-let: 2em;
+
+    /* Vertical rhythm: the visual separation between structural stages. */
+    --lw-gap-paragraph: 2.75rem;
+    --lw-gap-subsection: 1rem;
+    --lw-gap-item: 0.35rem;
+
+    /* Footnote layout: default inline, optional block variant via .footnotes-block */
+    --lw-footnote-display: inline;
+    --lw-footnote-margin-block: 0.3rem;
+    --lw-footnote-padding-left: 0;
+    --lw-footnote-border-left: 0 solid transparent;
+    --lw-footnote-font-size: 0.82em;
+    --lw-footnote-color: var(--lw-muted);
+
+    /* Marker layout for enumerations / numbers */
+    --lw-marker-indent: 1.1em;
+    --lw-marker-width: var(--lw-hang-num);
+    --lw-marker-gap: 0.75rem;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --lw-text: #e6e8ec;
+        --lw-muted: #9aa3b0;
+        --lw-rule: #363b44;
+        --lw-accent: #8ab4f0;
+        --lw-target: #4a3f12;
+    }
+}
+
+/* ---------------------------------------------------------------- page frame
+ * Optional: only relevant when the fragment is served as a full document.
+ */
+body {
+    margin: 0;
+    background: Canvas;
+}
+
+/* --------------------------------------------------------------------- root */
+.law {
+    --lw-body-font-size: 1.0625rem;
+    max-width: var(--lw-measure);
+    margin-inline: auto;
+    padding: 2.5rem 1.25rem 8rem;
+    font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    font-size: var(--lw-body-font-size);
+    line-height: 1.62;
+    color: var(--lw-text);
+    text-align: left;
+    hyphens: auto;
+}
+
+/* ----------------------------------------------------------------- headings */
+.law>h1 {
+    margin: 0 0 0.5rem;
+    font-size: 1.7rem;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+}
+
+/* Divisions are selected by data-sl-depth rather than by class: a statute may
+ * nest up to six of them (Buch, Abschnitt, Titel, Untertitel, Kapitel,
+ * Unterkapitel) and the attribute covers every one without an enumeration. */
+[data-sl-depth]>h2 {
+    margin: 0 0 1.25rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 2px solid var(--lw-rule);
+    font-size: 1.15rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: none;
+}
+
+.paragraph>h3 {
+    margin: 0 0 0.6rem;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--lw-accent);
+}
+
+/* ------------------------------------------------------ structural spacing
+ * The core of the request: every stage gets its own vertical gap, and a Â§ is
+ * additionally set off by a hairline rule.
+ */
+/* The outer a division sits, the more air it gets, so a six-level hierarchy
+ * still reads as a hierarchy. */
+[data-sl-depth] {
+    margin-block: 3.5rem;
+}
+
+[data-sl-depth="3"],
+[data-sl-depth="4"] {
+    margin-block: 2.75rem;
+}
+
+[data-sl-depth="5"],
+[data-sl-depth="6"] {
+    margin-block: 2rem;
+}
+
+.paragraph {
+    margin-block: var(--lw-gap-paragraph);
+    padding-top: 1.4rem;
+    border-top: 1px solid var(--lw-rule);
+}
+
+/* No rule directly under a division heading â€” the h2 border already separates. */
+[data-sl-depth]>.paragraph:first-of-type,
+.law>.paragraph:first-of-type {
+    padding-top: 0;
+    border-top: 0;
+}
+
+/* An Absatz is a block; its "(1)" runs inline with the first sentence, as in
+ * the official gesetze-im-internet.de rendering. */
+.subsection {
+    margin-block: var(--lw-gap-subsection);
+}
+
+.subsection:first-of-type {
+    margin-top: 0;
+}
+
+/* --------------------------------------------------------------- sentences
+ * Sentences stay inline â€” Satz 1..3 of an Absatz form running prose, and the
+ * "(1)" ahead of them is a bare text node that must flow with the first one.
+ *
+ * A sentence carrying an enumeration must NOT be promoted to a block: that
+ * would push the preceding "(1)" into its own anonymous block box, orphaning
+ * it on a line of its own. It is also unnecessary â€” .number/.enumeration are
+ * block-level themselves and break the line on their own, splitting the inline
+ * sentence around them (CSS 2.1 anonymous block boxes).
+ */
+.sentence {
+    display: inline;
+    text-indent: 0;
+    /* never inherit a parent's hanging indent */
+}
+
+/* -------------------------------------------------------------- enumerations
+ * .enumeration is the <ol> wrapper of the planned list shape; harmless when
+ * absent. list-style is off because the marker lives in the document text.
+ */
+.enumeration {
+    margin: 0.45rem 0 0.55rem;
+    padding: 0;
+    list-style: none;
+}
+
+/* Fixed marker column. The annotation's marker is currently a bare text node,
+ * so hide that text node and render a stable marker from data-sl-id instead.
+ * The direct sentence then owns the complete text column; its first and every
+ * wrapped line consequently share exactly the same left edge. */
+.number,
+.letter {
+    display: block;
+    position: relative;
+    margin-top: var(--lw-gap-item);
+    /* The marker's raw text is hidden with font-size:0 below, so these must
+     * not use em units (which would otherwise also become zero). */
+    margin-left: 1.1rem;
+    padding-left: 1.6rem;
+    text-indent: 0;
+    font-size: 0;
+}
+
+.number::before,
+.letter::before {
+    position: absolute;
+    left: 0;
+    top: 0;
+    color: var(--lw-text);
+    font-size: var(--lw-body-font-size);
+    font-weight: inherit;
+    line-height: inherit;
+}
+
+.number::before {
+    content: attr(data-sl-id) ".";
+}
+
+.letter::before {
+    content: attr(data-sl-id) ")";
+}
+
+.number>*,
+.letter>* {
+    min-width: 0;
+    /* let long tokens/URLs wrap instead of widening the column */
+}
+
+.number>.sentence,
+.letter>.sentence {
+    display: block;
+    font-size: var(--lw-body-font-size);
+}
+
+/* Present only in the list shape; harmless when absent. */
+.marker {
+    font-variant-numeric: tabular-nums;
+    color: var(--lw-muted);
+    text-align: right;
+    justify-self: end;
+    align-self: start;
+}
+
+.number>.marker,
+.letter>.marker {
+    padding-right: var(--lw-marker-gap);
+}
+
+/* ------------------------------------------------------------------ preamble */
+.preamble {
+    margin: 1rem 0 2.5rem;
+    padding-left: 0.9rem;
+    border-left: 3px solid var(--lw-rule);
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: var(--lw-muted);
+}
+
+.citation,
+.status,
+.preamble>.footnote {
+    display: block;
+    margin-block: 0.3rem;
+}
+
+.footnote {
+    font-style: italic;
+}
+
+/* ------------------------------------------------------------------ footnotes
+ * A footnote in the statute body hangs off the sentence it annotates. It stays
+ * inline so the sentences of an Absatz keep flowing as one paragraph â€” a block
+ * child inside the inline .sentence would split it into anonymous blocks and end
+ * the line, the same effect that orphaned the "(1)" marker earlier.
+ *
+ * The default keeps the law.css look. Add the class "footnotes-block" to the
+ * root .law element for a more compact, standalone footnote style.
+ */
+.law .footnote:not(.preamble > .footnote) {
+    display: var(--lw-footnote-display);
+    margin-block: var(--lw-footnote-margin-block);
+    padding-left: var(--lw-footnote-padding-left);
+    border-left: var(--lw-footnote-border-left);
+    font-size: var(--lw-footnote-font-size);
+    color: var(--lw-footnote-color);
+}
+
+.law.footnotes-block {
+    --lw-footnote-display: block;
+    --lw-footnote-margin-block: 0.35rem;
+    --lw-footnote-padding-left: 0.9rem;
+    --lw-footnote-border-left: 2px solid var(--lw-rule);
+}
+
+.sentence>.footnote::before {
+    content: " [";
+}
+
+.sentence>.footnote::after {
+    content: "]";
+}
+
+/* ------------------------------------------------------------------- states */
+[data-sl-status="weggefallen"] {
+    color: var(--lw-muted);
+    font-style: italic;
+}
+
+/* Every node is addressable by id â€” make a followed citation link visible. */
+:target {
+    background: var(--lw-target);
+    border-radius: 2px;
+    box-shadow: 0 0 0 0.25rem var(--lw-target);
+    scroll-margin-top: 2rem;
+}
+
+/* -------------------------------------------------- optional: id inspection
+ * Add class "show-ids" to the root .law element to reveal the citation path of
+ * every sentence â€” useful when authoring or debugging references.
+ */
+.law.show-ids .sentence::after {
+    content: " [" attr(data-sl-id) "]";
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.7em;
+    color: var(--lw-accent);
+    text-indent: 0;
+}
+
+/* -------------------------------------------------------------------- print */
+@media print {
+    .law {
+        max-width: none;
+        padding: 0;
+        font-size: 10.5pt;
+    }
+
+    .paragraph {
+        break-inside: avoid-page;
+    }
+
+    [data-sl-depth]>h2,
+    .paragraph>h3 {
+        break-after: avoid-page;
+    }
+
+    :target {
+        background: none;
+        box-shadow: none;
     }
 }
