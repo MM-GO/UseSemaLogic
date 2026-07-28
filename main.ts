@@ -871,6 +871,9 @@ class SemaLogicSettingTab extends PluginSettingTab {
 					this.plugin.applySectionStyles();
 				}));
 
+		const targetGroup = this.makeCollapsible(containerEl, 'snip-target', 'Followed citation target (:target)', false, 'sl-settings-subgroup');
+		this.renderTargetStyleControls(targetGroup, activeSlot.target);
+
 		// SL-Interpreter for data-sl-text (the interpreter anchor)
 		const interpGroup = this.makeCollapsible(containerEl, 'snip-interp', 'SL-Interpreter für data-sl-text', false, 'sl-settings-subgroup');
 		this.renderStyleControls(interpGroup, activeSlot.annotations.interpreter, false);
@@ -1016,6 +1019,17 @@ class SemaLogicSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 					this.plugin.applySectionStyles();
 				}));
+	}
+
+	private renderTargetStyleControls(containerEl: HTMLElement, style: SLTargetStyle): void {
+		this.renderCssTextSetting(containerEl, 'background', 'Highlight background for the element selected by an internal link.',
+			() => style.background, (v) => { style.background = v; });
+		this.renderCssTextSetting(containerEl, 'border-radius', 'Corner radius of the target highlight, e.g. 2px.',
+			() => style.borderRadius, (v) => { style.borderRadius = v; });
+		this.renderCssTextSetting(containerEl, 'box-shadow', 'Outer highlight, e.g. 0 0 0 0.25rem var(--sl-law-target).',
+			() => style.boxShadow, (v) => { style.boxShadow = v; });
+		this.renderCssTextSetting(containerEl, 'scroll-margin-top', 'Top offset when navigating to the target, e.g. 2rem.',
+			() => style.scrollMarginTop, (v) => { style.scrollMarginTop = v; });
 	}
 
 	private renderStyleControls(containerEl: HTMLElement, style: SLSectionStyle, includeIndent: boolean): void {
@@ -4283,6 +4297,7 @@ export default class SemaLogicPlugin extends Plugin {
 			SL_ANNOTATION_KEYS.forEach((key) => {
 				slot.annotations[key] = Object.assign(annotationDefaults[key], slot.annotations[key])
 			})
+			slot.target = Object.assign(defaultTargetStyle(), slot.target)
 		})
 		if (typeof this.settings.sectionStyleSlot != "number"
 			|| this.settings.sectionStyleSlot < 0
@@ -4364,6 +4379,18 @@ export default class SemaLogicPlugin extends Plugin {
 		emit([`section[data-sl-id]`], [`color:var(--text-normal)`])
 
 		if (slot != undefined) {
+			const target = slot.target ?? defaultTargetStyle()
+			const targetDecls: string[] = []
+			const targetBackground = this.sanitizeCssValue(target.background)
+			const targetBorderRadius = this.sanitizeCssValue(target.borderRadius)
+			const targetBoxShadow = this.sanitizeCssValue(target.boxShadow)
+			const targetScrollMarginTop = this.sanitizeCssValue(target.scrollMarginTop)
+			if (targetBackground.length > 0) { targetDecls.push(`background:${targetBackground}`) }
+			if (targetBorderRadius.length > 0) { targetDecls.push(`border-radius:${targetBorderRadius}`) }
+			if (targetBoxShadow.length > 0) { targetDecls.push(`box-shadow:${targetBoxShadow}`) }
+			if (targetScrollMarginTop.length > 0) { targetDecls.push(`scroll-margin-top:${targetScrollMarginTop}`) }
+			emit([`:target`], targetDecls)
+
 			slot.classStyles.forEach((s) => {
 				// A class~="name" attribute selector handles arbitrary class names
 				// without CSS-identifier escaping. Skip tokens that can't be a class name.

@@ -11,6 +11,17 @@ If your plugin does not need CSS, delete this file.
     white-space: pre
 }
 
+/* Theme-aware law.css default for the configurable :target citation highlight. */
+:root {
+    --sl-law-target: #fff3c4;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --sl-law-target: #4a3f12;
+    }
+}
+
 /* Collapsible settings groups */
 .sl-settings-group {
     margin: 10px 0;
