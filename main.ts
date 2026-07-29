@@ -1335,6 +1335,72 @@ export default class SemaLogicPlugin extends Plugin {
 			}
 			this.startSLInterpreterFromText(selection)
 		});
+		this.registerDomEvent(document, "click", (evt: MouseEvent) => {
+			const target = evt.target as HTMLElement | null
+			const link = target?.closest(".lawlink > a[href^='#']") as HTMLAnchorElement | null
+			if (!link) { return }
+			const href = link.getAttribute("href") ?? ""
+			const encodedTargetId = href.slice(1)
+			if (encodedTargetId.length == 0) { return }
+			let targetId = encodedTargetId
+			try {
+				targetId = decodeURIComponent(encodedTargetId)
+			} catch (_error) {
+				slconsolelog(DebugLevMap.DebugLevel_Error, undefined, `Law link target could not be decoded (href=${href})`)
+				return
+			}
+			const view = this.findMarkdownViewContainingElement(link)
+			if (view == undefined) {
+				slconsolelog(DebugLevMap.DebugLevel_Error, undefined, `Law link has no containing Markdown view (target=${targetId})`)
+				return
+			}
+			const targetAttribute = `id="${targetId}"`
+			const targetOffset = view.editor.getValue().indexOf(targetAttribute)
+			if (targetOffset < 0) {
+				slconsolelog(DebugLevMap.DebugLevel_Error, undefined, `Law link target was not found in the current note (target=${targetId})`)
+				return
+			}
+			evt.preventDefault()
+			evt.stopPropagation()
+			evt.stopImmediatePropagation()
+			const targetPosition = view.editor.offsetToPos(targetOffset)
+			const editorRoot = link.closest(".cm-editor") as HTMLElement | null
+			const codeMirrorView = editorRoot == undefined ? undefined : EditorView.findFromDOM(editorRoot)
+			if (codeMirrorView != undefined) {
+				const codeMirrorTargetOffset = codeMirrorView.state.doc.toString().indexOf(targetAttribute)
+				if (codeMirrorTargetOffset < 0) {
+					slconsolelog(DebugLevMap.DebugLevel_Error, undefined, `Law link target was not found in the Live Preview document (target=${targetId})`)
+					return
+				}
+				// A raw HTML block is virtualized as one CodeMirror block, so
+				// EditorView.scrollIntoView cannot measure a distant nested section
+				// and may jump to the document end. Scroll the actual Live Preview
+				// container by the target's source-document proportion instead.
+				const maxScrollTop = Math.max(0, codeMirrorView.scrollDOM.scrollHeight - codeMirrorView.scrollDOM.clientHeight)
+				const targetRatio = codeMirrorTargetOffset / Math.max(1, codeMirrorView.state.doc.length)
+				const targetScrollTop = maxScrollTop * targetRatio
+				codeMirrorView.scrollDOM.scrollTop = targetScrollTop
+				let alignmentAttempts = 0
+				const alignMaterializedTarget = () => {
+					codeMirrorView.scrollDOM.scrollTop = targetScrollTop
+					const targetElement = Array.from(codeMirrorView.contentDOM.querySelectorAll<HTMLElement>("[id]")).find((element) => element.id == targetId)
+					if (targetElement != undefined) {
+						targetElement.scrollIntoView({ block: "center" })
+						return
+					}
+					alignmentAttempts += 1
+					if (alignmentAttempts < 4) {
+						window.requestAnimationFrame(alignMaterializedTarget)
+					}
+				}
+				window.requestAnimationFrame(alignMaterializedTarget)
+			} else {
+				// Compatibility fallback for editor implementations without .cm.
+				view.editor.setCursor(targetPosition)
+				view.editor.scrollIntoView({ from: targetPosition, to: targetPosition }, true)
+			}
+			slconsolelog(DebugLevMap.DebugLevel_Informative, undefined, `Navigated law link to ${targetId}`)
+		}, true);
 
 		this.registerDomEvent(document, "dblclick", (evt: MouseEvent) => {
 			if (!this.activated || this.pauseAllRequests) { return }
@@ -1700,6 +1766,17 @@ export default class SemaLogicPlugin extends Plugin {
 			searchFrom = idx + 1
 		}
 		return bestIndex
+	}
+
+	private findMarkdownViewContainingElement(element: HTMLElement): MarkdownView | undefined {
+		let containingView: MarkdownView | undefined
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (containingView != undefined || !(leaf.view instanceof MarkdownView)) { return }
+			if (leaf.view.contentEl.contains(element)) {
+				containingView = leaf.view
+			}
+		})
+		return containingView
 	}
 
 	private findSLInterpreterSelectionForAnchor(view: MarkdownView, originalText: string, interpretedText: string): { view: MarkdownView; from: { line: number; ch: number }; to: { line: number; ch: number } } | undefined {
