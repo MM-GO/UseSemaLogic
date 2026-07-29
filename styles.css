@@ -10,6 +10,7 @@ If your plugin does not need CSS, delete this file.
 .debuginline {
     white-space: pre
 }
+
 /* Theme-aware law.css default for the configurable :target citation highlight. */
 :root {
     --sl-law-target: #fff3c4;
@@ -111,8 +112,8 @@ section.subsection {
     font-weight: 700;
 }
 
-section.number > .sentence,
-section.subsection > .sentence {
+section.number>.sentence,
+section.subsection>.sentence {
     font-weight: normal;
 }
 
@@ -517,6 +518,20 @@ body {
     display: inline;
     text-indent: 0;
     /* never inherit a parent's hanging indent */
+}
+
+.semalogic-moving-border {
+    animation: semalogic-dash-move 8s linear infinite;
+}
+
+@keyframes semalogic-dash-move {
+    from {
+        stroke-dashoffset: 0;
+    }
+
+    to {
+        stroke-dashoffset: -10.125;
+    }
 }
 
 /* -------------------------------------------------------------- enumerations
