@@ -345,6 +345,75 @@ span[data-sl-ref] {
     }
 }
 
+/* ------------------------------------------------------------- task states
+ * Obsidian renders "- [?] text" as a *checked* checkbox and exposes the
+ * character between the brackets as a data-task attribute -- on the <input>
+ * in both views, and in Reading view additionally on the <li>. An icon is
+ * therefore purely a matter of re-masking the ::after pseudo element that
+ * Obsidian already draws the check mark with; this is the same technique the
+ * community "alternative checkboxes" snippets use, e.g.
+ * https://forum.obsidian.md/t/alternative-checkboxes-icon-bullets-copy-and-paste/35962
+ *
+ * The rules below need nothing from the plugin, so they also work verbatim as
+ * a vault snippet: drop them into .obsidian/snippets/semalogic-tasks.css and
+ * enable it under Settings > Appearance > CSS snippets.
+ *
+ * Markup covered:
+ *   Reading view  <li data-task="?" class="task-list-item is-checked">
+ *                   <input data-task="?" type="checkbox" checked> ...
+ *                 (a loose list wraps the input in an extra <p>)
+ *   Live Preview  <div class="HyperMD-task-line" data-task="?">
+ *                   <input data-task="?" type="checkbox" checked> ...
+ */
+:root {
+    /* Override in a snippet or theme to recolor the state. */
+    --sl-task-question-color: var(--color-orange, #c1750a);
+}
+
+/* A "?" is an open question, not a finished task: undo the muted color and the
+ * strike-through that themes apply to every checked item. The variables cover
+ * Reading view and Live Preview alike; the explicit declarations catch themes
+ * that hard-code the "done" look. */
+[data-task="?"] {
+    --checklist-done-color: var(--text-normal);
+    --checklist-done-decoration: none;
+}
+
+li[data-task="?"].is-checked,
+.HyperMD-task-line[data-task="?"] {
+    color: var(--text-normal);
+    text-decoration: none;
+}
+
+/* The icon brings its own circle, so the checkbox box itself disappears. */
+input[data-task="?"]:checked,
+li[data-task="?"]>input:checked,
+li[data-task="?"]>p>input:checked {
+    --checkbox-color: transparent;
+    --checkbox-color-hover: transparent;
+    --checkbox-marker-color: var(--sl-task-question-color);
+    background-color: transparent;
+    border-width: 0;
+    border-color: transparent;
+}
+
+/* Obsidian's own rule already supplies content, inset and position for this
+ * pseudo element -- only the mask (the glyph) and its color are replaced.
+ * The glyph is Lucide's "circle-help" (ISC), the icon set Obsidian ships. */
+input[data-task="?"]:checked::after,
+li[data-task="?"]>input:checked::after,
+li[data-task="?"]>p>input:checked::after {
+    background-color: var(--sl-task-question-color);
+    -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3'/%3E%3Cpath d='M12 17h.01'/%3E%3C/svg%3E");
+    mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cpath d='M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3'/%3E%3Cpath d='M12 17h.01'/%3E%3C/svg%3E");
+    -webkit-mask-size: contain;
+    mask-size: contain;
+    -webkit-mask-position: 50% 50%;
+    mask-position: 50% 50%;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+}
+
 /* SemaLogic law annotation presentation layer. */
 /*
  * law.css â€” presentation layer for the annotate HTML output (WP01).
