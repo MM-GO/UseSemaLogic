@@ -2,6 +2,16 @@
 
 The PlugIn for SemaLogic is under development.
 
+### 2.4.0 / 2026-07-31 - Dialect engine + law annotations
+
+Enhancements:
+
+* Dialect_Gen: new dialect engine run with server progress (`/rules/progress`): phase, elapsed time and item progress in the SemaLogic view
+* SL-Interpreter uses the same server progress display instead of the spinner overlay
+* Styling for SemaLogic law annotations (sections, profiles, `:target` highlighting) directly in `styles.css`
+* Law links can be followed in Live Preview
+* `- [?]` tasks are rendered as a question icon instead of a done item
+
 ### 2.3.4 / 2026-07-07 - SL-Interpret OpenAPI update
 
 Enhancements:
