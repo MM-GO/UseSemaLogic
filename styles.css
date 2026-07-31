@@ -202,44 +202,6 @@ span[data-sl-ref] {
     align-self: flex-end;
 }
 
-.sl-interpreter-busy {
-    position: fixed;
-    bottom: 18px;
-    right: 18px;
-    z-index: 10003;
-    pointer-events: none;
-}
-
-.sl-interpreter-busy-box {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 14px;
-    background: #1f1f1f;
-    color: #f5f5f5;
-    border: 1px solid #3a3a3a;
-    border-radius: 8px;
-    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
-    font-size: 0.9em;
-    opacity: 0.95;
-}
-
-.sl-interpreter-busy-spinner {
-    width: 20px;
-    height: 20px;
-    border: 3px solid rgba(255, 255, 255, 0.25);
-    border-top-color: #f5f5f5;
-    border-radius: 50%;
-    animation: sl-interpreter-spin 0.8s linear infinite;
-    flex: 0 0 auto;
-}
-
-@keyframes sl-interpreter-spin {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
 .sl-selection-actions {
     position: absolute;
     z-index: 10002;
@@ -266,7 +228,7 @@ span[data-sl-ref] {
     background: var(--interactive-hover);
 }
 
-.sl-dialect-progress {
+.sl-progress {
     position: fixed;
     right: 18px;
     bottom: 18px;
@@ -274,7 +236,7 @@ span[data-sl-ref] {
     pointer-events: none;
 }
 
-.sl-dialect-progress-box {
+.sl-progress-box {
     width: min(340px, calc(100vw - 36px));
     display: flex;
     flex-direction: column;
@@ -288,7 +250,7 @@ span[data-sl-ref] {
     opacity: 0.96;
 }
 
-.sl-dialect-progress-header {
+.sl-progress-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -296,21 +258,21 @@ span[data-sl-ref] {
     font-size: 0.85em;
 }
 
-.sl-dialect-progress-phase {
+.sl-progress-phase {
     font-weight: 600;
 }
 
-.sl-dialect-progress-elapsed {
+.sl-progress-elapsed {
     color: var(--text-muted);
     white-space: nowrap;
 }
 
-.sl-dialect-progress-message {
+.sl-progress-message {
     font-size: 0.95em;
     line-height: 1.35;
 }
 
-.sl-dialect-progress-bar {
+.sl-progress-bar {
     position: relative;
     height: 8px;
     overflow: hidden;
@@ -318,7 +280,7 @@ span[data-sl-ref] {
     background: var(--background-modifier-border);
 }
 
-.sl-dialect-progress-fill {
+.sl-progress-fill {
     height: 100%;
     width: 0;
     border-radius: inherit;
@@ -326,16 +288,16 @@ span[data-sl-ref] {
     transition: width 160ms ease;
 }
 
-.sl-dialect-progress-bar.is-indeterminate .sl-dialect-progress-fill {
-    animation: sl-dialect-progress-slide 1.1s ease-in-out infinite;
+.sl-progress-bar.is-indeterminate .sl-progress-fill {
+    animation: sl-progress-slide 1.1s ease-in-out infinite;
 }
 
-.sl-dialect-progress-meta {
+.sl-progress-meta {
     font-size: 0.82em;
     color: var(--text-muted);
 }
 
-@keyframes sl-dialect-progress-slide {
+@keyframes sl-progress-slide {
     0% {
         margin-left: -38%;
     }

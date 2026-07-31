@@ -1154,7 +1154,6 @@ export default class SemaLogicPlugin extends Plugin {
 	interpreterModalEl: HTMLElement | undefined
 	interpreterModalCleanup: (() => void) | undefined
 	interpreterBusy: boolean = false
-	interpreterBusyEl: HTMLElement | undefined
 	selectionActionPopupEl: HTMLElement | undefined
 	selectionActionHideDebounce: number | undefined
 	selectionActionUpdateDebounce: number | undefined
@@ -2040,9 +2039,13 @@ export default class SemaLogicPlugin extends Plugin {
 			return
 		}
 		this.interpreterBusy = true
-		this.showInterpreterBusy()
+		// Progress overlay fed by the server's /rules/progress snapshots (same
+		// mechanism as the DialectEngine); needs the SemaLogic view, so it can only
+		// start once the view is available.
+		let progressToken = 0
 		try {
 			if (!(await this.ensureSemaLogicViewForRequest())) { return }
+			progressToken = this.slComm.slview.startServerProgress(this.settings, mygSID, "SL-Interpreter", "Running SL-Interpreter ...")
 
 			const shouldTrackSelection = trackSelection != undefined
 			if (this.interpreterInterval != undefined) {
@@ -2084,33 +2087,10 @@ export default class SemaLogicPlugin extends Plugin {
 				this.pauseAllRequests = false
 			}
 		} finally {
-			this.hideInterpreterBusy()
+			if (progressToken != 0) {
+				this.slComm.slview.stopServerProgress(progressToken)
+			}
 			this.interpreterBusy = false
-		}
-	}
-
-	private showInterpreterBusy(): void {
-		this.hideInterpreterBusy()
-		const overlay = document.createElement("div")
-		overlay.className = "sl-interpreter-busy"
-		const box = document.createElement("div")
-		box.className = "sl-interpreter-busy-box"
-		const spinner = document.createElement("div")
-		spinner.className = "sl-interpreter-busy-spinner"
-		const label = document.createElement("div")
-		label.className = "sl-interpreter-busy-label"
-		label.textContent = "SL-Interpreter is running …"
-		box.appendChild(spinner)
-		box.appendChild(label)
-		overlay.appendChild(box)
-		document.body.appendChild(overlay)
-		this.interpreterBusyEl = overlay
-	}
-
-	private hideInterpreterBusy(): void {
-		if (this.interpreterBusyEl) {
-			this.interpreterBusyEl.remove()
-			this.interpreterBusyEl = undefined
 		}
 	}
 
@@ -2150,14 +2130,14 @@ export default class SemaLogicPlugin extends Plugin {
 		const dialectFormat = RulesettypeDialectEngine
 		// Reflect the dialect mode in the SemaLogic view dropdown.
 		this.slComm.slview.setOutPutFormat(DialectGen_Label)
-		const progressToken = this.slComm.slview.startDialectProgress(this.settings, dialectSid, engineValue)
+		const progressToken = this.slComm.slview.startServerProgress(this.settings, dialectSid, "Dialect", `Running ${engineValue} ...`)
 		console.log(`[SL-Dialect] sending parse request url=${vAPI_URL}&engine=${engineValue} dialectID=default rulesettype=${dialectFormat} sid=${dialectSid} interpreteLen=${interpreteText.length} contextLen=${contextText.length}`)
 		try {
 			// parseOnTheFly = false -> the result is stored and rendered in the SemaLogic view.
 			const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", contextText, false, dialectFormat, interpreteText, engineValue)
 			console.log(`[SL-Dialect] response received length=${response?.length ?? 0}`)
 		} finally {
-			this.slComm.slview.stopDialectProgress(progressToken)
+			this.slComm.slview.stopServerProgress(progressToken)
 		}
 	}
 

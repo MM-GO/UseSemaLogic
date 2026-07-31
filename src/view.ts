@@ -31,7 +31,9 @@ type DialectEnginePayload = {
   }
 }
 
-type DialectProgressPayload = {
+// Progress snapshot delivered by GET /rules/progress. The server reports it for
+// every long running request (DialectEngine as well as SL-Interpreter).
+type ServerProgressPayload = {
   phase?: string
   message?: string
   itemsDone?: number
@@ -42,10 +44,10 @@ type DialectProgressPayload = {
   done?: boolean
 }
 
-type DialectProgressResponse = {
+type ServerProgressResponse = {
   sid?: string
   running?: boolean
-  progress?: DialectProgressPayload
+  progress?: ServerProgressPayload
 }
 
 export class SemaLogicView extends ItemView {
@@ -69,14 +71,16 @@ export class SemaLogicView extends ItemView {
   scaleControlsEl!: HTMLElement
   resultEl!: HTMLElement
   errorEl!: HTMLElement
-  dialectProgressToken: number
-  dialectProgressEl: HTMLElement | undefined
-  dialectProgressPhaseEl: HTMLElement | undefined
-  dialectProgressElapsedEl: HTMLElement | undefined
-  dialectProgressMessageEl: HTMLElement | undefined
-  dialectProgressMetaEl: HTMLElement | undefined
-  dialectProgressBarEl: HTMLElement | undefined
-  dialectProgressFillEl: HTMLElement | undefined
+  progressToken: number
+  progressTitle: string
+  progressFallbackMessage: string
+  progressEl: HTMLElement | undefined
+  progressPhaseEl: HTMLElement | undefined
+  progressElapsedEl: HTMLElement | undefined
+  progressMessageEl: HTMLElement | undefined
+  progressMetaEl: HTMLElement | undefined
+  progressBarEl: HTMLElement | undefined
+  progressFillEl: HTMLElement | undefined
 
   public debugInline: boolean
 
@@ -144,7 +148,9 @@ export class SemaLogicView extends ItemView {
     this.view_utils = new ViewUtils
     this.debugInline = false
     this.debugContent = []
-    this.dialectProgressToken = 0
+    this.progressToken = 0
+    this.progressTitle = "SemaLogic"
+    this.progressFallbackMessage = "Running request ..."
   }
 
   public setComm(comm: SemaLogicPluginComm) {
@@ -329,7 +335,7 @@ export class SemaLogicView extends ItemView {
   }
 
   async onClose() {
-    this.hideDialectProgress()
+    this.hideServerProgress()
   }
 
   showError(fragment: DocumentFragment) {
@@ -340,7 +346,7 @@ export class SemaLogicView extends ItemView {
     this.errorEl.appendChild(fragment)
   }
   onunload(): void {
-    this.hideDialectProgress()
+    this.hideServerProgress()
 
     if (this.slComm.slPlugin != undefined) {
       this.slComm.slPlugin.activated = false
@@ -419,7 +425,7 @@ export class SemaLogicView extends ItemView {
     return request
   }
 
-  private createDialectProgressRequest(settings: SemaLogicPluginSettings, sid: string): RequestUrlParam {
+  private createServerProgressRequest(settings: SemaLogicPluginSettings, sid: string): RequestUrlParam {
     return {
       url: getHostPort(settings) + API_Defaults.rules_progress + "?sid=" + encodeURIComponent(sid),
       method: 'GET',
@@ -431,11 +437,16 @@ export class SemaLogicView extends ItemView {
     }
   }
 
-  public startDialectProgress(settings: SemaLogicPluginSettings, sid: string, engine: string): number {
-    const token = ++this.dialectProgressToken
-    this.renderDialectProgress({
+  // Shows the progress overlay for a running server request and starts polling
+  // /rules/progress for the given sid. `title` labels the overlay (e.g. "Dialect",
+  // "SL-Interpreter"), `startMessage` is displayed until the first snapshot arrives.
+  public startServerProgress(settings: SemaLogicPluginSettings, sid: string, title: string, startMessage: string): number {
+    const token = ++this.progressToken
+    this.progressTitle = title
+    this.progressFallbackMessage = startMessage
+    this.renderServerProgress({
       phase: "baseline",
-      message: `Running ${engine} ...`,
+      message: startMessage,
       itemsDone: 0,
       itemsTotal: 0,
       llmCalls: 0,
@@ -443,28 +454,28 @@ export class SemaLogicView extends ItemView {
       elapsedMs: 0,
       done: false
     })
-    void this.pollDialectProgress(settings, sid, token)
+    void this.pollServerProgress(settings, sid, token)
     return token
   }
 
-  public stopDialectProgress(token: number): void {
-    if (token != this.dialectProgressToken) {
+  public stopServerProgress(token: number): void {
+    if (token != this.progressToken) {
       return
     }
-    this.dialectProgressToken++
-    this.hideDialectProgress()
+    this.progressToken++
+    this.hideServerProgress()
   }
 
-  private async pollDialectProgress(settings: SemaLogicPluginSettings, sid: string, token: number): Promise<void> {
+  private async pollServerProgress(settings: SemaLogicPluginSettings, sid: string, token: number): Promise<void> {
     let sawProgress = false
-    while (token == this.dialectProgressToken) {
+    while (token == this.progressToken) {
       try {
-        const response = await requestUrl(this.createDialectProgressRequest(settings, sid))
+        const response = await requestUrl(this.createServerProgressRequest(settings, sid))
         if (response.status == 200) {
-          const snapshot = JSON.parse(response.text) as DialectProgressResponse
+          const snapshot = JSON.parse(response.text) as ServerProgressResponse
           if (snapshot.progress != undefined) {
             sawProgress = true
-            this.renderDialectProgress(snapshot.progress)
+            this.renderServerProgress(snapshot.progress)
             if (snapshot.progress.done) {
               return
             }
@@ -473,12 +484,12 @@ export class SemaLogicView extends ItemView {
             return
           }
         } else {
-          slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Dialect progress poll status ${response.status}`)
+          slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Progress poll status ${response.status}`)
         }
       } catch (e) {
-        slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Dialect progress poll failed: ${String(e)}`)
+        slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `Progress poll failed: ${String(e)}`)
       }
-      if (token != this.dialectProgressToken) {
+      if (token != this.progressToken) {
         return
       }
       await this.sleep(700)
@@ -489,63 +500,63 @@ export class SemaLogicView extends ItemView {
     return new Promise((resolve) => window.setTimeout(resolve, ms))
   }
 
-  private ensureDialectProgressElements(): void {
-    if (this.dialectProgressEl != undefined) {
+  private ensureServerProgressElements(): void {
+    if (this.progressEl != undefined) {
       return
     }
-    const root = document.body.createEl("div", { cls: "sl-dialect-progress" })
-    const box = root.createEl("div", { cls: "sl-dialect-progress-box" })
-    const header = box.createEl("div", { cls: "sl-dialect-progress-header" })
-    this.dialectProgressPhaseEl = header.createEl("span", { cls: "sl-dialect-progress-phase" })
-    this.dialectProgressElapsedEl = header.createEl("span", { cls: "sl-dialect-progress-elapsed" })
-    this.dialectProgressMessageEl = box.createEl("div", { cls: "sl-dialect-progress-message" })
-    this.dialectProgressBarEl = box.createEl("div", { cls: "sl-dialect-progress-bar" })
-    this.dialectProgressFillEl = this.dialectProgressBarEl.createEl("div", { cls: "sl-dialect-progress-fill" })
-    this.dialectProgressMetaEl = box.createEl("div", { cls: "sl-dialect-progress-meta" })
-    this.dialectProgressEl = root
+    const root = document.body.createEl("div", { cls: "sl-progress" })
+    const box = root.createEl("div", { cls: "sl-progress-box" })
+    const header = box.createEl("div", { cls: "sl-progress-header" })
+    this.progressPhaseEl = header.createEl("span", { cls: "sl-progress-phase" })
+    this.progressElapsedEl = header.createEl("span", { cls: "sl-progress-elapsed" })
+    this.progressMessageEl = box.createEl("div", { cls: "sl-progress-message" })
+    this.progressBarEl = box.createEl("div", { cls: "sl-progress-bar" })
+    this.progressFillEl = this.progressBarEl.createEl("div", { cls: "sl-progress-fill" })
+    this.progressMetaEl = box.createEl("div", { cls: "sl-progress-meta" })
+    this.progressEl = root
   }
 
-  private renderDialectProgress(progress: DialectProgressPayload): void {
-    this.ensureDialectProgressElements()
+  private renderServerProgress(progress: ServerProgressPayload): void {
+    this.ensureServerProgressElements()
     const phase = progress.phase?.trim() || "baseline"
-    const message = progress.message?.trim() || "Running dialect generation ..."
+    const message = progress.message?.trim() || this.progressFallbackMessage
     const itemsDone = progress.itemsDone ?? 0
     const itemsTotal = progress.itemsTotal ?? 0
     const llmCalls = progress.llmCalls ?? 0
     const chunk = progress.chunk?.trim() ?? ""
     const elapsedMs = progress.elapsedMs ?? 0
-    if (this.dialectProgressPhaseEl != undefined) {
-      this.dialectProgressPhaseEl.setText(`Dialect ${phase}`)
+    if (this.progressPhaseEl != undefined) {
+      this.progressPhaseEl.setText(`${this.progressTitle} ${phase}`)
     }
-    if (this.dialectProgressElapsedEl != undefined) {
-      this.dialectProgressElapsedEl.setText(this.formatElapsedMs(elapsedMs))
+    if (this.progressElapsedEl != undefined) {
+      this.progressElapsedEl.setText(this.formatElapsedMs(elapsedMs))
     }
-    if (this.dialectProgressMessageEl != undefined) {
-      this.dialectProgressMessageEl.setText(message)
+    if (this.progressMessageEl != undefined) {
+      this.progressMessageEl.setText(message)
     }
-    if (this.dialectProgressMetaEl != undefined) {
+    if (this.progressMetaEl != undefined) {
       const metaParts = [`${itemsDone}/${itemsTotal} item(s)`, `${llmCalls} LLM call(s)`]
       if (chunk.length > 0) {
         metaParts.push(`chunk ${chunk}`)
       }
-      this.dialectProgressMetaEl.setText(metaParts.join(" · "))
+      this.progressMetaEl.setText(metaParts.join(" · "))
     }
-    this.updateDialectProgressBar(itemsDone, itemsTotal)
+    this.updateServerProgressBar(itemsDone, itemsTotal)
   }
 
-  private updateDialectProgressBar(itemsDone: number, itemsTotal: number): void {
-    if (this.dialectProgressBarEl == undefined || this.dialectProgressFillEl == undefined) {
+  private updateServerProgressBar(itemsDone: number, itemsTotal: number): void {
+    if (this.progressBarEl == undefined || this.progressFillEl == undefined) {
       return
     }
     const total = itemsTotal > 0 ? itemsTotal : 0
     if (total == 0) {
-      this.dialectProgressBarEl.addClass("is-indeterminate")
-      this.dialectProgressFillEl.style.width = "42%"
+      this.progressBarEl.addClass("is-indeterminate")
+      this.progressFillEl.style.width = "42%"
       return
     }
-    this.dialectProgressBarEl.removeClass("is-indeterminate")
+    this.progressBarEl.removeClass("is-indeterminate")
     const ratio = Math.max(0, Math.min(1, itemsDone / total))
-    this.dialectProgressFillEl.style.width = `${Math.round(ratio * 100)}%`
+    this.progressFillEl.style.width = `${Math.round(ratio * 100)}%`
   }
 
   private formatElapsedMs(elapsedMs: number): string {
@@ -555,15 +566,15 @@ export class SemaLogicView extends ItemView {
     return `${(elapsedMs / 1000).toFixed(1)} s`
   }
 
-  private hideDialectProgress(): void {
-    this.dialectProgressEl?.remove()
-    this.dialectProgressEl = undefined
-    this.dialectProgressPhaseEl = undefined
-    this.dialectProgressElapsedEl = undefined
-    this.dialectProgressMessageEl = undefined
-    this.dialectProgressMetaEl = undefined
-    this.dialectProgressBarEl = undefined
-    this.dialectProgressFillEl = undefined
+  private hideServerProgress(): void {
+    this.progressEl?.remove()
+    this.progressEl = undefined
+    this.progressPhaseEl = undefined
+    this.progressElapsedEl = undefined
+    this.progressMessageEl = undefined
+    this.progressMetaEl = undefined
+    this.progressBarEl = undefined
+    this.progressFillEl = undefined
   }
 
   getRequestEmbed(content: string): string {
