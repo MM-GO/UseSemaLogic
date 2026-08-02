@@ -7,3 +7,4 @@ scripts/publish.mjs
 .vscode/
 src/Automated Bafög.md
 src/law.css
+openapi_v_00_03_00.yaml

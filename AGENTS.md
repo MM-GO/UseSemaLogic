@@ -34,6 +34,23 @@ Obsidian TypeScript plugin so future changes stay consistent.
   - `SL_DataFile` is preferred for the `ⓘ` button.
   - `SL_LinkedFile` remains used for hover tooltips.
 
+## Release Workflow
+
+- Publishing is tag-driven: `npm run release <version>` bumps `package.json`,
+  `manifest.json` and `versions.json`, commits `Release <version>`, tags without a
+  `v` prefix and pushes. Full details in [Readme_Publish_obsidian.md](Readme_Publish_obsidian.md).
+- Add a short entry to [docs/changelog.md](docs/changelog.md) *before* releasing
+  (newest version on top, `## <version> / <date> - <headline>` below the `# Changelog`
+  title — markdownlint MD001/MD041 require exactly this nesting).
+- Pushing a tag is outward-facing — confirm with the user before running the release.
+- Checking the publish status afterwards:
+  - CI build / GitHub release: `gh run list` or <https://github.com/MM-GO/UseSemaLogic/actions>
+  - Release assets (`main.js`, `manifest.json`, `styles.css`): `gh release view <version>`
+  - User-visible update: Obsidian → Settings → Community plugins → *Check for updates*
+- Updates are **not** reviewed by Obsidian and sit in no queue; Obsidian reads the new
+  version from the GitHub release. The review queue at `obsidianmd/obsidian-releases`
+  only covers the initial listing (done for this plugin since 2.0).
+
 ## TypeScript / Code Style
 
 - Keep new code in English. Prefer clear names over abbreviations.

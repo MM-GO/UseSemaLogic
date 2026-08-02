@@ -393,6 +393,9 @@ export interface SemaLogicPluginSettings {
 	mySetting: number;
 	myDebugLevel: number;
 	showSelectionActionButtons: boolean;
+	showDiagnosticDefects: boolean;         // defect findings visible in the SemaLogic view
+	showDiagnosticWarnings: boolean;        // suspect findings visible in the SemaLogic view
+	showDiagnosticDeveloper: boolean;       // request findings with audience=developer
 	sectionStyleEnabled: boolean;           // master on/off for the section-class styling
 	sectionStyleSlot: number;               // index of the active style slot
 	sectionStyleSlots: SLSectionStyleSlot[]; // named, independently switchable style slots
@@ -453,6 +456,11 @@ export const Default_profile: SemaLogicPluginSettings = {
 	mySetting: 0,
 	myDebugLevel: 0,
 	showSelectionActionButtons: false,
+	showDiagnosticDefects: true,
+	showDiagnosticWarnings: true,
+	// Off by default: audience=user is the server default and keeps engine
+	// internals out of the reply until they are asked for.
+	showDiagnosticDeveloper: false,
 	sectionStyleEnabled: true,
 	sectionStyleSlot: 0,
 	sectionStyleSlots: [
@@ -711,6 +719,44 @@ class SemaLogicSettingTab extends PluginSettingTab {
 					this.plugin.settings.showSelectionActionButtons = value;
 					await this.plugin.saveSettings()
 					this.plugin.updateSelectionActionButtonUi()
+				}));
+
+		// Startup state of the Defects / Warnings buttons in the SemaLogic view.
+		// The buttons write back here, so the last choice is what comes up again.
+		new Setting(containerEl)
+			.setName('Show defects')
+			.setDesc('Display defect findings in the SemaLogic view (toggled by the Defects button)')
+			.addToggle(setting => setting
+				.setValue(this.plugin.settings.showDiagnosticDefects)
+				.onChange(async (value) => {
+					this.plugin.settings.showDiagnosticDefects = value;
+					// Switching on expands the section, as the view buttons do.
+					if (value) { this.plugin.slComm?.slview?.expandDiagnosticSection('defect') }
+					await this.plugin.saveSettings()
+					this.plugin.slComm?.slview?.refreshDiagnostics()
+				}));
+
+		new Setting(containerEl)
+			.setName('Show warnings')
+			.setDesc('Display suspect findings in the SemaLogic view (toggled by the Warnings button)')
+			.addToggle(setting => setting
+				.setValue(this.plugin.settings.showDiagnosticWarnings)
+				.onChange(async (value) => {
+					this.plugin.settings.showDiagnosticWarnings = value;
+					if (value) { this.plugin.slComm?.slview?.expandDiagnosticSection('suspect') }
+					await this.plugin.saveSettings()
+					this.plugin.slComm?.slview?.refreshDiagnostics()
+				}));
+
+		new Setting(containerEl)
+			.setName('Show developer findings')
+			.setDesc('Request findings with audience=developer, including engine internals and their origin (toggled by the Developer button)')
+			.addToggle(setting => setting
+				.setValue(this.plugin.settings.showDiagnosticDeveloper)
+				.onChange(async (value) => {
+					this.plugin.settings.showDiagnosticDeveloper = value;
+					await this.plugin.saveSettings()
+					await this.plugin.slComm?.slview?.reloadDiagnosticsForAudience(value)
 				}));
 
 		// Transfer / ASP view is part of the profile settings, but collapsed by default
@@ -1655,12 +1701,14 @@ export default class SemaLogicPlugin extends Plugin {
 				let outputFormat: string = RulesettypesCommands[Rstypes_ASP][1]
 				//	if (command.outputformat != undefined && command.outputformat != RulesettypesCommands[Rstypes_ASP][0]) { outputFormat = command.outputformat }
 
-				const responseForASP = this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, dialectID, bodytext, true, outputFormat)
-				responseForASP.then(value => {
+				const responseForASP = this.slComm.slview.requestSemaLogicParse(this.settings, vAPI_URL, dialectID, bodytext, true, outputFormat)
+				responseForASP.then(result => {
 					//this.updateTransferOutstanding = true;
 					//slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, 'Set UpdateASPOutstanding:' + this.updateTransferOutstanding)
-					slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, value)
-					const aspPromise = this.slComm.slaspview.aspParse(this.slComm, this.settings, value, this.slComm.slaspview.LastRequestTime)
+					slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, result.payload.content)
+					// The transfer endpoint receives the whole envelope: its top level
+					// still carries `rules` and `rulesettype` exactly as before 00.03.00.
+					const aspPromise = this.slComm.slaspview.aspParse(this.slComm, this.settings, result.raw, this.slComm.slaspview.LastRequestTime)
 					aspPromise.then(value => {
 						if (value != undefined) { slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, value) }
 						//
@@ -2063,7 +2111,9 @@ export default class SemaLogicPlugin extends Plugin {
 				this.interpreterSelection = undefined
 			}
 			this.interpreterLastCanvas = ""
-			const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID + (useNlp ? "&NLP=true" : "");
+			// Canonical lowercase `nlp` (API 00.03.00); the server only reads the
+			// old uppercase `NLP` when `nlp` is absent.
+			const vAPI_URL = getHostPort(this.settings) + API_Defaults.rules_parse + "?sid=" + mygSID + (useNlp ? "&nlp=true" : "");
 			const response = await this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, "default", contextText, true, RulesettypesCommands[Rstypes_KnowledgeGraph][1], interpreteText)
 			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, "SL-Interpreter LLM response", response)
 			if (response && this.isCanvasJsonResponse(response)) {

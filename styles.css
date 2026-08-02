@@ -11,6 +11,145 @@ If your plugin does not need CSS, delete this file.
     white-space: pre
 }
 
+/* Diagnostics reported by the SemaLogic Service (API 00.03.00 `diagnostics`). */
+.sl-diagnostics {
+    margin: 6px 0;
+    font-size: 0.9em;
+}
+
+.sl-diag-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.sl-diag-count {
+    color: var(--text-muted);
+}
+
+.sl-diag-count.is-active {
+    color: var(--text-normal);
+    font-weight: 600;
+}
+
+/* Diagnostics toggles in the SemaLogic view control row, behind InlineDebug. */
+.sl-diag-toggles {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 6px;
+}
+
+.sl-diag-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 6px;
+}
+
+.sl-diag-item {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 4px 8px;
+    border-left: 3px solid var(--background-modifier-border);
+    border-radius: 3px;
+    background: var(--background-secondary);
+}
+
+.sl-diag-item.is-blocking,
+.sl-diag-item.is-defect {
+    border-left-color: var(--text-error);
+}
+
+.sl-diag-item.is-suspect {
+    border-left-color: var(--text-warning);
+}
+
+.sl-diag-item.is-developer {
+    opacity: 0.8;
+}
+
+.sl-diag-severity {
+    flex: none;
+    min-width: 4.5em;
+    text-transform: uppercase;
+    font-size: 0.75em;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+
+.sl-diag-item.is-blocking .sl-diag-severity,
+.sl-diag-item.is-defect .sl-diag-severity {
+    color: var(--text-error);
+}
+
+.sl-diag-item.is-suspect .sl-diag-severity {
+    color: var(--text-warning);
+}
+
+.sl-diag-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.sl-diag-symbol {
+    font-family: var(--font-monospace);
+    font-size: 0.85em;
+    color: var(--text-muted);
+}
+
+.sl-diag-origin,
+.sl-diag-hidden {
+    font-size: 0.8em;
+    color: var(--text-muted);
+}
+
+/* One collapsed <details> per severity (defect, suspect, note). */
+.sl-diag-section {
+    margin-top: 6px;
+}
+
+.sl-diag-section>summary {
+    cursor: pointer;
+    color: var(--text-muted);
+}
+
+.sl-diag-section.is-defect>summary {
+    color: var(--text-error);
+}
+
+.sl-diag-section.is-suspect>summary {
+    color: var(--text-warning);
+}
+
+/* Buttons showing/hiding a whole severity; state persists in the settings. */
+.sl-diag-toggle {
+    padding: 2px 8px;
+    font-size: 0.85em;
+    line-height: 1.6;
+}
+
+.sl-diag-toggle.is-off {
+    opacity: 0.55;
+    text-decoration: line-through;
+}
+
+.sl-progress-phase.is-failed {
+    color: var(--text-error);
+}
+
+/* Full documents (rulefmt_html with fragment=false) are rendered in a frame. */
+.sl-result-frame {
+    width: 100%;
+    min-height: 420px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    background: var(--background-primary);
+}
+
 /* Theme-aware law.css default for the configurable :target citation highlight. */
 :root {
     --sl-law-target: #fff3c4;

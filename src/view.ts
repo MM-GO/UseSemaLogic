@@ -1,9 +1,14 @@
 import { DropdownComponent, ItemView, WorkspaceLeaf, ButtonComponent, RequestUrlParam, requestUrl, sanitizeHTMLToDom } from "obsidian";
-import { slTexts, DebugLevMap, RulesettypesCommands, Rstypes_Semalogic, Rstypes_SemanticTree, Rstypes_KnowledgeGraph, Rstypes_Picture, Rstypes_ASP, DialectGen_Label, API_Defaults } from "./const"
+import { slTexts, DebugLevMap, RulesettypesCommands, Rstypes_Semalogic, Rstypes_SemanticTree, Rstypes_KnowledgeGraph, Rstypes_Picture, Rstypes_ASP, Rstypes_AnnotatedHTML, DialectGen_Label, API_Defaults } from "./const"
 import { SemaLogicPluginComm, DebugLevel, SemaLogicPluginSettings } from "../main"
 import { slconsolelog } from './utils'
 import { ViewUtils } from "./view_utils";
 import { getHostPort } from "./utils";
+import {
+  Diagnostic, Diagnostics, Rulesout, RulesoutContent,
+  countFindings, diagnosticMessage, emptyDiagnostics, extractRulesout, normalizeDiagnostics,
+  parseRulesout, requestAudience_Developer, requestAudience_User, sortDiagnostics, withAudience
+} from "./rulesout";
 
 export const SemaLogicViewType = "SemaLogicService";
 
@@ -22,16 +27,30 @@ function createLoggedSemaLogicRequest(request: RequestUrlParam, semaLogicJsonReq
   }
 }
 
-type DialectEnginePayload = {
-  rulesettype?: string
-  rules?: {
-    contentType?: string
-    engine?: string
-    output?: string
-  }
+// Everything a caller can need from one /rules/parse round trip. `raw` is the
+// untouched response body, `payload` the extracted markup/SVG/canvas and
+// `diagnostics` the findings - present for 2xx and 4xx alike.
+export type SemaLogicParseResult = {
+  status: number
+  raw: string
+  rulesout?: Rulesout
+  payload: RulesoutContent
+  diagnostics: Diagnostics
 }
 
-// Progress snapshot delivered by GET /rules/progress. The server reports it for
+// The arguments of the last parse request, so the diagnostics panel can repeat
+// it with audience=developer without the caller being involved.
+type LastParseRequest = {
+  settings: SemaLogicPluginSettings
+  vAPI_URL: string
+  dialectID: string
+  bodytext: string
+  outPutFormat: string
+  interpreteText?: string
+  engine?: string
+}
+
+// Progress snapshot delivered by GET /session/progress. The server reports it for
 // every long running request (DialectEngine as well as SL-Interpreter).
 type ServerProgressPayload = {
   phase?: string
@@ -42,6 +61,8 @@ type ServerProgressPayload = {
   chunk?: string
   elapsedMs?: number
   done?: boolean
+  // True when the operation ended in an error rather than completing.
+  failed?: boolean
 }
 
 type ServerProgressResponse = {
@@ -63,12 +84,23 @@ export class SemaLogicView extends ItemView {
   slComm!: SemaLogicPluginComm
   scaleRatio: number
   currResult: string = ""
+  // Decoded shape of the last response (see src/rulesout.ts).
+  currKind: string = "raw"
+  currFragment: boolean = true
+  currSource: string | undefined
+  currDiagnostics: Diagnostics = emptyDiagnostics()
+  currAudience: string = requestAudience_User
+  // Open/closed state per severity section, kept while the view lives.
+  sectionOpen: Record<string, boolean> = {}
+  lastParseRequest: LastParseRequest | undefined
   bodytext: string = ""
   apiURL: string = ""
   dialectID: string = ""
   headerEl!: HTMLElement
   controlsEl!: HTMLElement
   scaleControlsEl!: HTMLElement
+  diagToggleEl!: HTMLElement
+  diagnosticsEl!: HTMLElement
   resultEl!: HTMLElement
   errorEl!: HTMLElement
   progressToken: number
@@ -98,12 +130,16 @@ export class SemaLogicView extends ItemView {
 
   public showDialectEngineHint(): void {
     this.currResult = ""
+    this.currDiagnostics = emptyDiagnostics()
     if (this.headerEl == undefined || this.controlsEl == undefined || this.resultEl == undefined) {
       this.setNewInitial(this.getOutPutFormat(), false)
     }
     this.updateScaleControls(this.getOutPutFormat())
     if (this.errorEl != undefined) {
       this.errorEl.empty()
+    }
+    if (this.diagnosticsEl != undefined) {
+      this.diagnosticsEl.empty()
     }
     if (this.resultEl != undefined) {
       this.resultEl.empty()
@@ -190,6 +226,7 @@ export class SemaLogicView extends ItemView {
       .addOption(RulesettypesCommands[Rstypes_Picture][1], RulesettypesCommands[Rstypes_Picture][0])
       .addOption(RulesettypesCommands[Rstypes_SemanticTree][1], RulesettypesCommands[Rstypes_SemanticTree][0])
       .addOption(RulesettypesCommands[Rstypes_KnowledgeGraph][1], RulesettypesCommands[Rstypes_KnowledgeGraph][0])
+      .addOption(RulesettypesCommands[Rstypes_AnnotatedHTML][1], RulesettypesCommands[Rstypes_AnnotatedHTML][0])
       .addOption(DialectGen_Label, DialectGen_Label)
       .setValue(dropDownValue)
       .onChange(async (value) => {
@@ -318,11 +355,15 @@ export class SemaLogicView extends ItemView {
       this.controlsEl = this.contentEl.createEl("div")
       this.scaleControlsEl = this.controlsEl.createEl("span")
       this.errorEl = this.contentEl.createEl("div", { cls: "semalogic-error" })
+      this.diagnosticsEl = this.contentEl.createEl("div", { cls: "sl-diagnostics" })
       this.resultEl = this.contentEl.createEl("div")
 
       this.createDropDownButtonForOutPutFormat(this.controlsEl, dropDownValue)
       this.createCopyToClipboardButton(this.controlsEl)
       this.createDebugButton(this.controlsEl)
+      // Diagnostics toggles sit in the control row, directly behind InlineDebug.
+      this.diagToggleEl = this.controlsEl.createEl("span", { cls: "sl-diag-toggles" })
+      this.renderDiagnosticToggles()
       this.updateScaleControls(dropDownValue)
     } else {
       this.deleteContainerContent()
@@ -527,6 +568,12 @@ export class SemaLogicView extends ItemView {
     const elapsedMs = progress.elapsedMs ?? 0
     if (this.progressPhaseEl != undefined) {
       this.progressPhaseEl.setText(`${this.progressTitle} ${phase}`)
+      // The server flags an operation that ended in an error rather than completing.
+      if (progress.failed == true) {
+        this.progressPhaseEl.addClass("is-failed")
+      } else {
+        this.progressPhaseEl.removeClass("is-failed")
+      }
     }
     if (this.progressElapsedEl != undefined) {
       this.progressElapsedEl.setText(this.formatElapsedMs(elapsedMs))
@@ -578,8 +625,12 @@ export class SemaLogicView extends ItemView {
   }
 
   getRequestEmbed(content: string): string {
-    if (this.getOutPutFormat() == RulesettypesCommands[Rstypes_Picture][1]) {
+    if (this.currKind == "svg" || this.getOutPutFormat() == RulesettypesCommands[Rstypes_Picture][1]) {
       // Zoom for Picture
+      // The 00.03.00 payload keeps the XML prolog and generator comment of the
+      // original document; both must go before the markup is nested in our
+      // scaling <svg> wrapper.
+      content = stripXmlProlog(content)
       // try to get original viewbox size
       let viewBoxString: string
       const beginVB = content.indexOf('viewBox')
@@ -600,26 +651,6 @@ export class SemaLogicView extends ItemView {
     } else {
       return content
     }
-  }
-
-  private getDialectEngineHtml(content: string): string {
-    const payload = this.tryParseDialectEnginePayload(content)
-    if (payload?.rules?.output != undefined) {
-      return this.repairUtf8Mojibake(payload.rules.output)
-    }
-    return this.repairUtf8Mojibake(content)
-  }
-
-  private tryParseDialectEnginePayload(content: string): DialectEnginePayload | undefined {
-    try {
-      const parsed = JSON.parse(content) as DialectEnginePayload
-      if (parsed?.rulesettype == "DialectEngine" || typeof parsed?.rules?.output == "string") {
-        return parsed
-      }
-    } catch (e) {
-      slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, `DialectEngine response is not JSON: ${String(e)}`)
-    }
-    return undefined
   }
 
   private repairUtf8Mojibake(content: string): string {
@@ -644,8 +675,8 @@ export class SemaLogicView extends ItemView {
   }
 
   getCurrResult(): string {
-    if (this.getOutPutFormat() == DialectGen_Label) {
-      return this.getDialectEngineHtml(this.currResult)
+    if (this.currKind == "engine") {
+      return this.repairUtf8Mojibake(this.currResult)
     }
     return this.getRequestEmbed(this.currResult)
   }
@@ -661,19 +692,44 @@ export class SemaLogicView extends ItemView {
         const textline = responseContent.createEl("span", { text: value + "\n", cls: "debuginline" })
         //textline.style.cssText = 'white-space: pre;' //; white-space: pre-line;'
       })
-    } else {
-      if (this.getOutPutFormat() == RulesettypesCommands[Rstypes_ASP][1]) {
-        let resulttextarray = this.getCurrResult().split('\n')
-        resulttextarray.forEach(value => {
-          const textline = responseContent.createEl("span", { text: value + "\n", cls: "debuginline" })
-          // textline.style.cssText = 'white-space: pre;' //; white-space: pre-line;'
-        })
-      } else {
-        responseContent.createEl("p", { text: " " })
-        responseContent.after(sanitizeHTMLToDom(this.getCurrResult()))
-      }
+      return
     }
-    //return responseContent
+
+    // AnnotatedHTML currently echoes the submitted text; say so instead of
+    // pretending the markup carries annotations.
+    if (this.currSource == "echo") {
+      responseContent.createEl("p", {
+        text: "AnnotatedHTML: the service echoes the submitted text - the annotator is not active yet.",
+        cls: "sl-annotated-hint"
+      })
+    }
+
+    if (this.currKind == "asp" || this.getOutPutFormat() == RulesettypesCommands[Rstypes_ASP][1]) {
+      let resulttextarray = this.getCurrResult().split('\n')
+      resulttextarray.forEach(value => {
+        const textline = responseContent.createEl("span", { text: value + "\n", cls: "debuginline" })
+        // textline.style.cssText = 'white-space: pre;' //; white-space: pre-line;'
+      })
+      return
+    }
+
+    if (this.currKind == "html" && this.currFragment == false) {
+      // A complete <!DOCTYPE html> document (SemanticTree). Inlining it would
+      // drop everything outside <body>, so it gets its own frame.
+      this.renderFullDocument(responseContent, this.currResult)
+      return
+    }
+
+    responseContent.createEl("p", { text: " " })
+    responseContent.after(sanitizeHTMLToDom(this.getCurrResult()))
+  }
+
+  // Renders a full HTML document without letting it script against the vault:
+  // no allow-scripts, no allow-top-navigation.
+  private renderFullDocument(container: HTMLElement, documentHtml: string): void {
+    const frame = container.createEl("iframe", { cls: "sl-result-frame" })
+    frame.setAttr("sandbox", "")
+    frame.setAttr("srcdoc", documentHtml)
   }
 
   updateView(): void {
@@ -687,76 +743,352 @@ export class SemaLogicView extends ItemView {
     if (this.resultEl != undefined) {
       this.resultEl.empty()
     }
+    this.renderDiagnostics()
     this.getCurrHTML()
   }
 
-  public async getSemaLogicParse(settings: SemaLogicPluginSettings, vAPI_URL: string, dialectID: string, bodytext: string, parseOnTheFly: boolean, parsingFormat?: string, interpreteText?: string, engine?: string): Promise<string> {
+  // Diagnostics are part of every reply, so the finding count is rendered
+  // unconditionally - a clean parse says "no findings" instead of showing nothing.
+  private renderDiagnostics(): void {
+    if (this.diagnosticsEl == undefined) {
+      this.diagnosticsEl = this.contentEl.createEl("div", { cls: "sl-diagnostics" })
+    }
+    this.diagnosticsEl.empty()
+    this.renderDiagnosticToggles()
+    if (this.debugInline == true) { return }
+
+    const diagnostics = this.currDiagnostics
+    const summary = diagnostics.summary
+    const total = countFindings(summary)
+
+    const headerEl = this.diagnosticsEl.createEl("div", { cls: "sl-diag-summary" })
+    headerEl.createEl("span", {
+      text: this.formatDiagnosticsSummary(summary, total),
+      cls: total > 0 ? "sl-diag-count is-active" : "sl-diag-count"
+    })
+
+    if (diagnostics.items.length == 0) { return }
+
+    const entries = this.collapseDiagnostics(diagnostics)
+
+    // `blocking` means the input could not be interpreted at all, so it is
+    // neither collapsed nor hideable - it explains why there is no result.
+    const blocking = entries.filter(entry => severityOf(entry.item) == "blocking")
+    if (blocking.length > 0) {
+      const listEl = this.diagnosticsEl.createEl("div", { cls: "sl-diag-list" })
+      blocking.forEach(entry => this.renderDiagnosticItem(listEl, entry.item, entry.count))
+    }
+
+    this.renderDiagnosticSection("defect", entries)
+    this.renderDiagnosticSection("suspect", entries)
+    this.renderDiagnosticSection("note", entries)
+  }
+
+  // One section per severity, collapsed unless it was opened - by the user or
+  // by switching its toggle on. Hidden entirely when its button is off.
+  private renderDiagnosticSection(severity: string, entries: DiagnosticEntry[]): void {
+    if (!this.getDiagnosticVisibility(severity)) { return }
+    const section = entries.filter(entry => severityOf(entry.item) == severity)
+    if (section.length == 0) { return }
+    const count = section.reduce((sum, entry) => sum + entry.count, 0)
+    const details = this.diagnosticsEl.createEl("details", { cls: `sl-diag-section is-${severity}` })
+    // Kept across renders so a re-parse does not snap an open section shut.
+    details.open = this.sectionOpen[severity] ?? false
+    details.addEventListener("toggle", () => { this.sectionOpen[severity] = details.open })
+    details.createEl("summary", { text: `${count} ${severity}(s)` })
+    const listEl = details.createEl("div", { cls: "sl-diag-list" })
+    section.forEach(entry => this.renderDiagnosticItem(listEl, entry.item, entry.count))
+  }
+
+  // Sorts by severity and collapses repeated findings into one entry carrying
+  // the repetition count.
+  private collapseDiagnostics(diagnostics: Diagnostics): DiagnosticEntry[] {
+    const groupsById = this.collectDiagnosticGroups(diagnostics)
+    const renderedGroups = new Set<string>()
+    const entries: DiagnosticEntry[] = []
+    sortDiagnostics(diagnostics.items).forEach(item => {
+      const group = item.id != undefined ? groupsById.get(item.id) : undefined
+      if (group != undefined) {
+        const key = String(group.code ?? "")
+        if (renderedGroups.has(key)) { return }
+        renderedGroups.add(key)
+      }
+      entries.push({ item, count: group?.count ?? 1 })
+    })
+    return entries
+  }
+
+  // The three toggles in the control row. Redrawn on every render so the
+  // Developer button can carry the current `hidden` count.
+  private renderDiagnosticToggles(): void {
+    if (this.diagToggleEl == undefined) { return }
+    this.diagToggleEl.empty()
+    this.createDiagnosticToggle(this.diagToggleEl, "defect", "Defects")
+    this.createDiagnosticToggle(this.diagToggleEl, "suspect", "Warnings")
+    // `summary` counts the complete finding set, `hidden` is what the audience
+    // filter withheld - so the button can name the number it would pull in.
+    const hidden = this.currDiagnostics.summary.hidden
+    const developerLabel = hidden > 0 && this.currAudience != requestAudience_Developer
+      ? `Developer (${hidden})`
+      : "Developer"
+    this.createDiagnosticToggle(this.diagToggleEl, "developer", developerLabel)
+  }
+
+  // Button that shows/hides one finding class. The state lives in the global
+  // settings, so it survives a restart and is editable there as well.
+  private createDiagnosticToggle(container: HTMLElement, kind: string, label: string): void {
+    const visible = this.getDiagnosticVisibility(kind)
+    const button = new ButtonComponent(container)
+      .setButtonText(label)
+      .setTooltip(visible ? `Hide ${kind} findings` : `Show ${kind} findings`)
+      .onClick(() => { void this.toggleDiagnosticVisibility(kind) })
+    button.buttonEl.addClass("sl-diag-toggle")
+    button.buttonEl.toggleClass("is-off", !visible)
+  }
+
+  private getDiagnosticVisibility(kind: string): boolean {
+    const settings = this.slComm?.slPlugin?.settings
+    // Without settings the severity sections show, developer findings do not.
+    if (settings == undefined) { return kind != "developer" }
+    if (kind == "defect") { return settings.showDiagnosticDefects !== false }
+    if (kind == "suspect") { return settings.showDiagnosticWarnings !== false }
+    if (kind == "developer") { return settings.showDiagnosticDeveloper === true }
+    return true
+  }
+
+  private async toggleDiagnosticVisibility(kind: string): Promise<void> {
+    const plugin = this.slComm?.slPlugin
+    if (plugin == undefined) { return }
+    const visible = this.getDiagnosticVisibility(kind)
+    if (kind == "defect" || kind == "suspect") {
+      if (kind == "defect") {
+        plugin.settings.showDiagnosticDefects = !visible
+      } else {
+        plugin.settings.showDiagnosticWarnings = !visible
+      }
+      // Switching a section on shows what it contains right away.
+      if (!visible) { this.sectionOpen[kind] = true }
+      await plugin.saveSettings()
+      this.renderDiagnostics()
+      return
+    }
+    // Developer findings are not withheld locally - the server never sent them.
+    // Switching the audience means asking again.
+    plugin.settings.showDiagnosticDeveloper = !visible
+    await plugin.saveSettings()
+    await this.reloadDiagnosticsForAudience(!visible)
+  }
+
+  // Lets the settings tab open a section the same way the view buttons do.
+  public expandDiagnosticSection(severity: string): void {
+    this.sectionOpen[severity] = true
+  }
+
+  // Lets the settings tab redraw the panel after changing the toggles there.
+  public refreshDiagnostics(): void {
+    if (this.diagnosticsEl == undefined) { return }
+    this.renderDiagnostics()
+  }
+
+  // Maps finding id -> group for repeated findings. `groups` only exists when
+  // findings carry a `code`, and a group of one needs no collapsing.
+  private collectDiagnosticGroups(diagnostics: Diagnostics): Map<string, { code?: string; count: number }> {
+    const byId = new Map<string, { code?: string; count: number }>()
+    diagnostics.groups?.forEach(group => {
+      const count = group.count ?? 0
+      if (count < 2 || !Array.isArray(group.ids)) { return }
+      group.ids.forEach(id => byId.set(id, { code: group.code, count }))
+    })
+    return byId
+  }
+
+  private renderDiagnosticItem(container: HTMLElement, item: Diagnostic, count: number): void {
+    const severity = severityOf(item)
+    const row = container.createEl("div", { cls: `sl-diag-item is-${severity}` })
+    if (String(item.audience ?? "") == requestAudience_Developer) {
+      row.addClass("is-developer")
+    }
+    row.createEl("span", { text: severity, cls: "sl-diag-severity" })
+    const body = row.createEl("span", { cls: "sl-diag-body" })
+    const message = diagnosticMessage(item)
+    body.createEl("span", { text: count > 1 ? `${message} (${count}x)` : message, cls: "sl-diag-message" })
+    // `subject`, `code` and `origin` are optional enrichment - never required.
+    const symbol = item.subject?.symbol
+    if (symbol != undefined && symbol != "") {
+      body.createEl("span", { text: symbol, cls: "sl-diag-symbol" })
+    }
+    if (item.code != undefined && item.code != "") {
+      row.setAttr("title", item.code)
+    }
+    if (item.origin != undefined) {
+      body.createEl("div", { text: this.formatOrigin(item.origin), cls: "sl-diag-origin" })
+    }
+  }
+
+  private formatOrigin(origin: { package?: string; file?: string; func?: string; line?: number }): string {
+    const location = [origin.package, origin.file, origin.func].filter(part => part != undefined && part != "").join(" / ")
+    return origin.line != undefined ? `${location}:${origin.line}` : location
+  }
+
+  private formatDiagnosticsSummary(summary: DiagnosticsSummaryLike, total: number): string {
+    if (total == 0) { return "No findings" }
+    const parts: string[] = []
+    if (summary.blocking > 0) { parts.push(`${summary.blocking} blocking`) }
+    if (summary.defect > 0) { parts.push(`${summary.defect} defect`) }
+    if (summary.suspect > 0) { parts.push(`${summary.suspect} suspect`) }
+    if (summary.note > 0) { parts.push(`${summary.note} note`) }
+    return parts.join(" · ")
+  }
+
+  // The audience every parse asks for. Findings withheld by the server are not
+  // in the reply at all, so this has to be part of the request, not a filter.
+  private getRequestAudience(): string {
+    return this.getDiagnosticVisibility("developer") ? requestAudience_Developer : requestAudience_User
+  }
+
+  // Repeats the last parse with the currently selected audience, so switching
+  // the Developer button pulls in (or drops) the technical findings.
+  // `expandArrivals` opens the sections the newly arrived findings landed in.
+  public async reloadDiagnosticsForAudience(expandArrivals: boolean = false): Promise<void> {
+    const last = this.lastParseRequest
+    const audience = this.getRequestAudience()
+    if (last == undefined) {
+      this.currAudience = audience
+      this.refreshDiagnostics()
+      return
+    }
+    try {
+      const result = await this.performParse(last, audience)
+      this.currDiagnostics = result.diagnostics
+      this.currAudience = audience
+      if (expandArrivals) { this.expandDeveloperSections() }
+      this.renderDiagnostics()
+    } catch (e) {
+      slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, `Diagnostics reload failed: ${String(e)}`)
+    }
+  }
+
+  // Developer findings carry their own severity, so they land spread over the
+  // severity sections. Open the ones that actually received something.
+  private expandDeveloperSections(): void {
+    this.currDiagnostics.items.forEach(item => {
+      if (String(item.audience ?? "") == requestAudience_Developer) {
+        this.sectionOpen[severityOf(item)] = true
+      }
+    })
+  }
+
+  // Performs the request and decodes the envelope. One decoder for 2xx and 4xx:
+  // the reason for a rejected request is in `diagnostics`, not in the status.
+  private async performParse(request: LastParseRequest, audience: string): Promise<SemaLogicParseResult> {
+    const semaLogicJsonRequestBody = this.createSemaLogicRequestBody(request.dialectID, request.bodytext, request.outPutFormat, request.interpreteText)
+    const semaLogicRequest = this.createSemaLogicRequest(request.settings, withAudience(request.vAPI_URL, audience), semaLogicJsonRequestBody, request.engine)
+    const response = await requestUrl(semaLogicRequest)
+    const raw = response.text ?? ""
+    const rulesout = parseRulesout(raw)
+    return {
+      status: response.status,
+      raw,
+      rulesout,
+      payload: extractRulesout(rulesout, raw),
+      diagnostics: normalizeDiagnostics(rulesout?.diagnostics)
+    }
+  }
+
+  // Full result of one parse: raw body, extracted payload and diagnostics.
+  // Callers that only need the payload use getSemaLogicParse below.
+  public async requestSemaLogicParse(settings: SemaLogicPluginSettings, vAPI_URL: string, dialectID: string, bodytext: string, parseOnTheFly: boolean, parsingFormat?: string, interpreteText?: string, engine?: string): Promise<SemaLogicParseResult> {
     this.bodytext = bodytext
     this.apiURL = vAPI_URL
     this.dialectID = dialectID
-    let outPutFormat: string
-    let resulthttp: string
 
-    if (parsingFormat !== undefined) { outPutFormat = parsingFormat } else { outPutFormat = this.getOutPutFormat() }
-    let semaLogicJsonRequestBody = this.createSemaLogicRequestBody(dialectID, bodytext, outPutFormat, interpreteText)
-    let semaLogicRequest = this.createSemaLogicRequest(settings, vAPI_URL, semaLogicJsonRequestBody, engine)
+    const outPutFormat = parsingFormat !== undefined ? parsingFormat : this.getOutPutFormat()
+    const request: LastParseRequest = { settings, vAPI_URL, dialectID, bodytext, outPutFormat, interpreteText, engine }
+    this.lastParseRequest = request
 
+    const audience = this.getRequestAudience()
+    let result: SemaLogicParseResult
     try {
-      const response = await requestUrl(semaLogicRequest)
-
-      slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, "SemaLogic: Parse with http-status " + response.status.toString())
-      if (response.status == 200) {
-        resulthttp = response.text;
-        slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, `Parseresult:${resulthttp}`)
-        if ((this.debugInline == false) && (parseOnTheFly == false)) {
-          this.currResult = resulthttp
-        }
-        if (!parseOnTheFly) {
-          this.updateView()
-        }
-      } else {
-        // Surface the server's error body (e.g. the reason for a 422) instead of a bare status.
-        const serverBody = response.text?.trim() ?? ""
-        const detailedMessage = serverBody.length > 0
-          ? `Request failed, status ${response.status}: ${serverBody}`
-          : `Request failed, status ${response.status}`
-        console.log(`[SemaLogic] parse failed: status=${response.status} url=${semaLogicRequest.url} body=${serverBody}`)
-        let text = new DocumentFragment()
-        text.createEl("p", { text: `Request failed, status ${response.status}` })
-        text.createEl("p", { text: "Server response:" })
-        text.createEl("p", { text: serverBody.length > 0 ? serverBody : "<empty response body>" })
-        text.createEl("p", { text: "See for information about the error-code of http: https://de.wikipedia.org/wiki/HTTP-Statuscode " })
-        text.createEl("p", { text: semaLogicRequest.url })
-        text.createEl("p", { text: String(semaLogicRequest.body) })
-        this.showError(text)
-        throw new Error(detailedMessage)
-      }
-
-      if (this.slComm.slaspview != undefined) {
-        //this.slComm.slaspview.aspParse(this.slComm, settings, this.getSemaLogicText())
-      }
-
-      return new Promise<string>((resolve) => {
-        resolve(resulthttp);
-      });
-    }
-    catch (e) {
+      result = await this.performParse(request, audience)
+    } catch (e) {
+      // Transport failure - there is no envelope to read.
       const errorText = e instanceof Error ? e.toString() : String(e)
-      slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm.slview, `Request failed: ${semaLogicRequest.url}`)
-      slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, `Catcherror of removing context ${vAPI_URL}`)
-      slconsolelog(DebugLevMap.DebugLevel_High, this.slComm.slview, errorText)
-      if (e instanceof Error && e.message.startsWith("Request failed, status ")) {
-        throw e
-      }
-      let text = new DocumentFragment()
+      slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm.slview, `Request failed: ${vAPI_URL}`)
+      slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm.slview, errorText)
+      const text = new DocumentFragment()
       text.createEl("p", { text: errorText })
       text.createEl("p", { text: "See for information about the error-code of http: https://de.wikipedia.org/wiki/HTTP-Statuscode " })
-      text.createEl("p", { text: semaLogicRequest.url })
-      text.createEl("p", { text: String(semaLogicRequest.body) })
+      text.createEl("p", { text: vAPI_URL })
       this.showError(text)
       throw e
     }
+
+    slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, "SemaLogic: Parse with http-status " + result.status.toString())
+    slconsolelog(DebugLevMap.DebugLevel_Chatty, this.slComm.slview, `Parseresult:${result.raw}`)
+
+    if (!parseOnTheFly) {
+      this.currDiagnostics = result.diagnostics
+      this.currAudience = audience
+    }
+
+    if (result.status >= 200 && result.status < 300) {
+      if ((this.debugInline == false) && (parseOnTheFly == false)) {
+        this.currResult = result.payload.content
+        this.currKind = result.payload.kind
+        this.currFragment = result.payload.fragment
+        this.currSource = result.payload.source
+      }
+      if (!parseOnTheFly) {
+        this.updateView()
+      }
+      return result
+    }
+
+    // Error path: same envelope, `rules` is null and `rulesettype` is absent.
+    const messages = result.diagnostics.items.map(item => diagnosticMessage(item)).filter(message => message.length > 0)
+    const reason = messages.length > 0 ? messages.join(" | ") : result.raw.trim()
+    const detailedMessage = reason.length > 0
+      ? `Request failed, status ${result.status}: ${reason}`
+      : `Request failed, status ${result.status}`
+    slconsolelog(DebugLevMap.DebugLevel_Error, undefined, `[SemaLogic] parse failed: status=${result.status} url=${vAPI_URL} reason=${reason}`)
+    if (!parseOnTheFly) {
+      this.renderDiagnostics()
+    }
+    const text = new DocumentFragment()
+    text.createEl("p", { text: `Request failed, status ${result.status}` })
+    if (messages.length > 0) {
+      text.createEl("p", { text: "SemaLogic diagnostics:" })
+      messages.forEach(message => text.createEl("p", { text: message }))
+    } else {
+      text.createEl("p", { text: "Server response:" })
+      text.createEl("p", { text: result.raw.length > 0 ? result.raw : "<empty response body>" })
+    }
+    text.createEl("p", { text: "See for information about the error-code of http: https://de.wikipedia.org/wiki/HTTP-Statuscode " })
+    text.createEl("p", { text: vAPI_URL })
+    this.showError(text)
+    throw new Error(detailedMessage)
   }
+
+  public async getSemaLogicParse(settings: SemaLogicPluginSettings, vAPI_URL: string, dialectID: string, bodytext: string, parseOnTheFly: boolean, parsingFormat?: string, interpreteText?: string, engine?: string): Promise<string> {
+    const result = await this.requestSemaLogicParse(settings, vAPI_URL, dialectID, bodytext, parseOnTheFly, parsingFormat, interpreteText, engine)
+    return result.payload.content
+  }
+}
+
+type DiagnosticsSummaryLike = { blocking: number; defect: number; suspect: number; note: number }
+
+// One rendered row: the finding plus how often it occurred (via diagnostics.groups).
+type DiagnosticEntry = { item: Diagnostic; count: number }
+
+function severityOf(item: Diagnostic): string {
+  return String(item.severity ?? "note")
+}
+
+// Cuts the XML prolog and leading comments so the markup can be nested inside
+// another <svg> element.
+function stripXmlProlog(content: string): string {
+  const start = content.indexOf("<svg")
+  return start > 0 ? content.substring(start) : content
 }
 
 

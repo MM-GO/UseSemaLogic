@@ -8,6 +8,25 @@ SemaLogic is a symbolic AI, that can be adapted to natural language in order to 
 
 Currently the plugin is in development status and for testing SemaLogic to show technical language, graphical pictures in realtime and e.g. part of the SVGs in pdf directly.
 
+## Releases and publish status
+
+Current version: **2.4.0** (see [docs/changelog.md](docs/changelog.md) for the change history).
+
+A release is published by pushing a Git tag (`npm run release <version>`, details in
+[Readme_Publish_obsidian.md](Readme_Publish_obsidian.md)). Where to check the state of a publish:
+
+| Stage | Where to look |
+| --- | --- |
+| CI build + GitHub release (queued / running / success) | <https://github.com/MM-GO/UseSemaLogic/actions> — or `gh run list` |
+| Published release with `main.js`, `manifest.json`, `styles.css` | <https://github.com/MM-GO/UseSemaLogic/releases> |
+| Update visible to users | Obsidian → Settings → Community plugins → *Check for updates* |
+| Catalogue entry | <https://obsidian.md/plugins?search=SemaLogic> (list data is refreshed periodically, so it may lag) |
+
+There is **no review queue for updates**: the plugin is already listed, so Obsidian reads each new
+version straight from the GitHub release. A review queue only applies to the *initial* listing of a
+plugin, via a pull request against <https://github.com/obsidianmd/obsidian-releases> — that step was
+completed with version 2.0 and is not needed again.
+
 ## First use cases for pdf-display
 
 First SemaLogic Commands which are available are

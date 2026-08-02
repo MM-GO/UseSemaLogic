@@ -5,12 +5,14 @@ export const API_Defaults = {
 	Base_URL: "service.semalogic.ddns.net",
 	Port: "443",
 	rules_parse: "/rules/parse",
-	rules_progress: "/rules/progress",
+	// Canonical spellings introduced with API 00.03.00. The old forms
+	// (/rules/progress, /APIVersion) stay available as aliases on the server.
+	rules_progress: "/session/progress",
 	reset: "/reset",
-	Version: "/APIVersion",
+	Version: "/api-version",
 	PostDialect: "/dialect/define",
 	RemoveDialect: "/dialect/remove",
-	GetAPI: "/APIVersion",
+	GetAPI: "/api-version",
 	SID: "12345678",
 	ShowContext: true,
 	useUserPasswortforHTTP: true,
@@ -62,6 +64,7 @@ export const Rstypes_Picture = 3
 export const Rstypes_ASP = 6
 export const Rstypes_SemanticTree = 8
 export const Rstypes_KnowledgeGraph = 9
+export const Rstypes_AnnotatedHTML = 10
 
 export const RulesettypesCommands: string[][] = [
 	["SemaLogic", "SemaLogic"],
@@ -73,7 +76,10 @@ export const RulesettypesCommands: string[][] = [
 	["ASP", "ASP.json"],
 	["asp", "ASP.json"],
 	["SemanticTree", "SemanticTree"],
-	["KnwoledgeGraph", "KnowledgeGraph"]
+	["KnwoledgeGraph", "KnowledgeGraph"],
+	// New with API 00.03.00. The service currently echoes the submitted text
+	// wrapped in minimal HTML; the real annotator lands later (see `source`).
+	["AnnotatedHTML", "AnnotatedHTML"]
 ]
 
 // Additional SemaLogic-view dropdown entries. They trigger an SL-Interpret style

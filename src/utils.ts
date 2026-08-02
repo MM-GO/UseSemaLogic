@@ -4,6 +4,7 @@ import { DebugLevel, SemaLogicPluginSettings, mygSID } from "../main";
 import { API_Defaults, semaLogicCommand, semaLogicHelp, DebugLevMap, RulesettypesCommands, Rstypes_ASP } from "./const"
 import { SemaLogicView, SemaLogicViewType } from "./view";
 import { parseCommand } from 'src/view_utils';
+import { Diagnostics, RulesoutContent, countFindings, diagnosticMessage, extractRulesout, normalizeDiagnostics, parseRulesout, sortDiagnostics } from "./rulesout";
 
 export const searchForSemaLogicCommands = (el: Element): boolean => {
   for (let i = 0; i < el.childNodes.length; i++) {
@@ -282,9 +283,11 @@ export async function semaLogicPing(settings: SemaLogicPluginSettings, lastUpdat
       const noticeKey = getHostPort(settings)
       if (noticeKey != lastVersionNoticeKey) {
         lastVersionNoticeKey = noticeKey
-        const ok = isApiVersionAtLeast(resultBuffer, "00.02.00")
+        // 00.03.00 replaced the raw response bodies by the rulesout envelope,
+        // so an older service can no longer serve this plugin.
+        const ok = isApiVersionAtLeast(resultBuffer, "00.03.00")
         if (!ok) {
-          new Notice("UseSemaLogic requires a SemaLogic Service API version 00.02.00 or higher.")
+          new Notice("UseSemaLogic requires a SemaLogic Service API version 00.03.00 or higher.")
         }
       }
     })
@@ -451,23 +454,26 @@ async function showParseWithFilter(filter: string, rulessettype: string, setting
     }
   }
 
-  let res: string;
   slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, `Context: ${dialectID}, Bodytext: ${bodytext}`)
   slconsolelog(DebugLevMap.DebugLevel_Informative, undefined, "SemaLogic parse request", createLoggedSemaLogicRequest(optionsParse, bodytext))
   try {
     const responseParse = await requestUrl(optionsParse)
-    const remJson = responseParse.text;
     slconsolelog(DebugLevMap.DebugLevel_Important, undefined, "SemaLogic: Parse with http-status " + responseParse.status.toString())
+    // One decoder for success and error: the reason for a rejected request is
+    // in `diagnostics`, not in the HTTP status.
+    const raw = responseParse.text ?? ""
+    const rulesout = parseRulesout(raw)
+    const payload = extractRulesout(rulesout, raw)
+    const diagnostics = normalizeDiagnostics(rulesout?.diagnostics)
+    slconsolelog(DebugLevMap.DebugLevel_Important, undefined, `Parseresult:${raw}`);
+
+    buildcontainerEl = createEl("p")
     if (responseParse.status == 200) {
-      let resulthttp = responseParse.text;
-      const fragment = sanitizeHTMLToDom(resulthttp);
-      //buildcontainerEl = createEl("h4", { text: API_Defaults.viewheader });
-      buildcontainerEl = createEl("p")
-      buildcontainerEl.appendChild(fragment);
-      results.push(buildcontainerEl)
-      slconsolelog(DebugLevMap.DebugLevel_Important, undefined, `Parseresult:${resulthttp}`);
-      return results
+      renderInlinePayload(buildcontainerEl, payload)
     }
+    renderInlineDiagnostics(buildcontainerEl, diagnostics, responseParse.status)
+    results.push(buildcontainerEl)
+    return results
   }
   catch (e) {
     slconsolelog(DebugLevMap.DebugLevel_Error, undefined, `Catcherror of removing context ${vAPI_URL}`)
@@ -478,6 +484,42 @@ async function showParseWithFilter(filter: string, rulessettype: string, setting
   }
 
   return results
+}
+
+// Renders the extracted payload of an inline "SemaLogic(show as ...)" command.
+function renderInlinePayload(container: HTMLElement, payload: RulesoutContent): void {
+  if (payload.content.length == 0) { return }
+  if (payload.kind == "asp" || payload.kind == "canvas") {
+    container.createEl("pre", { text: payload.content })
+    return
+  }
+  if (payload.kind == "html" && payload.fragment == false) {
+    // A complete document belongs into a frame, not into the reading view DOM.
+    const frame = container.createEl("iframe", { cls: "sl-result-frame" })
+    frame.setAttr("sandbox", "")
+    frame.setAttr("srcdoc", payload.content)
+    return
+  }
+  container.appendChild(sanitizeHTMLToDom(payload.content))
+}
+
+// Findings are part of every reply, so the inline command shows them too -
+// including on the error path, where `rules` is null.
+function renderInlineDiagnostics(container: HTMLElement, diagnostics: Diagnostics, status: number): void {
+  const total = countFindings(diagnostics.summary)
+  if (total == 0 && status == 200) { return }
+  const listEl = container.createEl("div", { cls: "sl-diagnostics" })
+  if (status != 200) {
+    listEl.createEl("div", { text: `Request failed, status ${status}`, cls: "sl-diag-item is-blocking" })
+  }
+  sortDiagnostics(diagnostics.items).forEach(item => {
+    const row = listEl.createEl("div", { cls: `sl-diag-item is-${String(item.severity ?? "note")}` })
+    row.createEl("span", { text: String(item.severity ?? "note"), cls: "sl-diag-severity" })
+    row.createEl("span", { text: diagnosticMessage(item), cls: "sl-diag-message" })
+  })
+  if (diagnostics.summary.hidden > 0) {
+    listEl.createEl("div", { text: `${diagnostics.summary.hidden} technical message(s) hidden`, cls: "sl-diag-hidden" })
+  }
 }
 
 export function slconsolelog(DebugValue: number, slview?: SemaLogicView | undefined, message?: any, ...optionalParams: any[]) {
