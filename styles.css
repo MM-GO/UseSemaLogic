@@ -141,13 +141,10 @@ If your plugin does not need CSS, delete this file.
     color: var(--text-error);
 }
 
-/* Full documents (rulefmt_html with fragment=false) are rendered in a frame. */
-.sl-result-frame {
+/* Full documents (rulefmt_html with fragment=false) are inlined like every
+   other result; the wrapper only carries the document's own scoped CSS. */
+.sl-result-document {
     width: 100%;
-    min-height: 420px;
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 6px;
-    background: var(--background-primary);
 }
 
 /* Theme-aware law.css default for the configurable :target citation highlight. */

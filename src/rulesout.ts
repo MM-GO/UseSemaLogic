@@ -68,8 +68,8 @@ export type RulesoutContent = {
 	// Ready to use payload: markup, SVG, the Canvas JSON string or pretty
 	// printed ASP facts.
 	content: string
-	// false means `content` is a complete <!DOCTYPE html> document and belongs
-	// into an iframe, not into innerHTML.
+	// false means `content` is a complete <!DOCTYPE html> document; only its
+	// body and style rules are rendered (see splitHtmlDocument).
 	fragment: boolean
 	// AnnotatedHTML only: "echo" while the annotator is not wired up yet,
 	// "annotate" once it is.
@@ -177,6 +177,125 @@ export function extractRulesout(rulesout: Rulesout | undefined, rawBody: string)
 			// format was chosen) or unknown to this plugin version.
 			return { kind: "raw", content: typeof rules == "string" ? rules : JSON.stringify(rules, undefined, 2), fragment: true }
 	}
+}
+
+// A `fragment: false` payload is a complete document (SemanticTree). It is
+// rendered inline like every other rulesettype, so the parts that cannot live
+// inside the view - doctype, <html>, <head>, scripts - are dropped and only the
+// body markup plus the document's own style rules are kept.
+export type HtmlDocumentParts = {
+	body: string
+	css: string
+}
+
+export function splitHtmlDocument(documentHtml: string): HtmlDocumentParts {
+	const source = documentHtml ?? ""
+	const css = collectStyleBlocks(source)
+	return { body: extractBody(source), css }
+}
+
+function collectStyleBlocks(source: string): string {
+	const blocks: string[] = []
+	const styleTag = /<style\b[^>]*>([\s\S]*?)<\/style>/gi
+	let match = styleTag.exec(source)
+	while (match != null) {
+		blocks.push(match[1].trim())
+		match = styleTag.exec(source)
+	}
+	return blocks.filter(block => block.length > 0).join("\n")
+}
+
+function extractBody(source: string): string {
+	const bodyMatch = /<body\b[^>]*>([\s\S]*?)<\/body>/i.exec(source)
+	// No <body> at all: strip the document wrapper and keep whatever is left.
+	const body = bodyMatch != undefined ? bodyMatch[1] : stripDocumentWrapper(source)
+	return dropNonRenderable(body).trim()
+}
+
+function stripDocumentWrapper(source: string): string {
+	return source
+		.replace(/<!DOCTYPE[^>]*>/gi, "")
+		.replace(/<\/?html\b[^>]*>/gi, "")
+		.replace(/<head\b[^>]*>[\s\S]*?<\/head>/gi, "")
+}
+
+function dropNonRenderable(body: string): string {
+	return body
+		.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, "")
+		.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "")
+		.replace(/<link\b[^>]*>/gi, "")
+}
+
+// Confines the document's own rules to the element the body markup is rendered
+// into, so a SemanticTree cannot restyle the surrounding Obsidian UI. Selectors
+// addressing the document itself (html, body, :root) become the scope element.
+export function scopeCss(css: string, scope: string): string {
+	const source = stripCssComments(css ?? "")
+	if (source.trim().length == 0) { return "" }
+	return scopeRules(source, scope)
+}
+
+function stripCssComments(css: string): string {
+	return css.replace(/\/\*[\s\S]*?\*\//g, "")
+}
+
+function scopeRules(css: string, scope: string): string {
+	const out: string[] = []
+	let index = 0
+	while (index < css.length) {
+		const braceAt = css.indexOf("{", index)
+		if (braceAt < 0) { break }
+		const prelude = css.substring(index, braceAt).trim()
+		const blockEnd = matchingBrace(css, braceAt)
+		const block = css.substring(braceAt + 1, blockEnd)
+		if (prelude.startsWith("@")) {
+			out.push(scopeAtRule(prelude, block, scope))
+		} else if (prelude.length > 0) {
+			out.push(`${scopeSelectors(prelude, scope)} {${block}}`)
+		}
+		index = blockEnd + 1
+	}
+	return out.join("\n")
+}
+
+// @media and @supports wrap ordinary rules, so their block is scoped in turn.
+// @keyframes, @font-face and friends carry no selectors and are kept verbatim.
+function scopeAtRule(prelude: string, block: string, scope: string): string {
+	const name = /^@([\w-]+)/.exec(prelude)?.[1]?.toLowerCase() ?? ""
+	if (name == "media" || name == "supports" || name == "layer" || name == "container") {
+		return `${prelude} {\n${scopeRules(block, scope)}\n}`
+	}
+	return `${prelude} {${block}}`
+}
+
+function matchingBrace(css: string, openAt: number): number {
+	let depth = 0
+	for (let i = openAt; i < css.length; i++) {
+		if (css.charAt(i) == "{") { depth++ }
+		if (css.charAt(i) == "}") {
+			depth--
+			if (depth == 0) { return i }
+		}
+	}
+	return css.length
+}
+
+function scopeSelectors(selectors: string, scope: string): string {
+	return selectors
+		.split(",")
+		.map(selector => scopeSelector(selector.trim(), scope))
+		.filter(selector => selector.length > 0)
+		.join(", ")
+}
+
+function scopeSelector(selector: string, scope: string): string {
+	if (selector.length == 0) { return "" }
+	const documentSelector = /^(html|body|:root)\b/i
+	if (documentSelector.test(selector)) {
+		const rest = selector.replace(documentSelector, "").trim()
+		return rest.length == 0 ? scope : `${scope} ${rest}`
+	}
+	return `${scope} ${selector}`
 }
 
 function stringifyAsp(rules: any): string {

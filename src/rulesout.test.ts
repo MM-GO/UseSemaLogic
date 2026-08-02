@@ -1,6 +1,6 @@
 import {
 	countFindings, diagnosticMessage, extractRulesout, normalizeDiagnostics,
-	parseRulesout, sortDiagnostics, withAudience
+	parseRulesout, scopeCss, sortDiagnostics, splitHtmlDocument, withAudience
 } from "./rulesout";
 
 // Every payload below is one of the shapes captured from a running 00.03.00-01
@@ -122,6 +122,68 @@ describe("diagnostics", () => {
 	test("message wins over the deprecated errortext", () => {
 		expect(diagnosticMessage({ message: "m", errortext: "e" })).toBe("m")
 		expect(diagnosticMessage({ errortext: "e" })).toBe("e")
+	})
+})
+
+describe("inlining a full document", () => {
+	const doc = `\n<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n` +
+		`<title>Tree</title>\n<link rel="stylesheet" href="tree.css">\n` +
+		`<style>body { margin: 2rem; }\nul.tree li { color: red; }</style>\n</head>\n` +
+		`<body class="tree">\n<ul class="tree"><li>A</li></ul>\n<script>alert(1)</script>\n</body>\n</html>\n`
+
+	test("keeps the body markup and drops the document wrapper", () => {
+		const { body } = splitHtmlDocument(doc)
+		expect(body).toBe('<ul class="tree"><li>A</li></ul>')
+		expect(body).not.toContain("DOCTYPE")
+		expect(body).not.toContain("<title>")
+	})
+
+	test("scripts, styles and links never reach the view", () => {
+		const { body } = splitHtmlDocument(doc)
+		expect(body).not.toContain("<script")
+		expect(body).not.toContain("<style")
+		expect(body).not.toContain("<link")
+	})
+
+	test("the document's own style blocks are collected", () => {
+		const { css } = splitHtmlDocument(doc)
+		expect(css).toContain("ul.tree li { color: red; }")
+	})
+
+	test("a document without <body> still yields its markup", () => {
+		const { body } = splitHtmlDocument('<!DOCTYPE html>\n<html><head><title>t</title></head><p>A</p></html>')
+		expect(body).toBe("<p>A</p>")
+	})
+
+	test("an empty document is no markup, not a crash", () => {
+		expect(splitHtmlDocument("")).toEqual({ body: "", css: "" })
+	})
+})
+
+describe("scoping the document CSS", () => {
+	test("every selector is confined to the scope element", () => {
+		expect(scopeCss("ul.tree li { color: red; }", ".sl-doc")).toBe(".sl-doc ul.tree li { color: red; }")
+	})
+
+	test("selector lists are scoped one by one", () => {
+		expect(scopeCss("h1, h2 { margin: 0; }", ".sl-doc")).toBe(".sl-doc h1, .sl-doc h2 { margin: 0; }")
+	})
+
+	test("html, body and :root become the scope element itself", () => {
+		expect(scopeCss("body { margin: 2rem; }", ".sl-doc")).toBe(".sl-doc { margin: 2rem; }")
+		expect(scopeCss(":root { --x: 1px; }", ".sl-doc")).toBe(".sl-doc { --x: 1px; }")
+		expect(scopeCss("body ul { margin: 0; }", ".sl-doc")).toBe(".sl-doc ul { margin: 0; }")
+	})
+
+	test("@media wraps scoped rules, @keyframes stays untouched", () => {
+		const scoped = scopeCss("@media (min-width: 40em) { p { color: red; } }", ".sl-doc")
+		expect(scoped).toContain(".sl-doc p { color: red; }")
+		expect(scopeCss("@keyframes fade { from { opacity: 0; } }", ".sl-doc")).toContain("@keyframes fade")
+	})
+
+	test("comments are removed and empty CSS stays empty", () => {
+		expect(scopeCss("/* c */ p { color: red; }", ".sl-doc")).toBe(".sl-doc p { color: red; }")
+		expect(scopeCss("", ".sl-doc")).toBe("")
 	})
 })
 

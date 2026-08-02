@@ -11,7 +11,7 @@ Unreleased - SemaLogic Service API 00.03.00:
 * Defects, warnings and notes each sit in their own collapsed section; `Defects`, `Warnings` and `Developer` buttons in the control row hide and show them, and the last state is kept in the settings (*Show defects* / *Show warnings* / *Show developer findings*)
 * `Developer` switches the request to `audience=developer` and names the number of withheld messages, e.g. `Developer (2)`
 * Error replies use the same envelope, so failures report the diagnostic message instead of a bare HTTP status
-* `SemanticTree` output is rendered in a frame, honouring `fragment: false`
+* `SemanticTree` output (`fragment: false`) is rendered inline as HTML like every other output format instead of in a scrolling frame; the document's own style rules come along, scoped to the result element
 * New `AnnotatedHTML` output format (the service still echoes the submitted text; flagged in the view)
 * Canonical endpoints `/api-version` and `/session/progress` and the lowercase `nlp` parameter; requires service API 00.03.00 or higher
 

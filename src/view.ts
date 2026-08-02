@@ -7,10 +7,14 @@ import { getHostPort } from "./utils";
 import {
   Diagnostic, Diagnostics, Rulesout, RulesoutContent,
   countFindings, diagnosticMessage, emptyDiagnostics, extractRulesout, normalizeDiagnostics,
-  parseRulesout, requestAudience_Developer, requestAudience_User, sortDiagnostics, withAudience
+  parseRulesout, requestAudience_Developer, requestAudience_User, scopeCss, sortDiagnostics,
+  splitHtmlDocument, withAudience
 } from "./rulesout";
 
 export const SemaLogicViewType = "SemaLogicService";
+
+// Wrapper for an inlined full document; also the scope its own CSS is confined to.
+const SemaLogicDocumentClass = "sl-result-document";
 
 function createLoggedSemaLogicRequest(request: RequestUrlParam, semaLogicJsonRequestBody: any) {
   const headers = { ...(request.headers ?? {}) } as Record<string, string>
@@ -714,8 +718,9 @@ export class SemaLogicView extends ItemView {
     }
 
     if (this.currKind == "html" && this.currFragment == false) {
-      // A complete <!DOCTYPE html> document (SemanticTree). Inlining it would
-      // drop everything outside <body>, so it gets its own frame.
+      // A complete <!DOCTYPE html> document (SemanticTree). It is rendered like
+      // every other output: its body markup goes into the view, its own style
+      // rules come along scoped to that element.
       this.renderFullDocument(responseContent, this.currResult)
       return
     }
@@ -724,12 +729,16 @@ export class SemaLogicView extends ItemView {
     responseContent.after(sanitizeHTMLToDom(this.getCurrResult()))
   }
 
-  // Renders a full HTML document without letting it script against the vault:
-  // no allow-scripts, no allow-top-navigation.
+  // Inlines a full HTML document: doctype, <html>, <head> and any script go
+  // away, the body markup is sanitized like every other result.
   private renderFullDocument(container: HTMLElement, documentHtml: string): void {
-    const frame = container.createEl("iframe", { cls: "sl-result-frame" })
-    frame.setAttr("sandbox", "")
-    frame.setAttr("srcdoc", documentHtml)
+    const parts = splitHtmlDocument(documentHtml)
+    const scope = container.createEl("div", { cls: SemaLogicDocumentClass })
+    const css = scopeCss(parts.css, `.${SemaLogicDocumentClass}`)
+    if (css.length > 0) {
+      scope.createEl("style", { text: css })
+    }
+    scope.appendChild(sanitizeHTMLToDom(parts.body))
   }
 
   updateView(): void {
