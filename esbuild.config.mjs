@@ -1,5 +1,6 @@
 import esbuild from "esbuild";
 import process from "process";
+import { statSync } from "fs";
 import builtins from 'builtin-modules'
 
 const banner =
@@ -10,8 +11,9 @@ if you want to view the source, please visit the github repository of this plugi
 `;
 
 const prod = (process.argv[2] === 'production');
+const outfile = 'main.js';
 
-esbuild.build({
+const context = await esbuild.context({
 	banner: {
 		js: banner,
 	},
@@ -33,10 +35,27 @@ esbuild.build({
 		'@lezer/lr',
 		...builtins],
 	format: 'cjs',
-	watch: !prod,
 	target: 'es2018',
 	logLevel: "info",
 	sourcemap: prod ? false : 'inline',
 	treeShaking: true,
-	outfile: 'main.js',
-}).catch(() => process.exit(1));
+	outfile,
+});
+
+// Since esbuild 0.17 the watch mode lives on the context object; a plain
+// build() no longer accepts a "watch" option. esbuild reports the errors
+// itself, so we only need the exit code.
+try {
+	if (prod) {
+		const started = Date.now();
+		await context.rebuild();
+		await context.dispose();
+		// rebuild() stays silent, so keep the summary build() used to print.
+		const kb = (statSync(outfile).size / 1024).toFixed(1);
+		console.log(`  ${outfile}  ${kb}kb\n\nDone in ${Date.now() - started}ms`);
+	} else {
+		await context.watch();
+	}
+} catch {
+	process.exit(1);
+}
