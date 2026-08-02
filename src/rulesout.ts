@@ -63,6 +63,10 @@ export type Rulesout = {
 // unchanged so an older service still renders.
 export type RulesoutKind = "html" | "svg" | "canvas" | "asp" | "engine" | "raw" | "none"
 
+// How a text payload is meant to be displayed. AnnotatedHTML carries either
+// markup or markdown, so it is decided per reply (see detectTextFormat).
+export type RulesoutTextFormat = "html" | "markdown"
+
 export type RulesoutContent = {
 	kind: RulesoutKind
 	// Ready to use payload: markup, SVG, the Canvas JSON string or pretty
@@ -74,6 +78,10 @@ export type RulesoutContent = {
 	// AnnotatedHTML only: "echo" while the annotator is not wired up yet,
 	// "annotate" once it is.
 	source?: string
+	// Declared media type of the payload (rulefmt_* `mediaType`/`contentType`).
+	mediaType?: string
+	// Set where the payload may be markdown; absent means "render as markup".
+	format?: RulesoutTextFormat
 }
 
 // Values for the `audience` query parameter of /rules/parse, /rules/show and
@@ -155,28 +163,151 @@ export function extractRulesout(rulesout: Rulesout | undefined, rawBody: string)
 	switch (rulesout.rulesettype) {
 		case "SemaLogic":
 		case "SemanticTree":
-		case "AnnotatedHTML":
 			return {
 				kind: "html",
 				content: String(rules.html ?? ""),
 				// Only an explicit false means "complete document".
 				fragment: rules.fragment !== false,
-				source: rules.source
+				mediaType: rules.mediaType
 			}
+		case "AnnotatedHTML": {
+			// The annotated text is markup or markdown - which one is decided per
+			// reply, since `mediaType` defaults to text/html either way.
+			const content = String(rules.html ?? "")
+			const fragment = rules.fragment !== false
+			return {
+				kind: "html",
+				content,
+				fragment,
+				source: rules.source,
+				mediaType: rules.mediaType,
+				format: detectTextFormat(content, fragment, rules.mediaType)
+			}
+		}
 		case "SVG":
-			return { kind: "svg", content: String(rules.svg ?? ""), fragment: true }
+			return { kind: "svg", content: String(rules.svg ?? ""), fragment: true, mediaType: rules.mediaType }
 		case "KnowledgeGraph":
 			// `canvas` is a JSON *string*; the callers parse it themselves.
 			return { kind: "canvas", content: String(rules.canvas ?? ""), fragment: true }
 		case "ASP.json":
 			return { kind: "asp", content: stringifyAsp(rules), fragment: true }
 		case "DialectEngine":
-			return { kind: "engine", content: String(rules.output ?? ""), fragment: true }
+			return {
+				kind: "engine",
+				content: String(rules.output ?? ""),
+				fragment: true,
+				mediaType: rules.contentType,
+				// An engine says what it produced; nothing is guessed here.
+				format: isMarkdownMediaType(rules.contentType) ? "markdown" : undefined
+			}
 		default:
 			// `rulesettype` may be absent (request rejected before an output
 			// format was chosen) or unknown to this plugin version.
 			return { kind: "raw", content: typeof rules == "string" ? rules : JSON.stringify(rules, undefined, 2), fragment: true }
 	}
+}
+
+// Media types that name markdown. `text/html` is not the counterpart of this
+// list: it is the default of the schema and is sent for a markdown body as
+// well, so only markdown can be settled by the declaration alone.
+const markdownMediaTypes = ["text/markdown", "text/x-markdown", "text/md", "application/markdown"]
+
+export function isMarkdownMediaType(mediaType: string | undefined): boolean {
+	const declared = (mediaType ?? "").split(";")[0].trim().toLowerCase()
+	return markdownMediaTypes.includes(declared)
+}
+
+// Decides how a text payload is displayed: an explicitly declared markdown
+// media type settles it, otherwise the content does.
+export function detectTextFormat(content: string, fragment: boolean, mediaType?: string): RulesoutTextFormat {
+	if (isMarkdownMediaType(mediaType)) { return "markdown" }
+	return looksLikeMarkdown(markdownSource(content, fragment)) ? "markdown" : "html"
+}
+
+// The markdown a payload carries. Markdown that travelled in an HTML wrapper -
+// the `source=echo` shape - has to be unpacked first: the document wrapper, an
+// enclosing block element and the HTML escaping all come off again. Content
+// that was never wrapped is returned unchanged.
+export function markdownSource(content: string, fragment: boolean): string {
+	const source = content ?? ""
+	let text = source
+	let unwrapped = false
+	if (fragment === false || /<!DOCTYPE\s|<html\b|<body\b/i.test(source)) {
+		text = splitHtmlDocument(source).body
+		unwrapped = true
+	}
+	// Peel wrappers that enclose the whole text; nested ones (<div><pre>) as well.
+	const wholeWrapper = /^<(pre|code|div|p|section|article|span)\b[^>]*>([\s\S]*)<\/\1>$/i
+	for (let depth = 0; depth < 5; depth++) {
+		const match = wholeWrapper.exec(text.trim())
+		if (match == undefined) { break }
+		text = match[2]
+		unwrapped = true
+	}
+	// Only text that came out of a wrapper was escaped for transport; markdown
+	// sent as-is may legitimately contain entities.
+	return unwrapped ? decodeHtmlEntities(text).trim() : text
+}
+
+function decodeHtmlEntities(text: string): string {
+	return text
+		.replace(/&lt;/gi, "<")
+		.replace(/&gt;/gi, ">")
+		.replace(/&quot;/gi, '"')
+		.replace(/&#0*39;|&apos;/gi, "'")
+		.replace(/&nbsp;/gi, " ")
+		.replace(/&amp;/gi, "&")
+}
+
+// Markup and markdown are told apart by what each brings that the other does
+// not: HTML elements against markdown's line and inline markers. Markdown may
+// contain inline HTML, so it is their ratio that decides, not their presence.
+export function looksLikeMarkdown(content: string): boolean {
+	const source = content ?? ""
+	if (source.trim().length == 0) { return false }
+	const markdown = countMarkdownMarkers(source)
+	if (markdown == 0) { return false }
+	return markdown > countHtmlTags(source)
+}
+
+// Tags of the HTML elements a rendered SemaLogic result is built from. Matching
+// a fixed list keeps "<not a tag>" in running text from counting as markup.
+const htmlTagPattern = /<\/?(a|abbr|article|aside|b|blockquote|br|button|code|col|dd|div|dl|dt|em|figcaption|figure|font|footer|h[1-6]|head|header|hr|i|img|input|li|main|mark|nav|ol|p|pre|q|section|small|span|strong|sub|sup|table|tbody|td|th|thead|tr|u|ul)\b[^>]*>/gi
+
+function countHtmlTags(source: string): number {
+	return source.match(htmlTagPattern)?.length ?? 0
+}
+
+// Markers that start a markdown block, checked per line.
+const markdownLinePatterns = [
+	/^\s{0,3}#{1,6}\s+\S/,                 // ATX heading
+	/^\s{0,3}[-*+]\s+\S/,                  // bullet list
+	/^\s{0,3}\d+[.)]\s+\S/,                // ordered list
+	/^\s{0,3}>\s?\S/,                      // block quote
+	/^\s{0,3}(```|~~~)/,                   // fenced code
+	/^\s{0,3}\|.*\|\s*$/,                  // table row
+	/^\s{0,3}([-*_]\s*){3,}$/              // thematic break
+]
+
+// Inline markers; counted per occurrence, since a single one is weak evidence.
+const markdownInlinePatterns = [
+	/!?\[[^\]\n]*\]\([^)\s]*\)/g,          // link / image
+	/\[\[[^\]\n]+\]\]/g,                   // wiki link
+	/\*\*[^*\n]+\*\*/g,                    // bold
+	/(^|[^\w`])`[^`\n]+`/g,                // inline code
+	/(^|\s)==[^=\n]+==/g,                  // highlight
+	/(^|\s)~~[^~\n]+~~/g                   // strikethrough
+]
+
+function countMarkdownMarkers(source: string): number {
+	let count = 0
+	source.split(/\r?\n/).forEach(line => {
+		if (markdownLinePatterns.some(pattern => pattern.test(line))) { count++ }
+	})
+	markdownInlinePatterns.forEach(pattern => {
+		count += source.match(pattern)?.length ?? 0
+	})
+	return count
 }
 
 // A `fragment: false` payload is a complete document (SemanticTree). It is

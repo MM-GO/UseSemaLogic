@@ -396,6 +396,7 @@ export interface SemaLogicPluginSettings {
 	showDiagnosticDefects: boolean;         // defect findings visible in the SemaLogic view
 	showDiagnosticWarnings: boolean;        // suspect findings visible in the SemaLogic view
 	showDiagnosticDeveloper: boolean;       // request findings with audience=developer
+	showResultAsSource: boolean;            // show the response payload as source text instead of rendered
 	sectionStyleEnabled: boolean;           // master on/off for the section-class styling
 	sectionStyleSlot: number;               // index of the active style slot
 	sectionStyleSlots: SLSectionStyleSlot[]; // named, independently switchable style slots
@@ -461,6 +462,9 @@ export const Default_profile: SemaLogicPluginSettings = {
 	// Off by default: audience=user is the server default and keeps engine
 	// internals out of the reply until they are asked for.
 	showDiagnosticDeveloper: false,
+	// Off by default: the rendered result is what the view is for, the source
+	// text is the on-demand look behind it.
+	showResultAsSource: false,
 	sectionStyleEnabled: true,
 	sectionStyleSlot: 0,
 	sectionStyleSlots: [
@@ -757,6 +761,18 @@ class SemaLogicSettingTab extends PluginSettingTab {
 					this.plugin.settings.showDiagnosticDeveloper = value;
 					await this.plugin.saveSettings()
 					await this.plugin.slComm?.slview?.reloadDiagnosticsForAudience(value)
+				}));
+
+		// Startup state of the Rendered / Source button in the SemaLogic view.
+		new Setting(containerEl)
+			.setName('Show result as source')
+			.setDesc('Display the response payload as unrendered source text instead of rendered output (toggled by the Rendered/Source button)')
+			.addToggle(setting => setting
+				.setValue(this.plugin.settings.showResultAsSource)
+				.onChange(async (value) => {
+					this.plugin.settings.showResultAsSource = value;
+					await this.plugin.saveSettings()
+					this.plugin.slComm?.slview?.updateView()
 				}));
 
 		// Transfer / ASP view is part of the profile settings, but collapsed by default

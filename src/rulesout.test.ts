@@ -1,6 +1,7 @@
 import {
-	countFindings, diagnosticMessage, extractRulesout, normalizeDiagnostics,
-	parseRulesout, scopeCss, sortDiagnostics, splitHtmlDocument, withAudience
+	countFindings, detectTextFormat, diagnosticMessage, extractRulesout, looksLikeMarkdown,
+	markdownSource, normalizeDiagnostics, parseRulesout, scopeCss, sortDiagnostics,
+	splitHtmlDocument, withAudience
 } from "./rulesout";
 
 // Every payload below is one of the shapes captured from a running 00.03.00-01
@@ -61,6 +62,27 @@ describe("rulesout payload extraction", () => {
 		expect(payload.source).toBe("echo")
 	})
 
+	test("AnnotatedHTML markup is rendered as markup", () => {
+		const { payload } = decode(`{"rulesettype":"AnnotatedHTML","rules":{"html":"<section><p>Ein <span class=\\"sl-term\\">Begriff</span> im Satz.</p></section>","fragment":true,"mediaType":"text/html","source":"annotate"},${cleanDiagnostics}}`)
+		expect(payload.format).toBe("html")
+	})
+
+	test("AnnotatedHTML markdown is detected despite the text/html default", () => {
+		const { payload } = decode(`{"rulesettype":"AnnotatedHTML","rules":{"html":"# Titel\\n\\n- erster Punkt\\n- zweiter Punkt\\n\\nSiehe [[Andere Notiz]].","fragment":true,"mediaType":"text/html","source":"echo"},${cleanDiagnostics}}`)
+		expect(payload.format).toBe("markdown")
+	})
+
+	test("a declared markdown media type settles it without looking at the content", () => {
+		const { payload } = decode(`{"rulesettype":"AnnotatedHTML","rules":{"html":"Nur ein Satz ohne Marker.","fragment":true,"mediaType":"text/markdown; charset=utf-8"},${cleanDiagnostics}}`)
+		expect(payload.format).toBe("markdown")
+	})
+
+	test("DialectEngine follows the content type it declares", () => {
+		const { payload } = decode(`{"rulesettype":"DialectEngine","rules":{"engine":"dialectgen_v2","contentType":"text/markdown","output":"**fett**"},${cleanDiagnostics}}`)
+		expect(payload.format).toBe("markdown")
+		expect(payload.mediaType).toBe("text/markdown")
+	})
+
 	test("a body that is not an envelope is passed through unchanged", () => {
 		// A pre-00.03.00 Canvas document also starts with "{".
 		const raw = '{"nodes":[],"edges":[]}'
@@ -86,6 +108,41 @@ describe("rulesout error path", () => {
 	test("an unknown rulesettype does not throw", () => {
 		const { payload } = decode(`{"rulesettype":"SomethingNew","rules":{"a":1},${cleanDiagnostics}}`)
 		expect(payload.kind).toBe("raw")
+	})
+})
+
+describe("html vs. markdown detection", () => {
+	test("a rendered SemaLogic fragment counts as markup", () => {
+		expect(looksLikeMarkdown('<font style="color:#f8f8f8;">A</font> <b>B</b>')).toBe(false)
+	})
+
+	test("plain prose without any marker stays markup", () => {
+		expect(looksLikeMarkdown("Ein Satz ohne jede Auszeichnung.")).toBe(false)
+	})
+
+	test("markdown with occasional inline HTML still counts as markdown", () => {
+		const text = "# Titel\n\n- Punkt eins<br>\n- Punkt zwei\n\n**wichtig** und `code`"
+		expect(looksLikeMarkdown(text)).toBe(true)
+	})
+
+	test("markdown wrapped in a document is unpacked and recognised", () => {
+		const wrapped = '<!DOCTYPE html>\n<html><head><title>t</title></head><body><pre># Titel\n\n- a\n- b\n\n[Link](https://example.org) &amp; mehr</pre></body></html>'
+		expect(markdownSource(wrapped, false)).toBe("# Titel\n\n- a\n- b\n\n[Link](https://example.org) & mehr")
+		expect(detectTextFormat(wrapped, false)).toBe("markdown")
+	})
+
+	test("a real HTML document is not mistaken for wrapped markdown", () => {
+		const document = '<!DOCTYPE html>\n<html><body><h1>Titel</h1><ul><li>a</li><li>b</li></ul></body></html>'
+		expect(detectTextFormat(document, false)).toBe("html")
+	})
+
+	test("unwrapped markdown keeps its own entities", () => {
+		expect(markdownSource("A &amp; B", true)).toBe("A &amp; B")
+	})
+
+	test("an empty payload is not markdown", () => {
+		expect(looksLikeMarkdown("")).toBe(false)
+		expect(detectTextFormat("", true)).toBe("html")
 	})
 })
 

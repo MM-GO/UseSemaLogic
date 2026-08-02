@@ -1,14 +1,14 @@
-import { DropdownComponent, ItemView, WorkspaceLeaf, ButtonComponent, RequestUrlParam, requestUrl, sanitizeHTMLToDom } from "obsidian";
+import { DropdownComponent, ItemView, WorkspaceLeaf, ButtonComponent, MarkdownRenderer, RequestUrlParam, requestUrl, sanitizeHTMLToDom } from "obsidian";
 import { slTexts, DebugLevMap, RulesettypesCommands, Rstypes_Semalogic, Rstypes_SemanticTree, Rstypes_KnowledgeGraph, Rstypes_Picture, Rstypes_ASP, Rstypes_AnnotatedHTML, DialectGen_Label, API_Defaults } from "./const"
 import { SemaLogicPluginComm, DebugLevel, SemaLogicPluginSettings } from "../main"
 import { slconsolelog } from './utils'
 import { ViewUtils } from "./view_utils";
 import { getHostPort } from "./utils";
 import {
-  Diagnostic, Diagnostics, Rulesout, RulesoutContent,
-  countFindings, diagnosticMessage, emptyDiagnostics, extractRulesout, normalizeDiagnostics,
-  parseRulesout, requestAudience_Developer, requestAudience_User, scopeCss, sortDiagnostics,
-  splitHtmlDocument, withAudience
+  Diagnostic, Diagnostics, Rulesout, RulesoutContent, RulesoutTextFormat,
+  countFindings, diagnosticMessage, emptyDiagnostics, extractRulesout, markdownSource,
+  normalizeDiagnostics, parseRulesout, requestAudience_Developer, requestAudience_User,
+  scopeCss, sortDiagnostics, splitHtmlDocument, withAudience
 } from "./rulesout";
 
 export const SemaLogicViewType = "SemaLogicService";
@@ -81,6 +81,7 @@ export class SemaLogicView extends ItemView {
   dropdownButton!: DropdownComponent
   copyButton!: ButtonComponent
   debugButton!: ButtonComponent
+  viewModeButton!: ButtonComponent
   debugContent: string[]
   zoomIn!: ButtonComponent
   zoomRatio!: ButtonComponent
@@ -92,10 +93,14 @@ export class SemaLogicView extends ItemView {
   currKind: string = "raw"
   currFragment: boolean = true
   currSource: string | undefined
+  // "markdown" where the payload turned out to be markdown rather than markup.
+  currFormat: RulesoutTextFormat | undefined
   currDiagnostics: Diagnostics = emptyDiagnostics()
   currAudience: string = requestAudience_User
   // Open/closed state per severity section, kept while the view lives.
   sectionOpen: Record<string, boolean> = {}
+  // Result display mode while no settings are reachable (view without plugin comm).
+  resultAsSourceFallback: boolean = false
   lastParseRequest: LastParseRequest | undefined
   bodytext: string = ""
   apiURL: string = ""
@@ -287,6 +292,47 @@ export class SemaLogicView extends ItemView {
     return container
   }
 
+  // Switches the result area between the rendered output and its source text.
+  // Only the payload is affected - findings, errors and debug output keep their
+  // own rendering.
+  createViewModeButton(container: HTMLElement): HTMLElement {
+    this.viewModeButton = new ButtonComponent(container)
+      .onClick(() => { void this.toggleResultAsSource() })
+    this.viewModeButton.buttonEl.addClass("sl-view-mode-toggle")
+    this.refreshViewModeButton()
+    return container
+  }
+
+  private refreshViewModeButton(): void {
+    if (this.viewModeButton == undefined) { return }
+    const source = this.getResultAsSource()
+    this.viewModeButton
+      .setButtonText(source ? "Source" : "Rendered")
+      .setTooltip(source ? "Show the rendered result" : "Show the result as source text")
+    this.viewModeButton.buttonEl.toggleClass("is-source", source)
+  }
+
+  // The result display mode. Persisted in the global settings, so the last
+  // choice is what comes up again and the settings tab can change it as well.
+  public getResultAsSource(): boolean {
+    const settings = this.slComm?.slPlugin?.settings
+    if (settings == undefined) { return this.resultAsSourceFallback }
+    return settings.showResultAsSource === true
+  }
+
+  private async toggleResultAsSource(): Promise<void> {
+    const next = !this.getResultAsSource()
+    const plugin = this.slComm?.slPlugin
+    if (plugin != undefined) {
+      plugin.settings.showResultAsSource = next
+      await plugin.saveSettings()
+    } else {
+      this.resultAsSourceFallback = next
+    }
+    slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, 'Set ResultAsSource: ' + next)
+    this.updateView()
+  }
+
   createScaleButtons(container: HTMLElement): HTMLElement {
     // Zoom in
     this.zoomIn = new ButtonComponent(container)
@@ -347,7 +393,8 @@ export class SemaLogicView extends ItemView {
       this.errorEl = this.contentEl.createEl("div", { cls: "semalogic-error" })
     }
     this.scaleControlsEl.empty()
-    if (outputFormat == RulesettypesCommands[Rstypes_Picture][1]) {
+    // Zoom scales the rendered SVG; in source view there is nothing to scale.
+    if (outputFormat == RulesettypesCommands[Rstypes_Picture][1] && !this.getResultAsSource()) {
       this.createScaleButtons(this.scaleControlsEl)
     }
   }
@@ -364,6 +411,7 @@ export class SemaLogicView extends ItemView {
 
       this.createDropDownButtonForOutPutFormat(this.controlsEl, dropDownValue)
       this.createCopyToClipboardButton(this.controlsEl)
+      this.createViewModeButton(this.controlsEl)
       this.createDebugButton(this.controlsEl)
       // Diagnostics toggles sit in the control row, directly behind InlineDebug.
       this.diagToggleEl = this.controlsEl.createEl("span", { cls: "sl-diag-toggles" })
@@ -708,12 +756,27 @@ export class SemaLogicView extends ItemView {
       })
     }
 
+    // Source view: the payload as it arrived - markup, SVG or plain text, in
+    // coding style instead of rendered.
+    if (this.getResultAsSource()) {
+      this.renderSourceText(responseContent, this.getSourceText())
+      return
+    }
+
     if (this.currKind == "asp" || this.getOutPutFormat() == RulesettypesCommands[Rstypes_ASP][1]) {
       let resulttextarray = this.getCurrResult().split('\n')
       resulttextarray.forEach(value => {
         const textline = responseContent.createEl("span", { text: value + "\n", cls: "debuginline" })
         // textline.style.cssText = 'white-space: pre;' //; white-space: pre-line;'
       })
+      return
+    }
+
+    // Markdown payload (AnnotatedHTML, or an engine declaring text/markdown):
+    // rendered by Obsidian itself, so links, callouts and tables behave as in a
+    // note.
+    if (this.currFormat == "markdown") {
+      this.renderMarkdownResult(responseContent, markdownSource(this.currResult, this.currFragment))
       return
     }
 
@@ -727,6 +790,30 @@ export class SemaLogicView extends ItemView {
 
     responseContent.createEl("p", { text: " " })
     responseContent.after(sanitizeHTMLToDom(this.getCurrResult()))
+  }
+
+  // The untouched payload for the source view: no SVG zoom wrapper, no
+  // sanitizing - only the mojibake repair the engine output needs to be legible.
+  private getSourceText(): string {
+    if (this.currKind == "engine") {
+      return this.repairUtf8Mojibake(this.currResult)
+    }
+    return this.currResult
+  }
+
+  // Renders text as code: never parsed as markup, so tags stay visible.
+  private renderSourceText(container: HTMLElement, text: string): void {
+    const pre = container.createEl("pre", { cls: "sl-result-source" })
+    pre.createEl("code", { text: text.length > 0 ? text : "<empty result>" })
+  }
+
+  // Renders markdown the way Obsidian renders a note. `markdown-rendered` is
+  // what carries the reading-view styles; the source path resolves relative and
+  // internal links against the note the request came from.
+  private renderMarkdownResult(container: HTMLElement, markdown: string): void {
+    const scope = container.createEl("div", { cls: "sl-result-markdown markdown-rendered" })
+    const sourcePath = this.app.workspace.getActiveFile()?.path ?? ""
+    void MarkdownRenderer.renderMarkdown(markdown, scope, sourcePath, this)
   }
 
   // Inlines a full HTML document: doctype, <html>, <head> and any script go
@@ -746,6 +833,7 @@ export class SemaLogicView extends ItemView {
       this.setNewInitial(this.getOutPutFormat(), false)
     }
     this.updateScaleControls(this.getOutPutFormat())
+    this.refreshViewModeButton()
     if (this.errorEl != undefined) {
       this.errorEl.empty()
     }
@@ -1046,6 +1134,11 @@ export class SemaLogicView extends ItemView {
         this.currKind = result.payload.kind
         this.currFragment = result.payload.fragment
         this.currSource = result.payload.source
+        this.currFormat = result.payload.format
+        if (this.currFormat != undefined) {
+          slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm.slview,
+            `Result format: ${this.currFormat} (mediaType ${result.payload.mediaType ?? "-"})`)
+        }
       }
       if (!parseOnTheFly) {
         this.updateView()

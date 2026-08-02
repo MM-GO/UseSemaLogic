@@ -147,6 +147,42 @@ If your plugin does not need CSS, delete this file.
     width: 100%;
 }
 
+/* Markdown payloads (AnnotatedHTML) rendered by Obsidian's own renderer. */
+.sl-result-markdown {
+    width: 100%;
+}
+
+/* Button switching the result area between rendered output and source text. */
+.sl-view-mode-toggle {
+    padding: 2px 8px;
+    font-size: 0.85em;
+    line-height: 1.6;
+}
+
+.sl-view-mode-toggle.is-source {
+    font-family: var(--font-monospace);
+}
+
+/* Source view of the result payload: kept as code, wrapped, never rendered. */
+.sl-result-source {
+    width: 100%;
+    max-width: 100%;
+    margin: 4px 0;
+    padding: 8px;
+    overflow-x: auto;
+    background-color: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 4px;
+}
+
+.sl-result-source code {
+    display: block;
+    font-family: var(--font-monospace);
+    font-size: 0.85em;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
 /* Theme-aware law.css default for the configurable :target citation highlight. */
 :root {
     --sl-law-target: #fff3c4;
