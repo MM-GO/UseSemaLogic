@@ -1,4 +1,4 @@
-import { DropdownComponent, ItemView, WorkspaceLeaf, ButtonComponent, MarkdownRenderer, RequestUrlParam, requestUrl, sanitizeHTMLToDom } from "obsidian";
+import { DropdownComponent, ItemView, Notice, WorkspaceLeaf, ButtonComponent, MarkdownRenderer, RequestUrlParam, requestUrl, sanitizeHTMLToDom } from "obsidian";
 import { slTexts, DebugLevMap, RulesettypesCommands, Rstypes_Semalogic, Rstypes_SemanticTree, Rstypes_KnowledgeGraph, Rstypes_Picture, Rstypes_ASP, Rstypes_AnnotatedHTML, DialectGen_Label, API_Defaults } from "./const"
 import { SemaLogicPluginComm, DebugLevel, SemaLogicPluginSettings } from "../main"
 import { slconsolelog } from './utils'
@@ -168,23 +168,54 @@ export class SemaLogicView extends ItemView {
     this.debugContent.push(text)
   }
 
+  // Copies exactly what the source view shows: the payload as it arrived, with
+  // the mojibake repair applied, so a markdown result (AnnotatedHTML) lands in
+  // the clipboard as its own source rather than as rendered text.
   copyToCb() {
-    const blobcontentText = (cont: string) => `${cont}`
-
-    let data =
-      new ClipboardItem({
-        "text/plain": new Blob([blobcontentText(this.currResult)], {
-          type: "text/plain"
-        })
-      })
-
-    navigator.clipboard.write([data])
+    const text = this.getSourceText()
+    if (text.length == 0) {
+      new Notice("SemaLogic: nothing to copy - the result is empty.")
+      return
+    }
+    void this.writeToClipboard(text)
       .then(() => {
-        alert("successfully copied");
+        new Notice("SemaLogic: result copied to clipboard.")
       })
-      .catch(() => {
-        alert("something went wrong");
-      });
+      .catch((e) => {
+        slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, `Copy to clipboard failed: ${String(e)}`)
+        new Notice(`SemaLogic: copy to clipboard failed - ${String(e)}`)
+      })
+  }
+
+  // navigator.clipboard.write(ClipboardItem) is the part of the async clipboard
+  // API Obsidian's Electron does not reliably provide, and it rejects with
+  // NotAllowedError whenever the document is not focused. writeText is the
+  // supported path; execCommand("copy") on a detached textarea covers the rest.
+  private async writeToClipboard(text: string): Promise<void> {
+    if (navigator.clipboard?.writeText != undefined) {
+      try {
+        await navigator.clipboard.writeText(text)
+        return
+      } catch (e) {
+        slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview,
+          `clipboard.writeText refused, falling back to execCommand: ${String(e)}`)
+      }
+    }
+    this.copyViaTextarea(text)
+  }
+
+  private copyViaTextarea(text: string): void {
+    const helper = this.contentEl.createEl("textarea", { cls: "sl-clipboard-helper" })
+    helper.value = text
+    try {
+      helper.focus()
+      helper.select()
+      if (document.execCommand("copy") == false) {
+        throw new Error("execCommand(\"copy\") was rejected")
+      }
+    } finally {
+      helper.remove()
+    }
   }
 
   constructor(leaf: WorkspaceLeaf) {

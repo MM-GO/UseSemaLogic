@@ -183,6 +183,19 @@ If your plugin does not need CSS, delete this file.
     word-break: break-word;
 }
 
+/* Off-screen carrier for the execCommand("copy") clipboard fallback. It has to
+   stay selectable, so it is moved out of sight instead of hidden. */
+.sl-clipboard-helper {
+    position: fixed;
+    top: -1000px;
+    left: -1000px;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    border: none;
+    opacity: 0;
+}
+
 /* Theme-aware law.css default for the configurable :target citation highlight. */
 :root {
     --sl-law-target: #fff3c4;
