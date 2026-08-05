@@ -245,6 +245,19 @@ export class SemaLogicView extends ItemView {
     return SemaLogicViewType;
   }
 
+  // Law links in a SemaLogic result point to another element of the rendered
+  // response, not to a position in a Markdown editor. Keep this navigation in
+  // the view so the plugin can use the same global link handler for both.
+  public navigateToLawLinkTarget(targetId: string): boolean {
+    const target = Array.from(this.contentEl.querySelectorAll<HTMLElement>("[id]"))
+      .find((element) => element.id == targetId)
+    if (target == undefined) {
+      return false
+    }
+    target.scrollIntoView({ block: "center" })
+    return true
+  }
+
   onload(): void {
     this.navigation = true
     this.contentEl.contentEditable = 'true'

@@ -1411,6 +1411,18 @@ export default class SemaLogicPlugin extends Plugin {
 				return
 			}
 			const view = this.findMarkdownViewContainingElement(link)
+			const semaLogicView = this.findSemaLogicViewContainingElement(link)
+			if (semaLogicView != undefined) {
+				if (!semaLogicView.navigateToLawLinkTarget(targetId)) {
+					slconsolelog(DebugLevMap.DebugLevel_Error, undefined, `Law link target was not found in the SemaLogic result (target=${targetId})`)
+					return
+				}
+				evt.preventDefault()
+				evt.stopPropagation()
+				evt.stopImmediatePropagation()
+				slconsolelog(DebugLevMap.DebugLevel_Informative, undefined, `Navigated law link in SemaLogic result to ${targetId}`)
+				return
+			}
 			if (view == undefined) {
 				slconsolelog(DebugLevMap.DebugLevel_Error, undefined, `Law link has no containing Markdown view (target=${targetId})`)
 				return
@@ -1835,6 +1847,17 @@ export default class SemaLogicPlugin extends Plugin {
 		let containingView: MarkdownView | undefined
 		this.app.workspace.iterateAllLeaves((leaf) => {
 			if (containingView != undefined || !(leaf.view instanceof MarkdownView)) { return }
+			if (leaf.view.contentEl.contains(element)) {
+				containingView = leaf.view
+			}
+		})
+		return containingView
+	}
+
+	private findSemaLogicViewContainingElement(element: HTMLElement): SemaLogicView | undefined {
+		let containingView: SemaLogicView | undefined
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (containingView != undefined || !(leaf.view instanceof SemaLogicView)) { return }
 			if (leaf.view.contentEl.contains(element)) {
 				containingView = leaf.view
 			}
