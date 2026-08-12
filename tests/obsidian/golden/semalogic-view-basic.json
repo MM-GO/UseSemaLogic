@@ -1,0 +1,5 @@
+﻿{
+    "fixture":  "TestCases/SemaLogicView/basic-semalogic.md",
+    "outputFormat":  "SemaLogic",
+    "resultText":  "OR-Rule 1|2 {Choice A, Choice B}\\nChoice A [AND-Rule D, E]\\nAND-Rule D [Choice A, F]\\n"
+}

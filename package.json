@@ -8,7 +8,12 @@
 		"build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
 		"release": "node scripts/publish.mjs",
-		"test": "jest"
+		"test": "jest",
+		"test:obsidian:preflight": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-obsidian-preflight.ps1",
+		"test:obsidian:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-obsidian.ps1 -Mode smoke",
+		"test:obsidian:integration": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-obsidian.ps1 -Mode integration -ServerCleanup process",
+		"test:obsidian:integration:keep-server": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-obsidian.ps1 -Mode integration -ServerCleanup keep",
+		"test:obsidian:integration:stop-server": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-obsidian.ps1 -Mode integration -ServerCleanup process"
 	},
 	"keywords": [],
 	"author": "SemaLogic UG",

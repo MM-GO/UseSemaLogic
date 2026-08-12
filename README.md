@@ -56,6 +56,39 @@ AND-Rule D[Choice A,F]
 
 and see what happens in the SemaLogicView
 
+## Local Obsidian integration tests
+
+The plugin contains a local Obsidian CLI integration suite. It requires a
+dedicated test vault, a running Obsidian desktop application with its CLI
+enabled, and a local SemaLogic service at `http://127.0.0.1:28000`.
+
+Start the SemaLogic service manually from its repository when desired:
+
+```powershell
+cd D:\Neuorga\Programmierung\SL_mit_knowledge\VibeCodings\SemaLogic
+go run server.go
+```
+
+Two service lifecycle variants are available:
+
+```powershell
+# Use an already running service and leave it running after the test.
+npm.cmd run test:obsidian:integration:keep-server
+
+# Start the local service when needed and stop the test-started process tree
+# after the test run.
+npm.cmd run test:obsidian:integration:stop-server
+```
+
+The default `npm.cmd run test:obsidian:integration` uses the second variant.
+An already manually started service is never stopped by either command. Test
+reports, request traces, screenshots and the interaction protocol are written
+to `tests/obsidian/artifacts/<timestamp>/`.
+
+For local paths and the service command copy
+`tests/obsidian/.env.example` to `tests/obsidian/.env` and adjust it. Further
+test details are in [docs/TESTING.md](docs/TESTING.md).
+
 Note 2 - Example:
 
 Formalsprachliche Definition einer Und-Regel inkl. notwendiger SymToken - Configuration (for German Language)

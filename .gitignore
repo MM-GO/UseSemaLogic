@@ -8,3 +8,5 @@ scripts/publish.mjs
 src/Automated Bafög.md
 src/law.css
 openapi_v_00_03_00.yaml
+tests/obsidian/.env
+tests/obsidian/artifacts/

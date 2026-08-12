@@ -1547,18 +1547,41 @@ export default class SemaLogicPlugin extends Plugin {
 		this.setViews()
 
 		// add an RibbonIcon to activcate and deactivate the SemaLogicView
-		this.addRibbonIcon("book", "On/Off SemaLogic.View", () => {
+		const semaLogicRibbon = this.addRibbonIcon("book", "On/Off SemaLogic.View", () => {
 			this.setViews()
-			if (this.activated == false) {
-				this.statusSL = true
-				if (!this.activated) {
-					this.activateView()
+			let hasSemaLogicView = false
+			this.app.workspace.iterateAllLeaves((leaf) => {
+				if (leaf.view.getViewType() == SemaLogicViewType) {
+					hasSemaLogicView = true
 				}
+			})
+			if (!hasSemaLogicView) {
+				this.statusSL = true
+				this.activateView()
 			} else {
 				this.statusSL = false
 				this.deactivateView();
 			}
 
+		});
+		semaLogicRibbon.setAttr("data-sl-test", "semalogic-view-toggle")
+		this.addCommand({
+			id: "sl_open_view",
+			name: "UseSemaLogic: open SemaLogic view",
+			callback: async () => {
+				await this.activateView()
+			},
+		});
+		this.addCommand({
+			id: "sl_toggle_result_source",
+			name: "UseSemaLogic: toggle result source mode",
+			callback: async () => {
+				if (this.slComm?.slview == undefined) {
+					new Notice("UseSemaLogic: open the SemaLogic view first.")
+					return
+				}
+				await this.slComm.slview.toggleResultDisplayMode()
+			},
 		});
 		// add an RibbonIcon to activcate and deactivate the SemaLogicView
 		this.addRibbonIcon("dice", "On/Off Transfer.View", () => {
@@ -1572,7 +1595,7 @@ export default class SemaLogicPlugin extends Plugin {
 			}
 		});
 		// add an RibbonIcon to activcate and deactivate the Knowledge.View
-		this.addRibbonIcon("share-2", "On/Off Knowledge.View", () => {
+		const knowledgeRibbon = this.addRibbonIcon("share-2", "On/Off Knowledge.View", () => {
 			this.setViews()
 			if (this.slComm != undefined) {
 				if (this.slComm.activatedKnowledge == false) {
@@ -1582,6 +1605,7 @@ export default class SemaLogicPlugin extends Plugin {
 				}
 			}
 		});
+		knowledgeRibbon.setAttr("data-sl-test", "knowledge-view-toggle")
 		// add an RibbonIcon to activcate and deactivate the SemaLogicView
 		//this.addRibbonIcon("file-type-2", "Create TemplateFolder", () => {
 		//	createTemplateFolder(app.vault)
@@ -1601,15 +1625,29 @@ export default class SemaLogicPlugin extends Plugin {
 		this.addCommand({
 			id: "sl_create_test_canvas",
 			name: "UseSemaLogic: test canvas simple",
-			callback: () => {
-				createTestCanvas(this.app.vault);
+			callback: async () => {
+				try {
+					await createTestCanvas(this.app.vault)
+					new Notice("UseSemaLogic: simple test canvas created.")
+					slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, "Test canvas fixture created: SemaLogic/TestCanvas.canvas")
+				} catch (e) {
+					slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, "Test canvas fixture failed", e)
+					new Notice("UseSemaLogic: could not create simple test canvas.")
+				}
 			},
 		});
 		this.addCommand({
 			id: "sl_create_template_canvas",
 			name: "UseSemaLogic: test canvas komplex",
-			callback: () => {
-				createTemplateCanvas(this.app.vault);
+			callback: async () => {
+				try {
+					await createTemplateCanvas(this.app.vault)
+					new Notice("UseSemaLogic: complex test canvas created.")
+					slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, "Template canvas fixture created: SemaLogic/TemplateCanvas.canvas")
+				} catch (e) {
+					slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview, "Template canvas fixture failed", e)
+					new Notice("UseSemaLogic: could not create complex test canvas.")
+				}
 			},
 		});
 
@@ -2291,6 +2329,7 @@ export default class SemaLogicPlugin extends Plugin {
 		const view: any = leaf.view
 		const container: HTMLElement | null = view?.containerEl ?? null
 		if (!container) { return }
+		container.dataset.slTest = "canvas"
 		this.bindCanvasSelectionTracking(container)
 		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, "Attach canvas tooltips: observer start")
 		const observer = new MutationObserver(() => {
@@ -2386,6 +2425,7 @@ export default class SemaLogicPlugin extends Plugin {
 			if (!filePath) { continue }
 			const fp = filePath
 			el.dataset.slTooltipBound = "1"
+			el.dataset.slTestTooltipBound = "1"
 			el.addEventListener("mouseenter", async (evt) => {
 				const content = await this.safeReadFile(fp)
 				if (content.length == 0) { return }
@@ -2498,6 +2538,7 @@ export default class SemaLogicPlugin extends Plugin {
 		this.hideCanvasTooltip()
 		const tooltip = document.createElement("div")
 		tooltip.className = "sl-node-tooltip"
+		tooltip.dataset.slTest = "canvas-tooltip"
 		document.body.appendChild(tooltip)
 		this.canvasTooltipEl = tooltip
 		try {
@@ -2614,6 +2655,7 @@ export default class SemaLogicPlugin extends Plugin {
 
 		const btn = document.createElement("button")
 		btn.className = "clickable-icon sl-node-info-btn"
+		btn.dataset.slTest = "canvas-info-button"
 		btn.setAttribute("aria-label", "SL Info")
 		btn.textContent = "\u24D8"
 		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, "Canvas info button attached")
@@ -3850,9 +3892,12 @@ export default class SemaLogicPlugin extends Plugin {
 			);
 		}
 
-		const leaf = this.GetSemaLogicLeaf();
+		// CLI-driven test setup can detach all document leaves while Obsidian is
+		// still rebuilding its layout. In that small window GetSemaLogicLeaf()
+		// may not offer a split yet, although getLeaf('split') can create one.
+		const leaf = this.GetSemaLogicLeaf() ?? this.app.workspace.getLeaf('split');
 		if (leaf != undefined) {
-			leaf.setViewState({
+			await leaf.setViewState({
 				type: SemaLogicViewType,
 				active: false,
 			})

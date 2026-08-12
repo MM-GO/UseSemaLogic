@@ -641,54 +641,59 @@ body {
  *
  *   .lawlink            resolved — a link into this statute, the arrival end of
  *                       which is the :target rule below
- *   .lawlink-external   another statute's provision. Its target is not in this
+ *   .lawlink.external   another statute's provision. Its target is not in this
  *                       document; where the registry confirmed one it also
- *                       carries .lawlink-resolved and a link into the resolver
- *   .lawlink-uncertain  the sentence names another statute and prose separates
+ *                       carries .lawlink.resolved and a link into the resolver
+ *   .lawlink.uncertain  the sentence names another statute and prose separates
  *                       it from this citation, so which document is meant
  *                       cannot be read off the text
- *   .lawlink-unresolved this statute's own citation whose target is not in the
+ *   .lawlink.unresolved this statute's own citation whose target is not in the
  *                       document — an excerpt naming the rest of the statute
  *
  * The unlinked states stay quiet — they are ordinary statutory text — but
  * remain distinguishable on inspection.
+ *
+ * The state is a modifier on the same element, so it is always selected as the
+ * compound .lawlink.unresolved and never as a bare .unresolved: on its own that
+ * name belongs to nobody and would collide with any other stylesheet in the
+ * page.
  */
 .lawlink>a,
-.lawlink-resolved>a {
+.lawlink.resolved>a {
     color: var(--lw-accent);
     text-decoration-color: color-mix(in srgb, var(--lw-accent) 40%, transparent);
     text-underline-offset: 0.15em;
 }
 
 .lawlink>a:hover,
-.lawlink-resolved>a:hover {
+.lawlink.resolved>a:hover {
     text-decoration-color: currentColor;
 }
 
-.lawlink-external,
-.lawlink-uncertain,
-.lawlink-unresolved {
+.lawlink.external,
+.lawlink.uncertain,
+.lawlink.unresolved {
     color: inherit;
 }
 
 /* Dotted for "belongs elsewhere", dashed for "could not be placed". */
-.lawlink-external {
+.lawlink.external {
     border-bottom: 1px dotted var(--lw-rule);
 }
 
-.lawlink-uncertain,
-.lawlink-unresolved {
+.lawlink.uncertain,
+.lawlink.unresolved {
     border-bottom: 1px dashed var(--lw-rule);
 }
 
 /* Add class "show-citations" to the root to audit the classification: the
  * unlinked states are tinted so a wrongly suppressed citation stands out. */
-.law.show-citations .lawlink-external {
+.law.show-citations .lawlink.external {
     background: color-mix(in srgb, var(--lw-accent) 10%, transparent);
 }
 
-.law.show-citations .lawlink-uncertain,
-.law.show-citations .lawlink-unresolved {
+.law.show-citations .lawlink.uncertain,
+.law.show-citations .lawlink.unresolved {
     background: color-mix(in srgb, var(--lw-target) 55%, transparent);
 }
 

@@ -284,6 +284,9 @@ export class SemaLogicView extends ItemView {
       .setValue(dropDownValue)
       .onChange(async (value) => {
         slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm.slview, 'Set ViewOutputFormat: ' + value);
+        // Stable test trace: this is written when the DropdownComponent's
+        // actual change handler starts, independently of the later HTTP reply.
+        this.contentEl.setAttr('data-sl-test-last-selection', value)
         this.slComm.slPlugin.updateOutstanding = true
         dropDownValue = value
         this.dropdownButton.setValue(value)
@@ -291,7 +294,8 @@ export class SemaLogicView extends ItemView {
         if (value == DialectGen_Label) {
           // Marker state set when a dialect engine was invoked (via button/menu);
           // there is no live re-parse for this entry.
-          console.log('[SL-Dialect] dropdown set to DialectEngine (marker, no re-parse)')
+          slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm.slview,
+            'Dropdown set to DialectEngine (marker, no re-parse)')
           this.showDialectEngineHint()
           return
         }
@@ -299,14 +303,24 @@ export class SemaLogicView extends ItemView {
           await this.slComm.slPlugin.activateKnowledgeView()
         }
 
-        const responseForView = this.getSemaLogicParse(this.slComm.slPlugin.settings, this.apiURL, this.dialectID, this.bodytext, false, value)
-        if (value == RulesettypesCommands[Rstypes_KnowledgeGraph][1]) {
-          responseForView.then(result => {
+        // Give interactive users immediate feedback and await the request here.
+        // Previously this promise was left unattended, so an exception could
+        // look exactly like a dropdown that did nothing.
+        this.contentEl.setAttr('data-sl-test-last-request-status', 'pending')
+        this.resultEl?.empty()
+        this.resultEl?.createEl('p', { text: `Requesting ${value}...`, cls: 'sl-request-pending' })
+        try {
+          const result = await this.getSemaLogicParse(this.slComm.slPlugin.settings, this.apiURL, this.dialectID, this.bodytext, false, value)
+          if (value == RulesettypesCommands[Rstypes_KnowledgeGraph][1]) {
             this.slComm.slPlugin.updateKnowledgeCanvas(result)
-          })
+          }
+        } catch (error) {
+          this.contentEl.setAttr('data-sl-test-last-request-status', 'failed')
+          slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm.slview,
+            `Dropdown request failed for ${value}: ${error instanceof Error ? error.message : String(error)}`)
         }
-        //this.updateView()
       })
+    this.dropdownButton.selectEl.setAttr("data-sl-test", "output-format")
     return container
   }
   createCopyToClipboardButton(container: HTMLElement): HTMLElement {
@@ -315,6 +329,7 @@ export class SemaLogicView extends ItemView {
       .onClick((mouse_event: MouseEvent) => {
         this.copyToCb()
       })
+    this.copyButton.buttonEl.setAttr("data-sl-test", "copy-result")
     return container
   }
   createDebugButton(container: HTMLElement): HTMLElement {
@@ -343,6 +358,7 @@ export class SemaLogicView extends ItemView {
     this.viewModeButton = new ButtonComponent(container)
       .onClick(() => { void this.toggleResultAsSource() })
     this.viewModeButton.buttonEl.addClass("sl-view-mode-toggle")
+    this.viewModeButton.buttonEl.setAttr("data-sl-test", "result-mode-toggle")
     this.refreshViewModeButton()
     return container
   }
@@ -375,6 +391,12 @@ export class SemaLogicView extends ItemView {
     }
     slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview, 'Set ResultAsSource: ' + next)
     this.updateView()
+  }
+
+  // Shared by the visible result-mode button and the command-palette test
+  // command. Keeping this public avoids a test-only DOM event shim.
+  public async toggleResultDisplayMode(): Promise<void> {
+    await this.toggleResultAsSource()
   }
 
   createScaleButtons(container: HTMLElement): HTMLElement {
@@ -446,12 +468,13 @@ export class SemaLogicView extends ItemView {
   public setNewInitial(dropDownValue: string, now: boolean) {
     if (!this.checkContainerContent() || now || this.headerEl == undefined) {
       this.contentEl.empty()
+      this.contentEl.setAttr("data-sl-test", "semalogic-view")
       this.headerEl = this.contentEl.createEl("h4", { text: slTexts['HeaderSL'] })
       this.controlsEl = this.contentEl.createEl("div")
       this.scaleControlsEl = this.controlsEl.createEl("span")
-      this.errorEl = this.contentEl.createEl("div", { cls: "semalogic-error" })
-      this.diagnosticsEl = this.contentEl.createEl("div", { cls: "sl-diagnostics" })
-      this.resultEl = this.contentEl.createEl("div")
+      this.errorEl = this.contentEl.createEl("div", { cls: "semalogic-error", attr: { "data-sl-test": "error" } })
+      this.diagnosticsEl = this.contentEl.createEl("div", { cls: "sl-diagnostics", attr: { "data-sl-test": "diagnostics" } })
+      this.resultEl = this.contentEl.createEl("div", { attr: { "data-sl-test": "result" } })
 
       this.createDropDownButtonForOutPutFormat(this.controlsEl, dropDownValue)
       this.createCopyToClipboardButton(this.controlsEl)
@@ -892,7 +915,7 @@ export class SemaLogicView extends ItemView {
   // unconditionally - a clean parse says "no findings" instead of showing nothing.
   private renderDiagnostics(): void {
     if (this.diagnosticsEl == undefined) {
-      this.diagnosticsEl = this.contentEl.createEl("div", { cls: "sl-diagnostics" })
+      this.diagnosticsEl = this.contentEl.createEl("div", { cls: "sl-diagnostics", attr: { "data-sl-test": "diagnostics" } })
     }
     this.diagnosticsEl.empty()
     this.renderDiagnosticToggles()
@@ -984,6 +1007,7 @@ export class SemaLogicView extends ItemView {
       .setTooltip(visible ? `Hide ${kind} findings` : `Show ${kind} findings`)
       .onClick(() => { void this.toggleDiagnosticVisibility(kind) })
     button.buttonEl.addClass("sl-diag-toggle")
+    button.buttonEl.setAttr("data-sl-test", `diagnostic-toggle-${kind}`)
     button.buttonEl.toggleClass("is-off", !visible)
   }
 
@@ -1173,6 +1197,11 @@ export class SemaLogicView extends ItemView {
     }
 
     if (result.status >= 200 && result.status < 300) {
+      // This is deliberately written only after the HTTP request completed. It
+      // gives the Obsidian UI test a stable proof that a dropdown change did
+      // trigger a new request, rather than merely redisplaying an old result.
+      this.contentEl.setAttr('data-sl-test-last-request', outPutFormat)
+      this.contentEl.setAttr('data-sl-test-last-request-status', result.status.toString())
       if ((this.debugInline == false) && (parseOnTheFly == false)) {
         this.currResult = result.payload.content
         this.currKind = result.payload.kind
