@@ -9,11 +9,11 @@
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
 		"release": "node scripts/publish.mjs",
 		"test": "jest",
-		"test:obsidian:preflight": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-obsidian-preflight.ps1",
-		"test:obsidian:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-obsidian.ps1 -Mode smoke",
-		"test:obsidian:integration": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-obsidian.ps1 -Mode integration -ServerCleanup process",
-		"test:obsidian:integration:keep-server": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-obsidian.ps1 -Mode integration -ServerCleanup keep",
-		"test:obsidian:integration:stop-server": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/test-obsidian.ps1 -Mode integration -ServerCleanup process"
+		"test:obsidian:preflight": "node scripts/test-obsidian.mjs --mode=smoke --preflight",
+		"test:obsidian:smoke": "node scripts/test-obsidian.mjs --mode=smoke",
+		"test:obsidian:integration": "node scripts/test-obsidian.mjs --mode=integration --server-cleanup=process",
+		"test:obsidian:integration:keep-server": "node scripts/test-obsidian.mjs --mode=integration --server-cleanup=keep",
+		"test:obsidian:integration:stop-server": "node scripts/test-obsidian.mjs --mode=integration --server-cleanup=process"
 	},
 	"keywords": [],
 	"author": "SemaLogic UG",

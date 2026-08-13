@@ -60,7 +60,9 @@ and see what happens in the SemaLogicView
 
 The plugin contains a local Obsidian CLI integration suite. It requires a
 dedicated test vault, a running Obsidian desktop application with its CLI
-enabled, and a local SemaLogic service at `http://127.0.0.1:28000`.
+enabled, Node.js 18 or newer, and a local SemaLogic service at
+`http://127.0.0.1:28000`. The runner is implemented in Node.js and works on
+Windows, Linux, and macOS; PowerShell is not required.
 
 Start the SemaLogic service manually from its repository when desired:
 

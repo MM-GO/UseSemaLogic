@@ -4,7 +4,7 @@
 
 Run the existing unit tests with:
 
-```powershell
+```sh
 npm test
 ```
 
@@ -16,12 +16,17 @@ Run the plugin build and copy it to the configured test vault with:
 
 ## Obsidian CLI test setup
 
+The test runner is `scripts/test-obsidian.mjs` and requires Node.js 18 or
+newer. It is platform-independent (Windows, Linux, macOS); no PowerShell is
+required. The runner uses the platform's normal process handling only for
+starting and stopping the configured local SemaLogic service.
+
 The CLI tests require Obsidian Desktop 1.12.7 or later, the current Obsidian
 installer, and a running Obsidian application. In Obsidian open **Settings >
 General**, enable **Command line interface**, complete the registration prompt,
 then restart the terminal. Verify the installation with:
 
-```powershell
+```sh
 obsidian version
 ```
 
@@ -31,7 +36,11 @@ production vault.
 
 Copy the local configuration template and set the test-vault path:
 
-```powershell
+```sh
+# Linux/macOS
+cp tests/obsidian/.env.example tests/obsidian/.env
+
+# Windows PowerShell
 Copy-Item tests\obsidian\.env.example tests\obsidian\.env
 ```
 
@@ -43,7 +52,7 @@ repository's established test vault. If a different vault is configured, copy
 
 Validate the setup without changing the vault or contacting a service:
 
-```powershell
+```sh
 npm run test:obsidian:preflight
 ```
 
@@ -54,20 +63,20 @@ not start Obsidian or the SemaLogic server.
 The smoke runner then runs Jest, builds the plugin, copies the build only to
 the configured test vault, and reloads the running Obsidian instance:
 
-```powershell
-npm.cmd run test:obsidian:smoke
+```sh
+npm run test:obsidian:smoke
 ```
 
-Use `-NoBuild` only while investigating an already copied build:
+Use `--no-build` only while investigating an already copied build:
 
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\test-obsidian.ps1 -Mode smoke -NoBuild
+```sh
+node scripts/test-obsidian.mjs --mode=smoke --no-build
 ```
 
 Each run writes `report.json` below `tests/obsidian/artifacts/`; this folder is
 ignored by Git. Before copying or running a command, the runner checks that the
 currently active Obsidian vault is exactly `SL_TEST_VAULT`. It then verifies the
-fixture commands, opens the generated Canvas, checks its DOM marker, and fails
+fixture commands, creates the generated Canvas without opening it, and fails
 on captured JavaScript errors. Failed assertions retain DOM, console, error,
 and screenshot artifacts.
 
@@ -141,18 +150,18 @@ only when no compatible service is already listening, waits for
 
 Run the first service-backed AddOn interaction tests with:
 
-```powershell
-npm.cmd run test:obsidian:integration
+```sh
+npm run test:obsidian:integration
 ```
 
 The explicit variants are:
 
-```powershell
+```sh
 # Keep an already running service alive after the test.
-npm.cmd run test:obsidian:integration:keep-server
+npm run test:obsidian:integration:keep-server
 
 # Stop only the process tree the test runner started itself.
-npm.cmd run test:obsidian:integration:stop-server
+npm run test:obsidian:integration:stop-server
 ```
 
 It assigns a fresh SID, configures a temporary local-only test profile,
