@@ -222,6 +222,7 @@ async function viewSuite(sid) {
 
 try {
   await checked('configuration preflight', preflight)
+  await mkdir(artifactPath, { recursive: true })
   if (preflightOnly) {
     await writeReport('passed')
     console.log('Obsidian CLI preflight passed.')

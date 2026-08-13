@@ -74,7 +74,9 @@ node scripts/test-obsidian.mjs --mode=smoke --no-build
 ```
 
 Each run writes `report.json` below `tests/obsidian/artifacts/`; this folder is
-ignored by Git. Before copying or running a command, the runner checks that the
+ignored by Git. The runner initializes the run-specific artifact directory
+after the preflight, so reports and diagnostics can be retained for every later
+failure. Before copying or running a command, the runner checks that the
 currently active Obsidian vault is exactly `SL_TEST_VAULT`. It then verifies the
 fixture commands, creates the generated Canvas without opening it, and fails
 on captured JavaScript errors. Failed assertions retain DOM, console, error,
