@@ -624,6 +624,10 @@ li[data-task="?"]>p>input:checked::after {
         --lw-rule: #363b44;
         --lw-accent: #8ab4f0;
         --lw-target: #4a3f12;
+        --lw-absent: #f08a86;
+        --lw-note-bg: #21252c;
+        --lw-backlink-bg: #26324a;
+        --lw-backlink-fg: #c3d4f5;
     }
 }
 
@@ -695,6 +699,200 @@ body {
 .law.show-citations .lawlink.uncertain,
 .law.show-citations .lawlink.unresolved {
     background: color-mix(in srgb, var(--lw-target) 55%, transparent);
+}
+
+/* ------------------------------------------------------- link state (WP07 L7)
+* What the evidence says about a citation's target, written by the server as
+* data-link-state (mode A) or by links.js after delivery (mode B). Both write
+* the same values, so this block is the only place either of them is rendered.
+*
+*   confirmed  the addressed node exists. Nothing shouts.
+*   partial    the ancestor exists and the requested depth could not be
+*              checked — "§ 1610 is real, Absatz 2 was not verifiable"
+*   repealed   it exists and is weggefallen. It still says nothing.
+*   absent     an exhaustive source did not find it. This is the one state
+*              that must be impossible to overlook.
+*   unknown    no evidence applies. Visibly different from broken, because
+*              unverified and wrong are not the same fact.
+*
+* Selected on the attribute rather than on a class: the state sits on the
+* citation span in an annotated statute and on a bare <a> in hand-written
+* markup, and a stylesheet should not have to know which.
+*/
+[data-link-state="confirmed"] {
+    /* Deliberately empty of decoration. A confirmed citation is the normal case,
+        and a page that marks the normal case has marked everything. */
+}
+
+[data-link-state="partial"] > a,
+[data-link-state="partial"] {
+    text-decoration: underline dotted
+        color-mix(in srgb, var(--lw-accent) 55%, transparent);
+    text-underline-offset: 0.2em;
+}
+
+[data-link-state="repealed"],
+[data-link-state="repealed"] > a {
+    color: var(--lw-muted);
+    text-decoration-line: line-through;
+    text-decoration-thickness: 1px;
+}
+
+[data-link-state="absent"],
+[data-link-state="absent"] > a {
+    color: var(--lw-absent, #a3231f);
+    text-decoration: underline wavy var(--lw-absent, #a3231f);
+    text-underline-offset: 0.2em;
+}
+
+[data-link-state="unknown"],
+[data-link-state="unknown"] > a {
+    border-bottom: 1px dashed var(--lw-rule);
+}
+
+/* The reason is on the element as data-link-reason and is not rendered on its
+* own: it is the tooltip's second half and a diagnostic's column. Turning it
+* into a visible marker would give five states a dozen appearances. */
+
+/* ------------------------------------------------------------- the tooltip
+* data-link-note is one German sentence composed by the server — the readable
+* citation, what is known about it, and since when. It is shown through the
+* title attribute where a browser is present; this rule is what makes it
+* legible in Obsidian and in print-to-PDF, which have no hover chrome.
+*
+* ::after rather than an inserted element, so no text node enters the DOM: a
+* reader's copy-paste of the sentence stays the statute's text.
+*/
+@media (hover: hover) {
+    [data-link-note] {
+        position: relative;
+    }
+
+    [data-link-note]:hover::after,
+    [data-link-note]:focus-within::after {
+        content: attr(data-link-note);
+        position: absolute;
+        left: 0;
+        top: 1.6em;
+        z-index: 20;
+        max-width: min(28rem, 80vw);
+        width: max-content;
+        padding: 0.4em 0.6em;
+        border: 1px solid var(--lw-rule);
+        border-radius: 0.3em;
+        background: var(--lw-note-bg, #fbfbfd);
+        color: var(--lw-text);
+        font-size: 0.85em;
+        font-style: normal;
+        line-height: 1.35;
+        text-decoration: none;
+        white-space: normal;
+        box-shadow: 0 2px 6px rgb(0 0 0 / 12%);
+    }
+}
+
+@media print {
+    [data-link-note]:hover::after {
+        content: none;
+    }
+}
+
+/* --------------------------------------------------------------- backlinks
+* How many documents point at this node, written as data-backlinks on the §
+* and the Absatz — not on every sentence, which would be unreadable.
+*
+* content: attr(...) creates no DOM text node. That is the whole reason the
+* count is an attribute and a stylesheet rule rather than an element carrying
+* the words: text fidelity, Deannotate and a reader's copy-paste are all
+* untouched by construction rather than by care.
+*/
+[data-backlinks]::after {
+    content: "↩" attr(data-backlinks);
+    font-size: 0.75em;
+    vertical-align: super;
+    margin-left: 0.35em;
+    padding: 0 0.4em;
+    border-radius: 0.8em;
+    background: var(--lw-backlink-bg, #e8eefc);
+    color: var(--lw-backlink-fg, #24417a);
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* The badge is an affordance, not content: it leaves the print. */
+@media print {
+    [data-backlinks]::after {
+        content: none;
+    }
+}
+
+/* The panel links.js appends on a click. It is added to document.body and
+* never into the text, so it cannot reach the stored bytes. */
+.backlink-panel {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 30;
+    max-width: min(32rem, 90vw);
+    max-height: 60vh;
+    overflow-y: auto;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--lw-rule);
+    border-radius: 0.4rem;
+    background: var(--lw-note-bg, #fbfbfd);
+    color: var(--lw-text);
+    font-size: 0.9em;
+    box-shadow: 0 4px 16px rgb(0 0 0 / 18%);
+}
+
+.backlink-panel h2 {
+    margin: 0 0 0.5rem;
+    font-size: 1em;
+    font-weight: 600;
+}
+
+.backlink-panel ol {
+    margin: 0;
+    padding-left: 1.2rem;
+}
+
+.backlink-panel li + li {
+    margin-top: 0.4rem;
+}
+
+.backlink-panel .backlink-source {
+    color: var(--lw-muted);
+    display: block;
+    font-size: 0.9em;
+}
+
+
+.backlink-panel .backlink-where {
+    font-weight: 600;
+}
+
+.backlink-panel .backlink-anchor {
+    color: var(--lw-accent);
+    font-size: 0.9em;
+}
+
+.backlink-panel .backlink-close {
+    position: absolute;
+    top: 0.4rem;
+    right: 0.5rem;
+    border: 0;
+    background: none;
+    color: var(--lw-muted);
+    font-size: 1.2em;
+    line-height: 1;
+    cursor: pointer;
+}
+
+@media print {
+    .backlink-panel {
+        display: none;
+    }
 }
 
 /* --------------------------------------------------------------------- root */
