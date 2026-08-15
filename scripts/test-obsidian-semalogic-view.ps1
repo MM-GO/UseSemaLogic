@@ -277,6 +277,7 @@ select.focus(); select.value = 'SemaLogic'; select.dispatchEvent(new Event('inpu
   Add-TestProtocol 'knowledgegraph:canvas-close' 'passed' 'KnowledgeGraph canvas was closed before the next selection.'
 
   Select-OutputFormat 'AnnotatedHTML'
+  Select-OutputFormat 'AnnotatedHTML_backlinks'
 
   # DialectEngine is intentionally a marker entry, not a parse request. Its
   # expected UI action is the explanatory hint; engine execution is covered by

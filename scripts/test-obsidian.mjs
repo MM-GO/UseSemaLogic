@@ -198,7 +198,7 @@ async function viewSuite(sid) {
     await evalObsidian(`const v=app.workspace.getLeavesOfType('SemaLogicService')[0].view;v.apiURL=${js(parseUrl)};v.dialectID='default';v.bodytext=${js(fixture)};v.dropdownButton.setValue('SVG');const s=v.dropdownButton.selectEl;s.value='SemaLogic';s.dispatchEvent(new Event('change',{bubbles:true}));'SemaLogic selected'`, 'initial SemaLogic request')
     await waitFor(async () => (await evalObsidian(`app.workspace.getLeavesOfType('SemaLogicService')[0]?.view?.contentEl?.getAttribute('data-sl-test-last-request')??''`, 'wait SemaLogic')).includes('SemaLogic'), 'SemaLogic request')
     responses.SemaLogic = { resultText: await resultText() }
-    for (const format of ['ASP.json', 'SVG', 'SemanticTree', 'KnowledgeGraph', 'AnnotatedHTML']) await select(format)
+    for (const format of ['ASP.json', 'SVG', 'SemanticTree', 'KnowledgeGraph', 'AnnotatedHTML', 'AnnotatedHTML_backlinks']) await select(format)
     await evalObsidian(`const v=app.workspace.getLeavesOfType('SemaLogicService')[0].view,s=v.dropdownButton.selectEl;s.value='DialectEngine';s.dispatchEvent(new Event('change',{bubbles:true}));'DialectEngine selected'`, 'select DialectEngine')
     await waitForDom('[data-sl-test="result"] p'); await select('SemaLogic')
     await writeFile(join(artifactPath, 'semalogic-view-responses.json'), JSON.stringify({ fixture: fixturePath, responses }, null, 2))

@@ -65,6 +65,7 @@ export const Rstypes_ASP = 6
 export const Rstypes_SemanticTree = 8
 export const Rstypes_KnowledgeGraph = 9
 export const Rstypes_AnnotatedHTML = 10
+export const Rstypes_AnnotatedHTML_WithBacklinks = 11
 
 export const RulesettypesCommands: string[][] = [
 	["SemaLogic", "SemaLogic"],
@@ -79,7 +80,9 @@ export const RulesettypesCommands: string[][] = [
 	["KnwoledgeGraph", "KnowledgeGraph"],
 	// New with API 00.03.00. The service currently echoes the submitted text
 	// wrapped in minimal HTML; the real annotator lands later (see `source`).
-	["AnnotatedHTML", "AnnotatedHTML"]
+	["AnnotatedHTML", "AnnotatedHTML"],
+	// New with API 00.03.01. Same as AnnotatedHTML but with backlinks enabled.
+	["AnnotatedHTML (with Backlinks)", "AnnotatedHTML_backlinks"]
 ]
 
 // Additional SemaLogic-view dropdown entries. They trigger an SL-Interpret style

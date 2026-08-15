@@ -1,0 +1,1231 @@
+openapi: 3.0.3
+info:
+  version: '00.03.01'
+  title: SemaLogic Service API
+  description: |-
+    The SemaLogic API can be reached using a default network port of 28000. This
+    network can be altered at starttime using parameter "-p port#".
+    The default port is also described in servers-url.
+
+    Version history:
+     - 00.03.01 Backlinks for the AnnotatedHTML rulesettype (Law/WP07c-Backlinks-in-the-Service.md):
+                Added the optional `backlinks` flag to `parsedata` and to the /rules/show request body. With
+                rulesettype=AnnotatedHTML it asks for
+                the annotated document to carry its backlink blocks - the collapsible list of what points at a
+                passage, written as the first child of the element it names. It is opt-in and defaults to false,
+                so a request that does not mention it gets exactly the bytes it got in 00.03.00;
+                Added the optional `backlinks` counter to `rulefmt_annotatedHTML`, reporting how many blocks were
+                written, so a client sees that the rendering happened without parsing the markup;
+                Both fields are additive and optional - 00.03.00 requests and responses stay valid;
+     - 00.03.00 Structured diagnostics and one response envelope (see REVIEW_OpenAPI.md):
+                Replaced the flat `errorlist` by the `diagnostics` report - `items` of structured `diagnostic`
+                objects (severity, audience, code, id, subject, origin) plus a `summary` whose `hidden` counter
+                lets a frontend offer "show N technical messages" without carrying them, plus `groups` collapsing
+                repeated findings by code;
+                Added the `audience` query parameter selecting user-facing vs. developer findings;
+                Added the rulefmt_html / rulefmt_svg / rulefmt_knowledgeGraph payloads so HTML, SVG and Canvas
+                output travel inside `rulesout` together with their diagnostics instead of as a bare body;
+                Added the AnnotatedHTML rulesettype and its rulefmt_annotatedHTML payload;
+                Error responses now use the same `rulesout` envelope, so one shape parses every reply;
+                Fixed: the five Error* responses required a property "Text" that never existed;
+                Fixed: ErrorStatusNoContent declared a JSON body for HTTP 204, which RFC 9110 forbids and Go's
+                net/http silently drops - the case is now 422;
+                Fixed: /rules/show declared an unsatisfiable allOf of a string and an array schema;
+                Fixed: /dialect/remove, /dialect/show and /reset had no 200 response at all;
+                Removed the Canvas2SL rulesettype, which the server never accepted;
+                Removed the unused `engine` parameter from /rules/define;
+                Documented sid on /canvas/convert and llmAvailable/llmModels on the version schema, both of
+                which the server already implements;
+                Renamed progress_event/progress_status to progressEvent/progressStatus and rulefmt_ASP.JSON to
+                rulefmt_ASPJSON (removing a dot from a schema name); all three keep their generated Go names;
+                Renamed DialectEngineOutput to rulefmt_dialectEngine so every rulesout.rules payload now shares
+                the rulefmt_* prefix; this one does change its generated Go type to RulefmtDialectEngine;
+                Renamed rulefmt_Semalogic to rulefmt_SemaLogic so the product is spelled the one way everywhere
+                (generated Go type RulefmtSemalogic -> RulefmtSemaLogic);
+                Renamed the NLP query parameter to lowercase `nlp`, matching sid/view/engine/audience; the server
+                still reads `NLP` when `nlp` is absent, since query names are case sensitive;
+                Added the canonical lowercase paths /api-version, /stop-server and /session/progress. The previous
+                /APIVersion, /StopServer and /rules/progress remain as permanent aliases with identical behaviour,
+                so no client has to change; /session/progress also puts the endpoint under the resource it
+                actually polls;
+                BREAKING for clients that read the raw body: SemaLogic, SemanticTree, SVG and KnowledgeGraph no
+                longer answer with text/html, application/xml or a bare Canvas JSON. They now use the same
+                application/json envelope as every other rulesettype, with their markup in
+                rulefmt_html.html / rulefmt_svg.svg / rulefmt_knowledgeGraph.canvas, so a reply can carry both the
+                output and its diagnostics;
+                Declared openapi 3.0.3 - the previous 3.2.0 is not a released version and is not supported by
+                the generator in use;
+     - 00.02.07 Attach #/components/parameters/engine to /rules/parse (restores PostRulesParseParams.Engine / PostRulesParseParamsEngine);
+                Name the dialect-engine result schema DialectEngineOutput (was rulefmt_DialectEngine), referenced from rulesout.rules, so openapi.DialectEngineOutput is generated again;
+                Keep the GET /rules/progress endpoint (GetRulesProgress) and its progress_status / progress_event schemas;
+     - 00.02.06 Added `DialectEngine` rulesettype and direct engine-response handling on `/rules/parse`; when `engine` is set the server bypasses the standard preprocessing/session parse path and forwards the raw request directly to `dialectgen_v1` or `dialectgen_v2`;
+     - 00.02.05 Added optional `engine` query parameter on `/rules/parse` to select `parsedata.interprete` processing via `dialectgen_v1` or `dialectgen_v2`;
+     - 00.02.04 Added 'interprete' parameter for parsedata;
+     - 00.02.03 Added 'view' parameter for CANVAS endpoint to distinguish user friendly and debug friendly knowledge graphs;
+                Removed obsolete dialect example;
+     - 00.02.02 Reply with new HTML tag structure;
+     - 00.02.01 Added NLP parameter to most text input calls to reflect the ability for interpreting natural language parsing;
+     - 00.02.00 Added Canvas2SL API call to reflect interactive graphical editing;
+     - 00.01.20 Added simple empty API call without arguments as alias on APIVersion;
+     - 00.01.19 Added array as type for attribute values;
+     - 00.01.18 Added KnowledgeGraph output;
+     - 00.01.17 Added SemanticTree output;
+                Added ASCII Text input;
+                Introduced check and advice terms;
+                Use online SemaLogic service for OpenAPI testing.
+     - 00.01.16 Added dialect/show;
+                declare session id (sid) as consistent component parameter and refer to
+     - 00.01.15 Added session handling with session id (sid) in requests;
+                Defined dialect define and delete new;
+                Added TextID as reference for rule/delete;
+                Added delete session.
+     - 00.01.14 Added errorlist for return of soft warnings and errors, changed rulesout;
+                format to add rulesettype and errors.
+     - 00.01.13 Renaming of MGROUP type to GROUP; harmonized "Rulesset" to "Ruleset"; added Bool.
+     - 00.01.12 Correction of MGROUP type -> array.
+     - 00.01.11 Minor changes in ASP-JSON and cascading of API-schema.
+     - 00.01.10 Implementation of ASP-JSON-Structure.
+     - 00.01.00 InitVersion of SemaLogic API.
+  contact:
+    email: info@semalogic.de
+  license:
+    name: Patent Licensing
+    url: https://semalogic.de/Lizenzierung
+servers:
+  - url: https://service.semalogic.ddns.net
+  - url: http://localhost:28000
+externalDocs:
+  description: Find out more about SemaLogic
+  url: http://semalogic.de
+paths:
+  /:
+    get:
+      summary: Generate a simple reply, used in testing to see if the services is running
+      description: Answers currently with the same JSON output as GetAPIVersion
+      operationId: GetSimpleResponse
+      responses:
+        '200':
+          description: Successfully return
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/version'
+  /api-version:
+    get:
+      summary: Show the current API-Version
+      description: |-
+        Number of the interface-version. This is the canonical path; the
+        PascalCase /APIVersion is kept as a permanent alias so existing clients
+        keep working.
+      operationId: GetAPIVersionCanonical
+      responses:
+        '200':
+          description: Successfully return
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/version'
+  /APIVersion:
+    get:
+      summary: Show the current API-Version (alias of /api-version).
+      description: Retained alias of /api-version - identical reply.
+      operationId: GetAPIVersion
+      responses:
+        '200':
+          description: Successfully return
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/version'
+  /stop-server:
+    delete:
+      summary: Stop the running server.
+      description: |-
+        Stop the running server. This is the canonical path; the PascalCase
+        /StopServer is kept as an alias so existing tooling keeps working.
+      operationId: DeleteStopServerCanonical
+      responses:
+        '200':
+          description: Successfully return.
+        default:
+          $ref: '#/components/responses/ErrorDefault'
+  /StopServer:
+    delete:
+      summary: Stop the running server (alias of /stop-server).
+      description: Retained alias of /stop-server - identical behaviour.
+      operationId: DeleteStopServer
+      responses:
+        '200':
+          description: Successfully return.
+        default:
+          $ref: '#/components/responses/ErrorDefault'
+  /session:
+    delete:
+      summary: Remove all data related to the session given by the sid parameter.
+      description: Stop the current session and removes all internal data. In comparison to reset, this function also removes all dialects, which were defined in this session.
+      operationId: DeleteSession
+      parameters:
+        - $ref: '#/components/parameters/sid'
+      responses:
+        '200':
+          description: Successfully return.
+        '501':
+          $ref: '#/components/responses/ErrorNotImplemented'
+        default:
+          $ref: '#/components/responses/ErrorDefault'
+  /rules/define:
+    post:
+      summary: Add definitions of persistent rules.
+      description: Definition of persistent rules of the session without lots of output.
+      operationId: PostRulesDefine
+      parameters:
+        - $ref: '#/components/parameters/sid'
+        - $ref: '#/components/parameters/nlp'
+        - $ref: '#/components/parameters/audience'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/rulefmt_SemaLogic'
+      responses:
+        '200':
+          description: Successfully return.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/rulesout'
+        '422':
+          $ref: '#/components/responses/ErrorUnprocessableEntity'
+        '501':
+          $ref: '#/components/responses/ErrorNotImplemented'
+        default:
+          $ref: '#/components/responses/ErrorDefault'
+  /rules/remove:
+    post:
+      summary: Removes terms from the persistently defined ruleset.
+      description: Removes terms from the persistently defined ruleset of the session.
+      operationId: PostRulesRemove
+      parameters:
+        - $ref: '#/components/parameters/sid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/textID'
+      responses:
+        '200':
+          description: Successfully deleted.
+        '501':
+          $ref: '#/components/responses/ErrorNotImplemented'
+        default:
+          $ref: '#/components/responses/ErrorDefault'
+  /rules/parse:
+    post:
+      summary: Converts any text with a given dialect into Semantic representation
+      description: |-
+        Converts any text with a given dialect into Semantic representation of
+        the session. The rules are either persistently stored, thus the ruleset
+        is extended. Or the rules are only temporarily stored for this call.
+        The provided output can be selected by setting a filter. Otherwise all
+        defined rules are shown in the output.
+        The output format is defined by the rulesettype; the matching payload
+        appears in rulesout.rules (see the rulesettype -> payload mapping on the
+        rulesout schema). Findings always travel in rulesout.diagnostics,
+        independent of the rulesettype.
+      operationId: PostRulesParse
+      parameters:
+        - $ref: '#/components/parameters/sid'
+        - $ref: '#/components/parameters/nlp'
+        - $ref: '#/components/parameters/engine'
+        - $ref: '#/components/parameters/audience'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/parsedata'
+      responses:
+        '200':
+          description: Successfully return.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/rulesout'
+        '406':
+          $ref: '#/components/responses/ErrorNotAcceptable'
+        '422':
+          $ref: '#/components/responses/ErrorUnprocessableEntity'
+        default:
+          $ref: '#/components/responses/ErrorDefault'
+  /session/progress:
+    get:
+      summary: Poll the progress of a running session-associated operation.
+      description: |-
+        Returns the latest progress of a session-associated operation for the
+        given session id (sid), so a client can inform the user while the
+        initiating request is still open (Variant C). Progress is best-effort
+        and this endpoint never blocks an operation. An unknown or already-swept
+        sid is not an error - it returns running=false with no progress object.
+      operationId: GetSessionProgress
+      parameters:
+        - $ref: '#/components/parameters/sid'
+      responses:
+        '200':
+          description: The latest progress snapshot for the sid, or that none is running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/progressStatus'
+        default:
+          $ref: '#/components/responses/ErrorDefault'
+  /rules/progress:
+    get:
+      summary: Poll the progress of a running operation (alias of /session/progress).
+      description: |-
+        Returns the latest progress of a session-associated operation for the
+        given session id (sid), so a client can inform the user while the
+        initiating request is still open (Variant C). Progress is best-effort
+        and this endpoint never blocks an operation. An unknown or already-swept
+        sid is not an error - it returns running=false with no progress object.
+      operationId: GetRulesProgress
+      parameters:
+        - $ref: '#/components/parameters/sid'
+      responses:
+        '200':
+          description: The latest progress snapshot for the sid, or that none is running.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/progressStatus'
+        default:
+          $ref: '#/components/responses/ErrorDefault'
+  /rules/show:
+    post:
+      summary: Export ruleset-trees.
+      description: Export ruleset-trees for the session. The tree can be selected
+        using the filters. Otherwise, all trees will be shown. The output format
+        is selected using rulesettype.
+      operationId: PostRulesShow
+      parameters:
+        - $ref: '#/components/parameters/sid'
+        - $ref: '#/components/parameters/view'
+        - $ref: '#/components/parameters/audience'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rulesettype:
+                  $ref: '#/components/schemas/rulesettype'
+                filter:
+                  $ref: '#/components/schemas/filter'
+                backlinks:
+                  $ref: '#/components/schemas/backlinks'
+      responses:
+        '200':
+          description: Successfully return.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/rulesout'
+        '422':
+          $ref: '#/components/responses/ErrorUnprocessableEntity'
+        '501':
+          $ref: '#/components/responses/ErrorNotImplemented'
+        default:
+          $ref: '#/components/responses/ErrorDefault'
+  /canvas/convert:
+    post:
+      summary: Convert an Obsidian Canvas JSON into a SemaLogic term.
+      description: |-
+        Accepts an Obsidian Canvas JSON document and returns the SemaLogic term
+        defined by the canvas content.
+      operationId: PostCanvas2SL
+      parameters:
+        - $ref: '#/components/parameters/sid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/canvasRawJSON'
+          text/plain:
+            schema:
+              $ref: '#/components/schemas/canvasRawJSON'
+      responses:
+        '200':
+          description: Successfully converted.
+          content:
+            text/plain:
+              schema:
+                $ref: '#/components/schemas/semalogicTermString'
+            application/json:
+              schema:
+                $ref: '#/components/schemas/semalogicTermString'
+        '501':
+          $ref: '#/components/responses/ErrorNotImplemented'
+        default:
+          $ref: '#/components/responses/ErrorDefault'
+  /dialect/define:
+    post:
+      summary: Define or change a dialect.
+      description: Define or change a dialect within this session. The dialectID
+        can either be set as a JSON parameter or be included in the dialectDef
+        using the SemaLogic notation.
+      operationId: PostDialectDefine
+      parameters:
+        - $ref: '#/components/parameters/sid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/dialect'
+      responses:
+        '200':
+          description: Successfully persisted.
+        '501':
+          $ref: '#/components/responses/ErrorNotImplemented'
+        default:
+          $ref: '#/components/responses/ErrorDefault'
+  /dialect/remove:
+    post:
+      summary: Delete dialects by dialectID.
+      description: Delete a dialect from this session. Previously defined tokens
+        can not be deleted from a dialect.
+      operationId: PostDialectRemove
+      parameters:
+        - $ref: '#/components/parameters/sid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/dialectID'
+            example: end-with-dot
+      responses:
+        '200':
+          description: Successfully removed.
+        '422':
+          $ref: '#/components/responses/ErrorUnprocessableEntity'
+        default:
+          $ref: '#/components/responses/ErrorDefault'
+  /dialect/show:
+    post:
+      summary: Show dialects by dialectID.
+      description: Show a dialect from this session.
+      operationId: PostDialectShow
+      parameters:
+        - $ref: '#/components/parameters/sid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/dialectID'
+            example: end-with-dot
+      responses:
+        '200':
+          description: Successfully returned.
+        '501':
+          $ref: '#/components/responses/ErrorNotImplemented'
+        default:
+          $ref: '#/components/responses/ErrorDefault'
+
+  /reset:
+    post:
+      summary: Resets the session.
+      description: Resets the session and deletes all rules. The defined dialects
+        are not deleted.
+      operationId: PostReset
+      parameters:
+        - $ref: '#/components/parameters/sid'
+      responses:
+        '200':
+          description: Successfully reseted.
+        default:
+          $ref: '#/components/responses/ErrorDefault'
+
+components:
+
+  parameters:
+
+    sid:
+      name: sid
+      in: query
+      description: Session identifier (sid) is unique to any (persistent) session. The session might be shared by multiple users, if joint data is required.
+      required: false
+      explode: true
+      style: form
+      schema:
+        type: string
+        default: default
+    nlp:
+      name: nlp
+      in: query
+      description: |-
+        Optional NLP toggle for text-based inputs (UTF-8). Accepted values are
+        true/false or 1/0. NLP is activated only when the value is true or 1.
+        Any other value or a missing parameter disables NLP. Not applicable to
+        Canvas or Dialect endpoints.
+
+        Query parameter names are case sensitive, so the previous spelling `NLP`
+        is still read by the server when `nlp` is absent - it was the only
+        uppercase parameter of this API and a standing source of frontend bugs.
+      required: false
+      explode: true
+      style: form
+      schema:
+        type: string
+        enum:
+          - "true"
+          - "false"
+          - "1"
+          - "0"
+      example: "true"
+    view:
+      name: view
+      in: query
+      description: |-
+        Selects the KnowledgeGraph canvas rendering style. "technical" returns
+        the verbose debug canvas (separate operator nodes, NodeID/CONCEPT headers
+        and DEPTH edge labels); any other value or a missing parameter returns the
+        user-friendly canvas (operators folded into their subject nodes). Only
+        relevant for rulesettype=KnowledgeGraph.
+      required: false
+      explode: true
+      style: form
+      schema:
+        type: string
+        enum:
+          - user
+          - technical
+        default: user
+      example: user
+    engine:
+      name: engine
+      in: query
+      description: |-
+        Optional interprete-engine selector for parsedata.interprete
+        processing. Supported values are dialectgen_v1, and
+        dialectgen_v2. The short names are aliases for the corresponding
+        dialectgen names.
+        Missing or empty values keep the legacy interprete flow.
+      required: false
+      explode: true
+      style: form
+      schema:
+        type: string
+        enum:
+          - dialectgen_v1
+          - dialectgen_v2
+      example: dialectgen_v1
+    audience:
+      name: audience
+      in: query
+      description: |-
+        Selects which findings rulesout.diagnostics.items carries.
+        "user" (the default) returns only findings about the submitted ruleset
+        (audience=rule) and reports the suppressed ones as
+        diagnostics.summary.hidden, so a frontend can offer to reveal them
+        without ever receiving them. "developer" returns everything, including
+        engine-internal findings and their origin.
+      required: false
+      explode: true
+      style: form
+      schema:
+        type: string
+        enum:
+          - user
+          - developer
+        default: user
+      example: user
+
+  schemas:
+
+    progressEvent:
+      type: object
+      description: A best-effort snapshot of a session-associated operation.
+      properties:
+        phase:
+          type: string
+          description: Producer-defined label for the current work phase.
+        message:
+          type: string
+          description: A short, user-facing status line from the producer.
+        itemsDone:
+          type: integer
+          description: Producer-defined completed-work counter.
+        itemsTotal:
+          type: integer
+          description: Producer-defined total-work counter (may be 0).
+        llmCalls:
+          type: integer
+          description: Producer-defined LLM-call counter.
+        chunk:
+          type: string
+          description: Optional producer-defined sub-work label.
+        elapsedMs:
+          type: integer
+          format: int64
+          description: Milliseconds since the operation's first event.
+        done:
+          type: boolean
+          description: True on the final event; the operation has finished (success or failure).
+        failed:
+          type: boolean
+          description: True when the operation ended in an error rather than completing.
+
+    progressStatus:
+      type: object
+      description: The reply of GET /rules/progress. progress is present only when an operation is known.
+      properties:
+        sid:
+          type: string
+          description: The session id the progress was requested for.
+        running:
+          type: boolean
+          description: Whether an operation is currently in progress for this sid (mirror of !progress.done).
+        progress:
+          $ref: '#/components/schemas/progressEvent'
+      required:
+        - sid
+        - running
+
+    persistency:
+      type: boolean
+      description: Save the rules persistently in this SemaLogic Server.
+
+    backlinks:
+      type: boolean
+      default: false
+      description: |-
+        Ask for the backlinks of the delivered document. Only relevant for
+        rulesettype=AnnotatedHTML, and ignored for every other one.
+
+        true writes one collapsible list into each addressed element that is
+        cited - what points at this passage, and what points at anything below
+        it - naming the citing norm and quoting the citing sentence. Two sources
+        feed it: the document in the request, whose own internal cross-references
+        need nothing configured, and this installation's law repository, which
+        contributes what other statutes point at it. An edge both of them hold is
+        listed once.
+
+        It is opt-in because the blocks are content and not decoration: on a
+        whole statute they roughly double the payload. Absent or false returns
+        the plain annotation. The reverse direction (input carrying
+        data-sl-level, answered as Markdown) is unaffected - the blocks leave no
+        trace in the Markdown, so a decorated reply posted back deannotates to
+        the same text the plain one does.
+      example: false
+
+    rulesettype:
+      type: string
+      description: Define type and format of ruleset - for input and output.
+      enum:
+        - AnnotatedHTML
+        - ASP.json
+        - DialectEngine
+        - KnowledgeGraph
+        - SemaLogic
+        - SemanticTree
+        - SVG
+      x-enumDescriptions:
+        AnnotatedHTML: Return the text as annotated HTML (the Law/annotate output)
+        ASP.json: Generate a special json-file for UP-ASP
+        DialectEngine: Return the direct result payload of the selected dialect engine
+        KnowledgeGraph: Outputs a Obsidian canvas displaying the nodes
+        SemaLogic: Read SemaLogic input and also generate standard language SemaLogic output
+        SemanticTree: ASCII based text displaying the coded semantic tree
+        SVG: Generate a Scalable Vector Graphics (SVG)
+      example: ASP.json
+
+    version:
+      properties:
+        version:
+          type: string
+          description: Number of interface version.
+          example: "00.03.00 build 240122-0937"
+        runtime:
+          type: string
+          description: Time the service was started last.
+          example: "started: Monday, 17-Jul-23 18:20:15 UTC"
+        versiontext:
+          type: string
+          description: Informations about interface version.
+          example: "This is current the SemaLogic service interface to provide transformation services."
+        llmAvailable:
+          type: boolean
+          description: Whether the service can currently reach a large language model.
+        llmModels:
+          type: array
+          description: The default LLM models this service would use. Empty when no LLM is available.
+          items:
+            type: string
+      required:
+        - version
+
+    filter:
+      type: object
+      description: |-
+        We select the semantic level of the output using the filter.
+        The semantic tree is selected by an arbitrary symbolic name, which was defined in the ruleset.
+        If no specific symbol is given, the complete tree is shown.
+        The output is presented in the given dialect or default dialect, if none is given.
+      properties:
+        dialectID:
+          $ref: '#/components/schemas/dialectID'
+        symbols:
+          $ref: '#/components/schemas/symbolList'
+      example:
+        dialectID: default
+        symbols: [{symbol: "A"}]
+
+    dialectID:
+      type: string
+      description: DialectID (= name of this dialect) of a dialect.
+      example: sampleDialectID32
+
+    dialect:
+      type: object
+      description: One dialectID and at least on symbolic token definitions of a dialect.
+      properties:
+        dialectID:
+          $ref: '#/components/schemas/dialectID'
+        dialectDef:
+          type: string
+          description: One or multiple token definitions which form part of a dialect.
+          example: SymTokenAndClose:=.
+      example:
+        dialectID: end-with-dot
+        dialectDef: "SymTokenAndClose≡.\nSymTokenOrClose≡.\n"
+
+    symbol:
+      type: string
+      description: Name of a symbol.
+      example: modulebm1
+
+    datatype:
+      type: string
+      description: Defines the datatype of the following value.
+      example: integer
+      enum:
+        - string
+        - integer
+        - number
+        - bool
+      x-enumDescriptions:
+        string: value will be a string
+        integer: value will be a integer
+        number: value will be a floating point number
+        bool: value will be a boolean value of true or false.
+
+    value:
+      description: Used to code one flexible type value.
+      oneOf:
+      - type: boolean
+      - type: string
+      - type: number
+      - type: integer
+      example: 6
+
+    range:
+      type: array
+      description: Used to group multiple values into an array.
+      items:
+        properties:
+          value:
+            $ref: '#/components/schemas/value'
+
+    property:
+      description: Used as param or property description for Attribut and Term.
+      properties:
+        name:
+          type: string
+          example: ects
+        datatype:
+          $ref: '#/components/schemas/datatype'
+        value:
+          oneOf:
+          - $ref: '#/components/schemas/value'
+          - $ref: '#/components/schemas/range'
+
+    attribute:
+      type: array
+      description: |
+        An array of symbol definitions, where
+        - `symbol`: holds the symbol/object to which a definition applies
+        - `property`: is an arry of attribute definitions of attribute_names and their values of type integer, number, string or bool using the datatype.
+      items:
+        properties:
+          symbol:
+            $ref: '#/components/schemas/symbol'
+          property:
+            type: array
+            items:
+              $ref: '#/components/schemas/property'
+
+    symbolList:
+      type: array
+      description: A list of Symbols which can be used as members of a group or as list of symbols in a filter.
+      items:
+        properties:
+          symbol:
+            $ref: '#/components/schemas/symbol'
+
+    group:
+      type: array
+      description: Grouping symbols by a (group)symbol
+        members could be symbols and other group-symbols.
+      items:
+        properties:
+          symbol:
+            $ref: '#/components/schemas/symbol'
+          member:
+            $ref: '#/components/schemas/symbolList'
+
+    term:
+      type: array
+      description: |
+        An array of terms, where
+        - `symbol`: holds the symbol/object on which a constrain is applied.
+        - `termtype`: holds the type of the term.
+        - `params`: is structure to define the special parameters for each function - reuse of attribute structure above (in attributes->attribute).
+        All parameters have to be defined for every function.
+        Definition of term types and there params are not defined in API-Structure, because the structure is the same - only the values and the count of attributes change:
+
+        termtype = iterator
+        using params names of:
+        - `operator`: one of ("sum" for summation, "min" for minimum, "max" for maximum, "average" for average value, "count" for counting the number of elements)
+        - `symbol_name`: holds the group name (alias symbol), we iterate over.
+        - `attribute_name`: holds the attribute name, we use for calculations.
+        - `argument`: additional arguments.
+
+        termtype = and
+        using no params
+
+        termtype = or
+        using params names of:
+        - `minimum`: holds the minimum number of elements which can be picked from the set.
+        - `maximum`: holds the maximum number of elements which can be picked from the set.
+
+        termtype = comparison
+        using params names of:
+        - `operator`: one of: ("eq" equal to, "gt" greater than, "lt" less than, "ge" greater than or equal to, "le" less than or equal to, "ne" not equal to )
+        - `left_operant`: holds the left hand operant of the comparison.
+        - `right_operant`: holds the right hand operant of the comparison.
+
+        termtype = check
+        using params names of:
+        - `symbol_name`: holds the group name (alias symbol), we check for being true.
+
+        termtype = advice
+        using params names of:
+        - `symbol_name`: holds the group name (alias symbol), we aim for being true. However, this is no hard constraint.
+
+        termtype = timeorder
+        using params names of:
+        - `operator`: one of ("before", "after", "parallel_and_before", "parallel_and_after")
+        - `left_operant`: holds the left hand operant of the comparison.
+        - `right_operant`: holds the right hand operant of the comparison.
+
+        Currently undefined: advices.
+      items:
+        properties:
+          symbol:
+            $ref: '#/components/schemas/symbol'
+          termtype:
+            type: string
+            description: Holds the type of the term.
+            example: 'and'
+          params:
+            type: array
+            items:
+              $ref: '#/components/schemas/property'
+
+    textID:
+      type: string
+      description: TextID for a transmitted text. It can be used to
+        delete specific text passages and keep the rest of the ruleset.
+      example: sampleTextID22
+
+    rulefmt_ASPJSON:
+      type: array
+      description: Ruleset for ASP in JSON-Format for solving.
+      items:
+        properties:
+          attribute:
+            $ref: '#/components/schemas/attribute'
+          group:
+            $ref: '#/components/schemas/group'
+          term:
+            $ref: '#/components/schemas/term'
+
+    rulefmt_SemaLogic:
+      type: array
+      description: A SemaLogic based definition of rules in a specific dialect.
+      items:
+        type: object
+        properties:
+          textID:
+            $ref: '#/components/schemas/textID'
+          dialectID:
+            $ref: '#/components/schemas/dialectID'
+          rules:
+            type: string
+            example: "My Options 1|2 {do nothing, start now, start later, ask for help}"
+        example:
+          textID: sampleTextID21
+          dialectID: default
+          rules: A [B, C]
+
+    rulefmt_TextTree:
+      type: string
+      description: A ASCII based output format containing a text representation of one or several semantic trees.
+        It always uses the default dialect, thus is displayed in using standard technical SemaLogic language.
+      example:
+        A [B, C]
+          C 1|2 {D, E, F}
+
+    rulefmt_html:
+      type: object
+      description: |-
+        Rendered markup plus the metadata a client needs to embed it. Used for
+        rulesettype SemaLogic and SemanticTree. The markup travels as a JSON
+        string so that one reply can carry both the output and its diagnostics.
+      required:
+        - html
+      properties:
+        html:
+          type: string
+          description: The markup itself.
+        fragment:
+          type: boolean
+          default: true
+          description: true = insert into an existing DOM; false = a standalone document.
+        mediaType:
+          type: string
+          default: text/html
+        dialectID:
+          $ref: '#/components/schemas/dialectID'
+        title:
+          type: string
+
+    rulefmt_svg:
+      type: object
+      description: A Scalable Vector Graphics rendering of the semantic tree.
+      required:
+        - svg
+      properties:
+        svg:
+          type: string
+          description: The SVG document.
+        mediaType:
+          type: string
+          default: image/svg+xml
+        width:
+          type: integer
+        height:
+          type: integer
+
+    rulefmt_knowledgeGraph:
+      type: object
+      description: An Obsidian Canvas rendering of the node graph.
+      required:
+        - canvas
+      properties:
+        canvas:
+          type: string
+          description: Obsidian Canvas JSON document.
+        view:
+          type: string
+          enum:
+            - user
+            - technical
+          description: Which canvas style produced this document; mirrors the view parameter.
+
+    rulefmt_annotatedHTML:
+      type: object
+      description: |-
+        Annotated HTML for a text: nested section/span markup tagged down to
+        sentence level, produced by Law/annotate (source=annotate), optionally
+        carrying its backlink blocks. A session holding no text falls back to the
+        input wrapped unchanged in a minimal HTML wrapper (source=echo).
+      required:
+        - html
+      properties:
+        html:
+          type: string
+          description: The annotated markup.
+        fragment:
+          type: boolean
+          default: true
+          description: true = insert into an existing DOM; false = a standalone document.
+        mediaType:
+          type: string
+          default: text/html
+        source:
+          type: string
+          enum:
+            - echo
+            - annotate
+          default: echo
+          description: echo = the input text wrapped unchanged; annotate = produced by Law/annotate.
+        backlinks:
+          type: integer
+          minimum: 0
+          description: |-
+            How many backlink blocks were written into the markup, present only
+            where parsedata.backlinks asked for them. 0 says the rendering ran
+            and nothing points at this document, which is a different answer
+            from the field being absent - that one says nobody asked.
+          example: 0
+        textID:
+          $ref: '#/components/schemas/textID'
+
+    rulefmt_dialectEngine:
+      type: object
+      description: Direct result payload returned by a selected dialect engine.
+      properties:
+        engine:
+          type: string
+        contentType:
+          type: string
+        output:
+          type: string
+
+    diagnostic:
+      type: object
+      description: |-
+        One structured finding about the request. Code and the rendered message
+        are kept side by side deliberately: message is what a user reads now,
+        code is what a client keys its own behaviour on (explanations, muting,
+        translation) and is stable across releases and dialects.
+      required:
+        - message
+        - severity
+        - audience
+      properties:
+        message:
+          type: string
+          description: Rendered, human-readable sentence.
+        errortext:
+          type: string
+          deprecated: true
+          description: Alias of message; retained for one release so 00.02.x clients keep working.
+        severity:
+          type: string
+          description: |-
+            How confident the service is in the finding - not whether it could
+            continue; SemaLogic always proceeds with the most defensible reading.
+          enum:
+            - defect
+            - suspect
+            - note
+            - blocking
+          x-enumDescriptions:
+            defect: Certainly wrong.
+            suspect: Probably wrong, from a heuristic.
+            note: Informational.
+            blocking: Could not be interpreted at all.
+        audience:
+          type: string
+          description: |-
+            Who the finding is for - the same vocabulary the audience query
+            parameter uses, so a client filters items with the terms it requests
+            them by. This is the axis a frontend hides and reveals.
+          enum:
+            - user
+            - developer
+          x-enumDescriptions:
+            user: A finding about the submitted ruleset, phrased in SemaLogic vocabulary and meant for the end user.
+            developer: A finding about the service's own code or state, meant for developers rather than the end user.
+        code:
+          type: string
+          description: Stable machine-readable code; also the key into the explanation catalogue.
+          example: SL.SymbolUndefined
+        id:
+          type: string
+          description: |-
+            Content-addressed identity, derived from code, audience, subject and
+            arguments - never from the message text, a timestamp or the session.
+            Two findings with the same id are the same finding, so a client can
+            deduplicate and can persist a per-finding "do not show again".
+        subject:
+          type: object
+          description: What the finding is about, so a client can highlight or jump to it.
+          properties:
+            symbol:
+              $ref: '#/components/schemas/symbol'
+            path:
+              type: array
+              items:
+                type: string
+            variant:
+              type: string
+            version:
+              type: string
+        reference:
+          type: string
+          description: A reference description to the source of the finding.
+        origin:
+          type: object
+          description: Code location that produced the finding. Only populated for audience=developer.
+          properties:
+            package:
+              type: string
+            file:
+              type: string
+            func:
+              type: string
+            line:
+              type: integer
+
+    diagnostics:
+      type: object
+      description: |-
+        All findings of this request, plus what a client needs to offer show and
+        hide without a second round trip for the counts.
+      required:
+        - items
+        - summary
+      properties:
+        items:
+          type: array
+          description: The findings the requested audience may see, in a deterministic order.
+          items:
+            $ref: '#/components/schemas/diagnostic'
+        summary:
+          type: object
+          description: |-
+            Counts over the complete finding set, including the ones excluded
+            from items by the audience parameter.
+          properties:
+            defect:
+              type: integer
+            suspect:
+              type: integer
+            note:
+              type: integer
+            blocking:
+              type: integer
+            hidden:
+              type: integer
+              description: |-
+                How many findings are not in items because the requested audience
+                excludes them. A frontend renders this as "show N technical
+                messages" and fetches them with audience=developer on demand.
+        groups:
+          type: array
+          description: items collapsed by code, so a repeated finding renders once with a count.
+          items:
+            type: object
+            properties:
+              code:
+                type: string
+              count:
+                type: integer
+              ids:
+                type: array
+                items:
+                  type: string
+
+    rulesout:
+      type: object
+      description: |-
+        The one response envelope of this API. Every reply of /rules/parse and
+        /rules/show uses it, for success and for error alike, so a client parses
+        one shape. rules carries the payload selected by rulesettype and is null
+        when there is none; diagnostics is always present.
+
+        rulesettype is absent on a reply that never got as far as choosing an
+        output format - a rejected body, an unknown session - and is always
+        present when rules is.
+      required:
+        - diagnostics
+      properties:
+        rulesettype:
+          $ref: '#/components/schemas/rulesettype'
+        rules:
+          description: |-
+            The payload, selected by rulesettype. A formal OpenAPI discriminator
+            cannot be used here because rulefmt_ASPJSON is an array and therefore
+            cannot carry a discriminating property; read rulesettype instead and
+            apply x-rulesettype-mapping below.
+          nullable: true
+          oneOf:
+          - $ref: '#/components/schemas/rulefmt_annotatedHTML'
+          - $ref: '#/components/schemas/rulefmt_ASPJSON'
+          - $ref: '#/components/schemas/rulefmt_dialectEngine'
+          - $ref: '#/components/schemas/rulefmt_html'
+          - $ref: '#/components/schemas/rulefmt_knowledgeGraph'
+          - $ref: '#/components/schemas/rulefmt_SemaLogic'
+          - $ref: '#/components/schemas/rulefmt_svg'
+          - $ref: '#/components/schemas/rulefmt_TextTree'
+          x-rulesettype-mapping:
+            AnnotatedHTML: '#/components/schemas/rulefmt_annotatedHTML'
+            ASP.json: '#/components/schemas/rulefmt_ASPJSON'
+            DialectEngine: '#/components/schemas/rulefmt_dialectEngine'
+            KnowledgeGraph: '#/components/schemas/rulefmt_knowledgeGraph'
+            SemaLogic: '#/components/schemas/rulefmt_html'
+            SemanticTree: '#/components/schemas/rulefmt_html'
+            SVG: '#/components/schemas/rulefmt_svg'
+        diagnostics:
+          $ref: '#/components/schemas/diagnostics'
+
+    parsedata:
+      type: object
+      description: Format to transmit a new ruleset to the SemaLogic service.
+      properties:
+        text:
+          $ref: '#/components/schemas/rulefmt_SemaLogic'
+        interprete:
+          $ref: '#/components/schemas/rulefmt_SemaLogic'
+        filter:
+          $ref: '#/components/schemas/filter'
+        persistency:
+          $ref: '#/components/schemas/persistency'
+        rulesettype:
+          $ref: '#/components/schemas/rulesettype'
+        backlinks:
+          $ref: '#/components/schemas/backlinks'
+
+    canvasRawJSON:
+      type: string
+      description: Raw Obsidian Canvas JSON document as a string.
+      example: '{"nodes":[],"edges":[]}'
+
+    semalogicTermString:
+      type: string
+      description: SemaLogic term encoded as a string.
+      example: "A [B, C]"
+
+  responses:
+    ErrorNotImplemented:
+      description: Bad request - error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/rulesout'
+    ErrorUnprocessableEntity:
+      description: Syntax error in content format - error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/rulesout'
+    ErrorNotAcceptable:
+      description: Bad format of body - error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/rulesout'
+    ErrorDefault:
+      description: Unspecific (default) error.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/rulesout'

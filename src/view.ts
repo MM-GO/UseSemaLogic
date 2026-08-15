@@ -1,5 +1,5 @@
 import { DropdownComponent, ItemView, Notice, WorkspaceLeaf, ButtonComponent, MarkdownRenderer, RequestUrlParam, requestUrl, sanitizeHTMLToDom } from "obsidian";
-import { slTexts, DebugLevMap, RulesettypesCommands, Rstypes_Semalogic, Rstypes_SemanticTree, Rstypes_KnowledgeGraph, Rstypes_Picture, Rstypes_ASP, Rstypes_AnnotatedHTML, DialectGen_Label, API_Defaults } from "./const"
+import { slTexts, DebugLevMap, RulesettypesCommands, Rstypes_Semalogic, Rstypes_SemanticTree, Rstypes_KnowledgeGraph, Rstypes_Picture, Rstypes_ASP, Rstypes_AnnotatedHTML, Rstypes_AnnotatedHTML_WithBacklinks, DialectGen_Label, API_Defaults } from "./const"
 import { SemaLogicPluginComm, DebugLevel, SemaLogicPluginSettings } from "../main"
 import { slconsolelog } from './utils'
 import { ViewUtils } from "./view_utils";
@@ -280,6 +280,7 @@ export class SemaLogicView extends ItemView {
       .addOption(RulesettypesCommands[Rstypes_SemanticTree][1], RulesettypesCommands[Rstypes_SemanticTree][0])
       .addOption(RulesettypesCommands[Rstypes_KnowledgeGraph][1], RulesettypesCommands[Rstypes_KnowledgeGraph][0])
       .addOption(RulesettypesCommands[Rstypes_AnnotatedHTML][1], RulesettypesCommands[Rstypes_AnnotatedHTML][0])
+      .addOption(RulesettypesCommands[Rstypes_AnnotatedHTML_WithBacklinks][1], RulesettypesCommands[Rstypes_AnnotatedHTML_WithBacklinks][0])
       .addOption(DialectGen_Label, DialectGen_Label)
       .setValue(dropDownValue)
       .onChange(async (value) => {
@@ -517,6 +518,11 @@ export class SemaLogicView extends ItemView {
 
   createSemaLogicRequestBody(dialectID: string, bodytext: string, outPutFormat: string, interpreteText?: string): any {
     slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, 'Context: ' + dialectID + ' Bodytext: ' + bodytext)
+    
+    // Determine if backlinks are requested (for AnnotatedHTML_backlinks variant)
+    const backlinksRequested = outPutFormat === "AnnotatedHTML_backlinks"
+    const rulesettype = backlinksRequested ? "AnnotatedHTML" : outPutFormat
+    
     let semaLogicJsonRequestBody: any = {
       "text": [
         {
@@ -527,8 +533,14 @@ export class SemaLogicView extends ItemView {
       ],
       "filter": {},
       "persistency": false,
-      "rulesettype": outPutFormat
+      "rulesettype": rulesettype
     }
+    
+    // Add backlinks flag if requested (API 00.03.01+)
+    if (backlinksRequested) {
+      semaLogicJsonRequestBody["backlinks"] = true
+    }
+    
     if (interpreteText != undefined) {
       semaLogicJsonRequestBody["interprete"] = [
         {
