@@ -594,6 +594,13 @@ li[data-task="?"]>p>input:checked::after {
     --lw-target: #fff3c4;
     --lw-measure: 44rem;
 
+    /* The two states that mean "this citation does not lead to live text".
+       One colour, because that is one fact; the decoration below is what tells
+       weggefallen from never-existed. Named apart so an installation can retune
+       either without touching the other. */
+    --lw-absent: #a3231f;
+    --lw-repealed: #a3231f;
+
     /* Hanging indents â€” keep in sync with the widest marker of each stage. */
     --lw-hang-num: 2.3em;
     --lw-hang-let: 2em;
@@ -624,11 +631,20 @@ li[data-task="?"]>p>input:checked::after {
         --lw-rule: #363b44;
         --lw-accent: #8ab4f0;
         --lw-target: #4a3f12;
-        --lw-absent: #f08a86;
+        --lw-absent: #ff6b6b;
+        --lw-repealed: #ff6b6b;
         --lw-note-bg: #21252c;
         --lw-backlink-bg: #26324a;
         --lw-backlink-fg: #c3d4f5;
     }
+}
+
+/* Obsidian exposes the selected appearance through .theme-dark rather than
+ * necessarily through the operating system's prefers-color-scheme setting. */
+body.theme-dark .law,
+.theme-dark .law {
+    --lw-absent: #ff6b6b;
+    --lw-repealed: #ff6b6b;
 }
 
 /* ---------------------------------------------------------------- page frame
@@ -703,15 +719,18 @@ body {
 
 /* ------------------------------------------------------- link state (WP07 L7)
 * What the evidence says about a citation's target, written by the server as
-* data-link-state (mode A) or by links.js after delivery (mode B). Both write
+* data-sl-link-state (mode A) or by links.js after delivery (mode B). Both write
 * the same values, so this block is the only place either of them is rendered.
 *
 *   confirmed  the addressed node exists. Nothing shouts.
 *   partial    the ancestor exists and the requested depth could not be
 *              checked — "§ 1610 is real, Absatz 2 was not verifiable"
-*   repealed   it exists and is weggefallen. It still says nothing.
-*   absent     an exhaustive source did not find it. This is the one state
-*              that must be impossible to overlook.
+*   repealed   it exists and is weggefallen. Red and struck through: the
+*              provision is named and there is nothing behind the name.
+*   absent     an exhaustive source did not find it. The same red — following
+*              either link is the same disappointment — with a wavy underline
+*              instead of a strike, because "was removed" and "was never here"
+*              are different findings and a reader may need to tell them apart.
 *   unknown    no evidence applies. Visibly different from broken, because
 *              unverified and wrong are not the same fact.
 *
@@ -719,43 +738,50 @@ body {
 * citation span in an annotated statute and on a bare <a> in hand-written
 * markup, and a stylesheet should not have to know which.
 */
-[data-link-state="confirmed"] {
+[data-sl-link-state="confirmed"] {
     /* Deliberately empty of decoration. A confirmed citation is the normal case,
         and a page that marks the normal case has marked everything. */
 }
 
-[data-link-state="partial"] > a,
-[data-link-state="partial"] {
-    text-decoration: underline dotted
-        color-mix(in srgb, var(--lw-accent) 55%, transparent);
+[data-sl-link-state="partial"]>a,
+[data-sl-link-state="partial"] {
+    text-decoration: underline dotted color-mix(in srgb, var(--lw-accent) 55%, transparent);
     text-underline-offset: 0.2em;
 }
 
-[data-link-state="repealed"],
-[data-link-state="repealed"] > a {
-    color: var(--lw-muted);
+[data-sl-link-state="repealed"],
+[data-sl-link-state="repealed"]>a {
+    color: var(--lw-repealed, #a3231f);
     text-decoration-line: line-through;
+    text-decoration-color: var(--lw-repealed, #a3231f);
     text-decoration-thickness: 1px;
 }
 
-[data-link-state="absent"],
-[data-link-state="absent"] > a {
+[data-sl-link-state="absent"],
+[data-sl-link-state="absent"]>a {
     color: var(--lw-absent, #a3231f);
     text-decoration: underline wavy var(--lw-absent, #a3231f);
     text-underline-offset: 0.2em;
 }
 
-[data-link-state="unknown"],
-[data-link-state="unknown"] > a {
+/* External absent citations have no anchor. Make their text colour win over
+ * generic .lawlink.external styling and over embedding-theme link colours. */
+.lawlink.external[data-sl-link-state="absent"],
+.lawlink.external[data-sl-link-state="absent"]>a {
+    color: var(--lw-absent, #a3231f) !important;
+}
+
+[data-sl-link-state="unknown"],
+[data-sl-link-state="unknown"]>a {
     border-bottom: 1px dashed var(--lw-rule);
 }
 
-/* The reason is on the element as data-link-reason and is not rendered on its
+/* The reason is on the element as data-sl-link-reason and is not rendered on its
 * own: it is the tooltip's second half and a diagnostic's column. Turning it
 * into a visible marker would give five states a dozen appearances. */
 
 /* ------------------------------------------------------------- the tooltip
-* data-link-note is one German sentence composed by the server — the readable
+* data-sl-link-note is one German sentence composed by the server — the readable
 * citation, what is known about it, and since when. It is shown through the
 * title attribute where a browser is present; this rule is what makes it
 * legible in Obsidian and in print-to-PDF, which have no hover chrome.
@@ -764,13 +790,13 @@ body {
 * reader's copy-paste of the sentence stays the statute's text.
 */
 @media (hover: hover) {
-    [data-link-note] {
+    [data-sl-link-note] {
         position: relative;
     }
 
-    [data-link-note]:hover::after,
-    [data-link-note]:focus-within::after {
-        content: attr(data-link-note);
+    [data-sl-link-note]:hover::after,
+    [data-sl-link-note]:focus-within::after {
+        content: attr(data-sl-link-note);
         position: absolute;
         left: 0;
         top: 1.6em;
@@ -792,13 +818,13 @@ body {
 }
 
 @media print {
-    [data-link-note]:hover::after {
+    [data-sl-link-note]:hover::after {
         content: none;
     }
 }
 
 /* --------------------------------------------------------------- backlinks
-* How many documents point at this node, written as data-backlinks on the §
+* How many documents point at this node, written as data-sl-backlinks on the §
 * and the Absatz — not on every sentence, which would be unreadable.
 *
 * content: attr(...) creates no DOM text node. That is the whole reason the
@@ -806,8 +832,8 @@ body {
 * the words: text fidelity, Deannotate and a reader's copy-paste are all
 * untouched by construction rather than by care.
 */
-[data-backlinks]::after {
-    content: "↩" attr(data-backlinks);
+[data-sl-backlinks]::after {
+    content: "↩" attr(data-sl-backlinks);
     font-size: 0.75em;
     vertical-align: super;
     margin-left: 0.35em;
@@ -822,7 +848,7 @@ body {
 
 /* The badge is an affordance, not content: it leaves the print. */
 @media print {
-    [data-backlinks]::after {
+    [data-sl-backlinks]::after {
         content: none;
     }
 }
@@ -857,7 +883,7 @@ body {
     padding-left: 1.2rem;
 }
 
-.backlink-panel li + li {
+.backlink-panel li+li {
     margin-top: 0.4rem;
 }
 
@@ -893,6 +919,96 @@ body {
     .backlink-panel {
         display: none;
     }
+}
+
+/* ------------------------------------------------- the export appendix (N6)
+ * The dated section AppendSnapshot writes after the document's content, for a
+ * file read where no server answers and no script runs.
+ *
+ * It is deliberately NOT excluded from @media print. The badge and the panel
+ * are affordances — an interaction that cannot happen on paper; this is the
+ * content those affordances would have shown, which is the whole reason it
+ * exists. */
+.backlink-inline {
+    display: block;
+    margin: 0 0 0.6rem;
+    font-size: 0.9em;
+}
+
+.backlink-inline>.backlink-summary {
+    display: inline-block;
+    cursor: pointer;
+    list-style: none;
+    padding: 0.05em 0.5em;
+    border-radius: 0.8em;
+    background: var(--lw-backlink-bg, #e8eefc);
+    color: var(--lw-backlink-fg, #24417a);
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.backlink-inline>.backlink-summary::-webkit-details-marker {
+    display: none;
+}
+
+.backlink-inline[open]>.backlink-summary {
+    margin-bottom: 0.4rem;
+}
+
+.backlink-inline ul {
+    margin: 0 0 0 0.4rem;
+    padding-left: 1.1rem;
+    border-left: 2px solid var(--lw-rule, #d8dee9);
+}
+
+.backlink-inline .backlink-entry+.backlink-entry {
+    margin-top: 0.35rem;
+}
+
+.backlink-inline .backlink-source {
+    font-weight: 500;
+}
+
+.backlink-inline .backlink-source::after {
+    content: " — ";
+    font-weight: 400;
+    color: var(--lw-muted, #6b7280);
+}
+
+.backlink-inline .backlink-group-head {
+    margin: 0.5rem 0 0.2rem;
+    font-size: 0.85em;
+    font-weight: 600;
+    color: var(--lw-muted, #6b7280);
+}
+
+.backlink-inline .backlink-origin {
+    margin: 0.4rem 0 0.15rem;
+    font-size: 0.8em;
+    font-weight: 500;
+    letter-spacing: 0.02em;
+    color: var(--lw-muted, #6b7280);
+}
+
+.backlink-inline .backlink-below {
+    margin-top: 0.2rem;
+}
+
+.backlink-inline .backlink-below-count {
+    margin-left: 0.4em;
+    padding: 0 0.4em;
+    border-radius: 0.8em;
+    font-size: 0.85em;
+    background: var(--lw-backlink-bg, #e8eefc);
+    color: var(--lw-backlink-fg, #24417a);
+}
+
+.backlink-inline .backlink-text {
+    /* A block may be the first child of a bold structural element. The quoted
+     * sentence must retain ordinary body text weight; its linked source label
+     * deliberately keeps its own presentation above. */
+    font-weight: normal;
+    color: var(--lw-muted, #6b7280);
 }
 
 /* --------------------------------------------------------------------- root */
