@@ -1247,6 +1247,7 @@ export default class SemaLogicPlugin extends Plugin {
 	interpreterDebounce: number | undefined
 	pauseAllRequests: boolean = false
 	sectionStyleEl: HTMLStyleElement | undefined
+	private semaLogicViewRegistered: boolean = false
 	private lawCatalogViewRegistered: boolean = false
 
 	// Due to change in Sprint 1/2023 to inline dialects, detection of contexts will be needed in later sprints 
@@ -1553,6 +1554,10 @@ export default class SemaLogicPlugin extends Plugin {
 
 		this.slComm = new SemaLogicPluginComm
 		this.slComm.setSLClass(this)
+		// Register synchronously while Obsidian restores persisted workspace
+		// leaves. Delaying this until onLayoutReady makes a saved SemaLogic leaf
+		// unusable and later causes activateView to create a second one.
+		this.registerSemaLogicView()
 
 		// Workspace leaves are restored after plugins are loaded. Creating the
 		// SemaLogic leaf before that point can race the layout restore.
@@ -1675,6 +1680,8 @@ export default class SemaLogicPlugin extends Plugin {
 		}
 		this.startupInitialization = (async () => {
 			try {
+				this.removeDuplicateSemaLogicLeaves()
+				this.setViews()
 				// Reset exactly once, before the first parse. The former startup path
 				// issued several reset and parse requests for the same server session.
 				await this.activateView(false, false)
@@ -4053,24 +4060,47 @@ export default class SemaLogicPlugin extends Plugin {
 		this.myStatus.setText('Knowledge is on');
 	}
 
-	async activateView(resetService: boolean = true, update: boolean = true) {
-		// Add the SemaLogic - View
-		if (this.slComm.slview == undefined) {
-			this.registerView(
-				SemaLogicViewType,
-				leaf => new SemaLogicView(leaf)
-			);
-		}
+	private registerSemaLogicView(): void {
+		if (this.semaLogicViewRegistered) { return }
+		this.registerView(SemaLogicViewType, (leaf) => new SemaLogicView(leaf))
+		this.semaLogicViewRegistered = true
+	}
 
-		// CLI-driven test setup can detach all document leaves while Obsidian is
-		// still rebuilding its layout. In that small window GetSemaLogicLeaf()
-		// may not offer a split yet, although getLeaf('split') can create one.
+	private getSemaLogicLeaves(): WorkspaceLeaf[] {
+		const leaves: WorkspaceLeaf[] = []
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (leaf.view.getViewType() == SemaLogicViewType) {
+				leaves.push(leaf)
+			}
+		})
+		return leaves
+	}
+
+	private removeDuplicateSemaLogicLeaves(): void {
+		const leaves = this.getSemaLogicLeaves()
+		if (leaves.length < 2) { return }
+		const activeLeaf = this.app.workspace.activeLeaf
+		const retainedLeaf = activeLeaf != null && leaves.includes(activeLeaf) ? activeLeaf : leaves[0]
+		leaves.forEach((leaf) => {
+			if (leaf != retainedLeaf) { leaf.detach() }
+		})
+		slconsolelog(DebugLevMap.DebugLevel_Informative, undefined,
+			`Removed ${leaves.length - 1} duplicate SemaLogic workspace leaf/leaves during startup`)
+	}
+
+	async activateView(resetService: boolean = true, update: boolean = true) {
+		this.registerSemaLogicView()
+
+		// Reuse a restored leaf as-is. Replacing it with setViewState during
+		// startup can leave a stale leaf behind in the persisted workspace.
 		const leaf = this.GetSemaLogicLeaf() ?? this.app.workspace.getLeaf('split');
 		if (leaf != undefined) {
-			await leaf.setViewState({
-				type: SemaLogicViewType,
-				active: false,
-			})
+			if (leaf.view.getViewType() != SemaLogicViewType) {
+				await leaf.setViewState({
+					type: SemaLogicViewType,
+					active: false,
+				})
+			}
 			if (resetService) {
 				await this.semaLogicReset()
 			}
