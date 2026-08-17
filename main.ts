@@ -4099,7 +4099,31 @@ export default class SemaLogicPlugin extends Plugin {
 			if (leaf.view.getViewType() != LawCatalogViewType) { return }
 			const view = leaf.view as LawCatalogView
 			view.setComm(this.slComm)
+			const restoreState = view.getCatalogRestoreState()
+			if (restoreState != undefined) {
+				void this.restoreLawCatalogView(view, restoreState)
+			}
 		})
+	}
+
+	private async restoreLawCatalogView(view: LawCatalogView, state: { lawTitle: string; catalogUrl: string; targetId: string }): Promise<void> {
+		let responseStatus: number | undefined
+		try {
+			const response = await requestUrl(this.createExternalLawRequest(state.catalogUrl))
+			responseStatus = response.status
+			if (response.status < 200 || response.status >= 300) {
+				throw new Error(`HTTP ${response.status}`)
+			}
+			view.showLawDocument(state.lawTitle, state.catalogUrl, response.text ?? "", state.targetId)
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview,
+				`Restored law catalog view (url=${state.catalogUrl}, target=${state.targetId})`)
+		} catch (e) {
+			view.showRestoreError(`UseSemaLogic: ${state.lawTitle} could not be reloaded. ${e instanceof Error ? e.message : String(e)}`)
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview,
+				`Catalog law view restore failed (url=${state.catalogUrl}, status=${responseStatus ?? "transport error"}): ${e instanceof Error ? e.message : String(e)}`)
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview,
+				{ url: state.catalogUrl, method: "GET", responseStatus })
+		}
 	}
 
 	async activateView(resetService: boolean = true, update: boolean = true) {
