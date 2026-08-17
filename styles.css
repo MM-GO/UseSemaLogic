@@ -643,8 +643,16 @@ li[data-task="?"]>p>input:checked::after {
  * necessarily through the operating system's prefers-color-scheme setting. */
 body.theme-dark .law,
 .theme-dark .law {
+    --lw-text: #e6e8ec;
+    --lw-muted: #9aa3b0;
+    --lw-rule: #363b44;
+    --lw-accent: #8ab4f0;
+    --lw-target: #4a3f12;
     --lw-absent: #e88787;
     --lw-repealed: #e88787;
+    --lw-note-bg: #21252c;
+    --lw-backlink-bg: #26324a;
+    --lw-backlink-fg: #c3d4f5;
 }
 
 /* ---------------------------------------------------------------- page frame
