@@ -11,6 +11,7 @@ import { createTemplateFolder } from 'src/template';
 import { createExamples } from 'src/examples';
 import { createTestCanvas, createTemplateCanvas } from 'src/test_canvas';
 import { slTermHider } from "src/sl_term_hider";
+import { LawCatalogView, LawCatalogViewType } from "src/view_law_catalog";
 //import { Rstypes_SemanticTree } from 'src/const only for UP';
 
 export var DebugLevel = 0;
@@ -1246,6 +1247,7 @@ export default class SemaLogicPlugin extends Plugin {
 	interpreterDebounce: number | undefined
 	pauseAllRequests: boolean = false
 	sectionStyleEl: HTMLStyleElement | undefined
+	private lawCatalogViewRegistered: boolean = false
 
 	// Due to change in Sprint 1/2023 to inline dialects, detection of contexts will be needed in later sprints 
 	private getContextFromLine(mydialectID: string) {
@@ -1400,6 +1402,14 @@ export default class SemaLogicPlugin extends Plugin {
 			}
 			this.startSLInterpreterFromText(selection)
 		});
+		this.registerDomEvent(document, "click", (evt: MouseEvent) => {
+			const target = evt.target as HTMLElement | null
+			const link = target?.closest("a[data-sl-link-kind='external-law']") as HTMLAnchorElement | null
+			if (link == undefined) { return }
+			evt.preventDefault()
+			evt.stopPropagation()
+			void this.openExternalLawLink(link)
+		}, true)
 		this.registerDomEvent(document, "click", (evt: MouseEvent) => {
 			const target = evt.target as HTMLElement | null
 			const link = target?.closest(".lawlink > a[href^='#']") as HTMLAnchorElement | null
@@ -1966,6 +1976,101 @@ export default class SemaLogicPlugin extends Plugin {
 			}
 		})
 		return containingView
+	}
+
+	private resolveExternalLawUrl(url: string): string | undefined {
+		try {
+			return new URL(url, getHostPort(this.settings)).toString()
+		} catch (e) {
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview,
+				`External law URL could not be resolved: ${url}; ${e instanceof Error ? e.message : String(e)}`)
+			return undefined
+		}
+	}
+
+	private createExternalLawRequest(url: string): RequestUrlParam {
+		const profile = this.settings.mySLSettings[this.settings.mySetting]
+		if (profile.myUseHttpsSL && profile.myUserSL != "") {
+			return {
+				url,
+				method: "GET",
+				headers: {
+					"Authorization": "Basic " + btoa(profile.myUserSL + ":" + profile.myPasswordSL)
+				}
+			}
+		}
+		return { url, method: "GET" }
+	}
+
+	private async openExternalLawLink(link: HTMLAnchorElement): Promise<void> {
+		// All routing data is supplied by the server. In particular, do not infer
+		// a provision from the anchor text or from its resolver href.
+		const catalogUrl = link.dataset.slCatalogUrl
+		const giiUrl = link.dataset.slGiiUrl
+		const targetId = link.dataset.slTargetId
+		const lawId = link.dataset.slLawId
+		const title = link.dataset.slLawTitle || lawId || "statute"
+		if (targetId == undefined || targetId.length == 0) {
+			new Notice(`UseSemaLogic: no provision target is available for ${title}.`)
+			return
+		}
+
+		if (catalogUrl != undefined && catalogUrl.length > 0) {
+			const resolvedCatalogUrl = this.resolveExternalLawUrl(catalogUrl)
+			if (resolvedCatalogUrl != undefined) {
+				const existingView = this.findLawCatalogView(resolvedCatalogUrl)
+				if (existingView != undefined) {
+					existingView.view.navigateToProvision(targetId)
+					this.app.workspace.revealLeaf(existingView.leaf)
+					return
+				}
+				let responseStatus: number | undefined
+				try {
+					const response = await requestUrl(this.createExternalLawRequest(resolvedCatalogUrl))
+					responseStatus = response.status
+					if (response.status < 200 || response.status >= 300) {
+						throw new Error(`HTTP ${response.status}`)
+					}
+					await this.openLawCatalogDocument(title, resolvedCatalogUrl, response.text ?? "", targetId)
+					return
+				} catch (e) {
+					slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview,
+						`Catalog law document failed (url=${resolvedCatalogUrl}, status=${responseStatus ?? "transport error"}): ${e instanceof Error ? e.message : String(e)}`)
+					slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview,
+						{ url: resolvedCatalogUrl, method: "GET", responseStatus })
+				}
+			}
+		}
+
+		if (giiUrl != undefined && giiUrl.length > 0) {
+			window.open(giiUrl, "_blank", "noopener,noreferrer")
+			return
+		}
+		new Notice(`UseSemaLogic: ${title} could not be opened.`)
+	}
+
+	private findLawCatalogView(catalogUrl: string): { leaf: WorkspaceLeaf; view: LawCatalogView } | undefined {
+		let found: { leaf: WorkspaceLeaf; view: LawCatalogView } | undefined
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (found != undefined || leaf.view.getViewType() != LawCatalogViewType) { return }
+			const view = leaf.view as LawCatalogView
+			if (view.isCatalogDocument(catalogUrl)) {
+				found = { leaf, view }
+			}
+		})
+		return found
+	}
+
+	private async openLawCatalogDocument(title: string, catalogUrl: string, fragment: string, targetId: string): Promise<void> {
+		if (!this.lawCatalogViewRegistered) {
+			this.registerView(LawCatalogViewType, (leaf) => new LawCatalogView(leaf))
+			this.lawCatalogViewRegistered = true
+		}
+		const leaf = this.app.workspace.getLeaf("tab")
+		await leaf.setViewState({ type: LawCatalogViewType, active: true })
+		const catalogView = leaf.view as LawCatalogView
+		catalogView.showLawDocument(title, catalogUrl, fragment, targetId)
+		this.app.workspace.revealLeaf(leaf)
 	}
 
 	private findSLInterpreterSelectionForAnchor(view: MarkdownView, originalText: string, interpretedText: string): { view: MarkdownView; from: { line: number; ch: number }; to: { line: number; ch: number } } | undefined {
@@ -4493,6 +4598,7 @@ export default class SemaLogicPlugin extends Plugin {
 		// commented out due to publishing process - see PlugInGuideline - could be deleted
 		this.app.workspace.detachLeavesOfType(SemaLogicViewType);
 		this.app.workspace.detachLeavesOfType(ASPViewType);
+		this.app.workspace.detachLeavesOfType(LawCatalogViewType);
 		this.detachKnowledgeCanvasLeaves();
 		this.detachKnowledgeEditCanvasLeaves();
 		this.detachInterpreterCanvasLeaves();
