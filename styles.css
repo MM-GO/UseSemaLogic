@@ -779,6 +779,32 @@ body {
     color: var(--lw-absent, #a3231f) !important;
 }
 
+/* A resolved citation whose target does not exist, or no longer does.
+*
+* These carry an anchor — the address was determined, and following it still
+* reaches something real: the resolver falls back to the § the Absatz was
+* claimed to sit in. That is worth keeping clickable, and it is exactly why the
+* marking has to be unambiguous: the link works, and the provision it names
+* does not.
+*
+* Written at .lawlink.resolved[...] > a (0,3,1) because the link colouring
+* .lawlink.resolved > a (0,2,1) outranks the bare state rules above. Until
+* 2026-08-17 an absent resolved citation therefore rendered as red text with a
+* wavy underline in the *link* colour, and a repealed one — which has no
+* !important rule to fall back on — stayed entirely blue.
+*/
+.lawlink.resolved[data-sl-link-state="absent"]>a {
+    color: var(--lw-absent, #a3231f);
+    text-decoration: underline wavy var(--lw-absent, #a3231f);
+    text-underline-offset: 0.2em;
+}
+
+.lawlink.resolved[data-sl-link-state="repealed"]>a {
+    color: var(--lw-repealed, #a3231f);
+    text-decoration: line-through solid var(--lw-repealed, #a3231f);
+    text-decoration-thickness: 1px;
+}
+
 /* An unresolved citation into this document is the local form of the same
  * reader-facing problem: no destination is available. */
 .lawlink.unresolved,
