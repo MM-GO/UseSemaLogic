@@ -1558,6 +1558,7 @@ export default class SemaLogicPlugin extends Plugin {
 		// leaves. Delaying this until onLayoutReady makes a saved SemaLogic leaf
 		// unusable and later causes activateView to create a second one.
 		this.registerSemaLogicView()
+		this.registerLawCatalogView()
 
 		// Workspace leaves are restored after plugins are loaded. Creating the
 		// SemaLogic leaf before that point can race the layout restore.
@@ -1681,6 +1682,7 @@ export default class SemaLogicPlugin extends Plugin {
 		this.startupInitialization = (async () => {
 			try {
 				this.removeDuplicateSemaLogicLeaves()
+				this.initializeRestoredLawCatalogViews()
 				this.setViews()
 				// Reset exactly once, before the first parse. The former startup path
 				// issued several reset and parse requests for the same server session.
@@ -2069,10 +2071,7 @@ export default class SemaLogicPlugin extends Plugin {
 	}
 
 	private async openLawCatalogDocument(title: string, catalogUrl: string, fragment: string, targetId: string): Promise<void> {
-		if (!this.lawCatalogViewRegistered) {
-			this.registerView(LawCatalogViewType, (leaf) => new LawCatalogView(leaf))
-			this.lawCatalogViewRegistered = true
-		}
+		this.registerLawCatalogView()
 		const leaf = this.app.workspace.getLeaf("tab")
 		await leaf.setViewState({ type: LawCatalogViewType, active: true })
 		const catalogView = leaf.view as LawCatalogView
@@ -4067,6 +4066,12 @@ export default class SemaLogicPlugin extends Plugin {
 		this.semaLogicViewRegistered = true
 	}
 
+	private registerLawCatalogView(): void {
+		if (this.lawCatalogViewRegistered) { return }
+		this.registerView(LawCatalogViewType, (leaf) => new LawCatalogView(leaf))
+		this.lawCatalogViewRegistered = true
+	}
+
 	private getSemaLogicLeaves(): WorkspaceLeaf[] {
 		const leaves: WorkspaceLeaf[] = []
 		this.app.workspace.iterateAllLeaves((leaf) => {
@@ -4087,6 +4092,14 @@ export default class SemaLogicPlugin extends Plugin {
 		})
 		slconsolelog(DebugLevMap.DebugLevel_Informative, undefined,
 			`Removed ${leaves.length - 1} duplicate SemaLogic workspace leaf/leaves during startup`)
+	}
+
+	private initializeRestoredLawCatalogViews(): void {
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (leaf.view.getViewType() != LawCatalogViewType) { return }
+			const view = leaf.view as LawCatalogView
+			view.setComm(this.slComm)
+		})
 	}
 
 	async activateView(resetService: boolean = true, update: boolean = true) {
