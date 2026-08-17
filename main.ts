@@ -1210,6 +1210,10 @@ export default class SemaLogicPlugin extends Plugin {
 	interval!: number
 	parseDebounce: number | undefined
 	lastParsedHash: string = ""
+	private parseInFlightHash: string | undefined
+	private automaticParseRetry: number | undefined
+	private automaticParseRetryCount: number = 0
+	private startupInitialization: Promise<void> | undefined
 	canvasTooltipEl: HTMLElement | undefined
 	canvasTooltipCleanup: (() => void) | undefined
 	canvasTooltipObservers: WeakMap<WorkspaceLeaf, MutationObserver> = new WeakMap()
@@ -1540,11 +1544,11 @@ export default class SemaLogicPlugin extends Plugin {
 		this.slComm = new SemaLogicPluginComm
 		this.slComm.setSLClass(this)
 
-		await this.activateView();
-		this.statusSL = true
-		// Clear SemaLogic to start with a clear service
-		await this.semaLogicReset();
-		this.setViews()
+		// Workspace leaves are restored after plugins are loaded. Creating the
+		// SemaLogic leaf before that point can race the layout restore.
+		this.app.workspace.onLayoutReady(() => {
+			void this.initializeAfterLayout()
+		})
 
 		// add an RibbonIcon to activcate and deactivate the SemaLogicView
 		const semaLogicRibbon = this.addRibbonIcon("book", "On/Off SemaLogic.View", () => {
@@ -1652,15 +1656,53 @@ export default class SemaLogicPlugin extends Plugin {
 		});
 
 
-		if (this.statusSL) {
-			this.semaLogicReset();
-			// Default is that SemaLogicView is activated but it can be deactivated by click on Ribbon Icon
-			if (this.slComm.slview != undefined) {
-				this.slComm.slview.setNewInitial(this.settings.mySLSettings[this.settings.mySetting].myOutputFormat, true);
-			}
-			this.semaLogicParse();
-		}
 		this.registerEditorExtension([EditorView.updateListener.of(this.handleUpdate), slTermHider]);
+	}
+
+	private async initializeAfterLayout(): Promise<void> {
+		if (this.startupInitialization != undefined) {
+			return this.startupInitialization
+		}
+		this.startupInitialization = (async () => {
+			try {
+				// Reset exactly once, before the first parse. The former startup path
+				// issued several reset and parse requests for the same server session.
+				await this.activateView(false, false)
+				await this.semaLogicReset()
+				this.setViews()
+				if (this.slComm.slview != undefined) {
+					this.slComm.slview.setNewInitial(this.settings.mySLSettings[this.settings.mySetting].myOutputFormat, true)
+				}
+				await this.semaLogicParse()
+			} catch (e) {
+				this.lastParsedHash = ""
+				slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview,
+					`SemaLogic startup initialization failed: ${e instanceof Error ? e.message : String(e)}`)
+			}
+		})()
+		return this.startupInitialization
+	}
+
+	private scheduleAutomaticParseRetry(): void {
+		if (this.automaticParseRetry != undefined || !this.pluginEnabled || this.pauseAllRequests) {
+			return
+		}
+		if (this.automaticParseRetryCount >= 3) {
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview,
+				"Automatic SemaLogic parse retry limit reached")
+			return
+		}
+		this.automaticParseRetryCount += 1
+		const delay = this.automaticParseRetryCount * 1000
+		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview,
+			`Retry automatic SemaLogic parse in ${delay}ms (attempt ${this.automaticParseRetryCount}/3)`)
+		this.automaticParseRetry = window.setTimeout(() => {
+			this.automaticParseRetry = undefined
+			void this.semaLogicParse().catch((e) => {
+				slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview,
+					`Automatic SemaLogic retry failed: ${e instanceof Error ? e.message : String(e)}`)
+			})
+		}, delay)
 	}
 
 	async semaLogicParse(showEditorProgress: boolean = false): Promise<Node[]> {
@@ -1742,10 +1784,10 @@ export default class SemaLogicPlugin extends Plugin {
 		if (dialectID == "") { dialectID = "default" }
 
 		const newHash = `${dialectID}|${bodytext}`
-		if (newHash == this.lastParsedHash) {
+		if (newHash == this.lastParsedHash || newHash == this.parseInFlightHash) {
 			return results
 		}
-		this.lastParsedHash = newHash
+		this.parseInFlightHash = newHash
 
 		slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, "Parsingresult for SemaLogicView")
 		const responseForSemaLogic = this.slComm.slview.getSemaLogicParse(
@@ -1759,8 +1801,21 @@ export default class SemaLogicPlugin extends Plugin {
 			undefined,
 			showEditorProgress ? { title: "Editor-Update", startMessage: "Sende geänderten Text an SemaLogic ..." } : undefined
 		)
-		responseForSemaLogic.then(value => {
+		void responseForSemaLogic.then(value => {
+			this.lastParsedHash = newHash
+			this.automaticParseRetryCount = 0
 			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, value)
+		}).catch((e) => {
+			// Failed input must not be treated as already processed: a later editor
+			// update can retry after the SemaLogic service becomes available.
+			this.lastParsedHash = ""
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm.slview,
+				`Automatic SemaLogic parse failed and will be retried: ${e instanceof Error ? e.message : String(e)}`)
+			this.scheduleAutomaticParseRetry()
+		}).finally(() => {
+			if (this.parseInFlightHash == newHash) {
+				this.parseInFlightHash = undefined
+			}
 		})
 
 		//slconsolelog(DebugLevMap.DebugLevel_Current_Dev, this.slComm.slview, 'Check: UpdateASPOutstanding = false:' + this.updateTransferOutstanding)
@@ -3893,7 +3948,7 @@ export default class SemaLogicPlugin extends Plugin {
 		this.myStatus.setText('Knowledge is on');
 	}
 
-	async activateView() {
+	async activateView(resetService: boolean = true, update: boolean = true) {
 		// Add the SemaLogic - View
 		if (this.slComm.slview == undefined) {
 			this.registerView(
@@ -3911,14 +3966,16 @@ export default class SemaLogicPlugin extends Plugin {
 				type: SemaLogicViewType,
 				active: false,
 			})
-			await this.semaLogicReset()
+			if (resetService) {
+				await this.semaLogicReset()
+			}
 			this.app.workspace.revealLeaf(leaf);
 		} else {
 			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, "SemaLogic-Leaf not created")
 		}
 		this.setViews()
 		this.handlePing()
-		if (this.slComm.slview != undefined) {
+		if (update && this.slComm.slview != undefined) {
 			this.semaLogicUpdate()
 		}
 		this.pluginEnabled = true
@@ -4417,6 +4474,10 @@ export default class SemaLogicPlugin extends Plugin {
 	}
 
 	async onunload() {
+		if (this.automaticParseRetry != undefined) {
+			window.clearTimeout(this.automaticParseRetry)
+			this.automaticParseRetry = undefined
+		}
 		if (this.selectionActionUpdateDebounce != undefined) {
 			window.clearTimeout(this.selectionActionUpdateDebounce)
 			this.selectionActionUpdateDebounce = undefined
