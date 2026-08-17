@@ -1486,7 +1486,7 @@ export default class SemaLogicPlugin extends Plugin {
 			}
 			this.parseDebounce = window.setTimeout(() => {
 				this.lastParsedHash = ""
-				this.semaLogicUpdate()
+				this.semaLogicUpdate(undefined, true)
 			}, 200)
 		});
 		this.registerDomEvent(document, "selectionchange", () => {
@@ -1663,7 +1663,7 @@ export default class SemaLogicPlugin extends Plugin {
 		this.registerEditorExtension([EditorView.updateListener.of(this.handleUpdate), slTermHider]);
 	}
 
-	async semaLogicParse(): Promise<Node[]> {
+	async semaLogicParse(showEditorProgress: boolean = false): Promise<Node[]> {
 		if (this.pauseAllRequests) {
 			return [];
 		}
@@ -1748,7 +1748,17 @@ export default class SemaLogicPlugin extends Plugin {
 		this.lastParsedHash = newHash
 
 		slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, "Parsingresult for SemaLogicView")
-		const responseForSemaLogic = this.slComm.slview.getSemaLogicParse(this.settings, vAPI_URL, dialectID, bodytext, false)
+		const responseForSemaLogic = this.slComm.slview.getSemaLogicParse(
+			this.settings,
+			vAPI_URL,
+			dialectID,
+			bodytext,
+			false,
+			undefined,
+			undefined,
+			undefined,
+			showEditorProgress ? { title: "Editor-Update", startMessage: "Sende geänderten Text an SemaLogic ..." } : undefined
+		)
 		responseForSemaLogic.then(value => {
 			slconsolelog(DebugLevMap.DebugLevel_Chatty, undefined, value)
 		})
@@ -4698,7 +4708,7 @@ export default class SemaLogicPlugin extends Plugin {
 
 	}
 
-	semaLogicUpdate(setView?: boolean) {
+	semaLogicUpdate(setView?: boolean, showEditorProgress: boolean = false) {
 
 		this.waitingForResponse = true
 		this.UpdateProcessing = true
@@ -4716,7 +4726,7 @@ export default class SemaLogicPlugin extends Plugin {
 		this.setViews()
 
 		let activeView = this.getActiveView()
-		this.semaLogicParse();
+		this.semaLogicParse(showEditorProgress);
 
 		if (!this.updating) {
 			this.updating = true

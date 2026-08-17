@@ -54,6 +54,14 @@ type LastParseRequest = {
   engine?: string
 }
 
+// Optional user-facing progress for ordinary SemaLogicView requests. Long
+// editor updates and output-format changes use the same server progress feed as
+// SL-Interpreter, but name their own operation in the overlay.
+export type SemaLogicProgressOptions = {
+  title: string
+  startMessage: string
+}
+
 // Progress snapshot delivered by GET /session/progress. The server reports it for
 // every long running request (DialectEngine as well as SL-Interpreter).
 type ServerProgressPayload = {
@@ -311,7 +319,17 @@ export class SemaLogicView extends ItemView {
         this.resultEl?.empty()
         this.resultEl?.createEl('p', { text: `Requesting ${value}...`, cls: 'sl-request-pending' })
         try {
-          const result = await this.getSemaLogicParse(this.slComm.slPlugin.settings, this.apiURL, this.dialectID, this.bodytext, false, value)
+          const result = await this.getSemaLogicParse(
+            this.slComm.slPlugin.settings,
+            this.apiURL,
+            this.dialectID,
+            this.bodytext,
+            false,
+            value,
+            undefined,
+            undefined,
+            { title: "Ausgabeformat", startMessage: `Fordere ${value} an ...` }
+          )
           if (value == RulesettypesCommands[Rstypes_KnowledgeGraph][1]) {
             this.slComm.slPlugin.updateKnowledgeCanvas(result)
           }
@@ -606,6 +624,16 @@ export class SemaLogicView extends ItemView {
         ...this.createAuthorizationHeader(settings)
       },
       throw: false
+    }
+  }
+
+  private getSessionIdFromParseUrl(vAPI_URL: string): string | undefined {
+    try {
+      return new URL(vAPI_URL).searchParams.get("sid") ?? undefined
+    } catch (e) {
+      slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview,
+        `Could not determine session ID for progress display: ${String(e)}`)
+      return undefined
     }
   }
 
@@ -1174,7 +1202,7 @@ export class SemaLogicView extends ItemView {
 
   // Full result of one parse: raw body, extracted payload and diagnostics.
   // Callers that only need the payload use getSemaLogicParse below.
-  public async requestSemaLogicParse(settings: SemaLogicPluginSettings, vAPI_URL: string, dialectID: string, bodytext: string, parseOnTheFly: boolean, parsingFormat?: string, interpreteText?: string, engine?: string): Promise<SemaLogicParseResult> {
+  public async requestSemaLogicParse(settings: SemaLogicPluginSettings, vAPI_URL: string, dialectID: string, bodytext: string, parseOnTheFly: boolean, parsingFormat?: string, interpreteText?: string, engine?: string, progress?: SemaLogicProgressOptions): Promise<SemaLogicParseResult> {
     this.bodytext = bodytext
     this.apiURL = vAPI_URL
     this.dialectID = dialectID
@@ -1184,6 +1212,10 @@ export class SemaLogicView extends ItemView {
     this.lastParseRequest = request
 
     const audience = this.getRequestAudience()
+    const sid = progress != undefined ? this.getSessionIdFromParseUrl(vAPI_URL) : undefined
+    const progressToken = sid != undefined
+      ? this.startServerProgress(settings, sid, progress!.title, progress!.startMessage)
+      : 0
     let result: SemaLogicParseResult
     try {
       result = await this.performParse(request, audience)
@@ -1198,6 +1230,10 @@ export class SemaLogicView extends ItemView {
       text.createEl("p", { text: vAPI_URL })
       this.showError(text)
       throw e
+    } finally {
+      if (progressToken != 0) {
+        this.stopServerProgress(progressToken)
+      }
     }
 
     slconsolelog(DebugLevMap.DebugLevel_Important, this.slComm.slview, "SemaLogic: Parse with http-status " + result.status.toString())
@@ -1256,8 +1292,8 @@ export class SemaLogicView extends ItemView {
     throw new Error(detailedMessage)
   }
 
-  public async getSemaLogicParse(settings: SemaLogicPluginSettings, vAPI_URL: string, dialectID: string, bodytext: string, parseOnTheFly: boolean, parsingFormat?: string, interpreteText?: string, engine?: string): Promise<string> {
-    const result = await this.requestSemaLogicParse(settings, vAPI_URL, dialectID, bodytext, parseOnTheFly, parsingFormat, interpreteText, engine)
+  public async getSemaLogicParse(settings: SemaLogicPluginSettings, vAPI_URL: string, dialectID: string, bodytext: string, parseOnTheFly: boolean, parsingFormat?: string, interpreteText?: string, engine?: string, progress?: SemaLogicProgressOptions): Promise<string> {
+    const result = await this.requestSemaLogicParse(settings, vAPI_URL, dialectID, bodytext, parseOnTheFly, parsingFormat, interpreteText, engine, progress)
     return result.payload.content
   }
 }
