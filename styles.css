@@ -864,6 +864,18 @@ body {
     -webkit-user-select: none;
 }
 
+/* Where the block is already in the document, the badge is the same fact
+* twice: the summary above reads "↩ 1 Verweis · 2 darunter" and the badge
+* repeats "↩1" at the end of the section, because ::after renders after the
+* element's last child. The badge exists to be clicked — links.js turns it into
+* a panel — and Obsidian runs no links.js at all, so in the vault it was an
+* affordance that could never happen (WP20a, 2026-08-17). The block wins: it is
+* openable without a script.
+*/
+[data-sl-backlinks]:has(> .backlink-inline)::after {
+    content: none;
+}
+
 /* The badge is an affordance, not content: it leaves the print. */
 @media print {
     [data-sl-backlinks]::after {

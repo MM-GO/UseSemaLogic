@@ -2076,6 +2076,7 @@ export default class SemaLogicPlugin extends Plugin {
 		const leaf = this.app.workspace.getLeaf("tab")
 		await leaf.setViewState({ type: LawCatalogViewType, active: true })
 		const catalogView = leaf.view as LawCatalogView
+		catalogView.setComm(this.slComm)
 		catalogView.showLawDocument(title, catalogUrl, fragment, targetId)
 		this.app.workspace.revealLeaf(leaf)
 	}

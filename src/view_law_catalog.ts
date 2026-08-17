@@ -1,12 +1,21 @@
-import { ItemView, Notice, sanitizeHTMLToDom, WorkspaceLeaf } from "obsidian"
+import { DropdownComponent, Notice, WorkspaceLeaf } from "obsidian"
+import { SemaLogicView } from "./view"
+import { RulesettypesCommands, Rstypes_AnnotatedHTML_WithBacklinks } from "./const"
 
 export const LawCatalogViewType = "semalogic-law-catalog"
+const LawCatalogOutputFormat = RulesettypesCommands[Rstypes_AnnotatedHTML_WithBacklinks][1]
 
-// A dedicated leaf keeps fetched catalog fragments inside Obsidian instead of
-// treating the server URL as a vault path.
-export class LawCatalogView extends ItemView {
+// A catalog fragment is a read-only AnnotatedHTML result. Extending the main
+// view deliberately reuses its controls, source mode, clipboard support and
+// diagnostic visibility instead of maintaining a second implementation.
+export class LawCatalogView extends SemaLogicView {
   private lawTitle: string = "SemaLogic law"
   private catalogUrl: string = ""
+
+  constructor(leaf: WorkspaceLeaf) {
+    super(leaf)
+    this.navigation = true
+  }
 
   getViewType(): string {
     return LawCatalogViewType
@@ -16,6 +25,14 @@ export class LawCatalogView extends ItemView {
     return this.lawTitle
   }
 
+  public createDropDownButtonForOutPutFormat(container: HTMLElement, _dropDownValue: string): HTMLElement {
+    const controls = super.createDropDownButtonForOutPutFormat(container, LawCatalogOutputFormat)
+    this.dropdownButton.setValue(LawCatalogOutputFormat)
+    this.dropdownButton.selectEl.disabled = true
+    this.dropdownButton.selectEl.setAttr("title", "Catalog documents are fixed to AnnotatedHTML with Backlinks")
+    return controls
+  }
+
   public isCatalogDocument(url: string): boolean {
     return this.catalogUrl == url
   }
@@ -23,13 +40,14 @@ export class LawCatalogView extends ItemView {
   public showLawDocument(title: string, catalogUrl: string, fragment: string, targetId: string): void {
     this.lawTitle = title
     this.catalogUrl = catalogUrl
-    this.contentEl.empty()
+    this.currResult = fragment
+    this.currKind = "html"
+    this.currFragment = true
+    this.currSource = undefined
+    this.setNewInitial(LawCatalogOutputFormat, true)
+    this.headerEl.setText(title)
     this.contentEl.addClass("sl-law-catalog")
-    this.contentEl.createEl("h2", { text: title })
-
-    const documentEl = this.contentEl.createDiv({ cls: "sl-law-catalog-document" })
-    documentEl.appendChild(sanitizeHTMLToDom(fragment))
-
+    this.updateView()
     this.navigateToProvision(targetId)
   }
 
@@ -39,18 +57,10 @@ export class LawCatalogView extends ItemView {
       new Notice(`UseSemaLogic: provision ${targetId} was not found in ${this.lawTitle}.`)
       return false
     }
-    // After a tab switch Obsidian can finish its layout one frame later. A
-    // second exact scroll prevents the target from ending up near, but not at,
-    // the provision named by the citation.
     window.requestAnimationFrame(() => {
       target.scrollIntoView({ block: "start" })
       window.requestAnimationFrame(() => target.scrollIntoView({ block: "start" }))
     })
     return true
-  }
-
-  constructor(leaf: WorkspaceLeaf) {
-    super(leaf)
-    this.navigation = true
   }
 }
