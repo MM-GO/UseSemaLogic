@@ -631,8 +631,8 @@ li[data-task="?"]>p>input:checked::after {
         --lw-rule: #363b44;
         --lw-accent: #8ab4f0;
         --lw-target: #4a3f12;
-        --lw-absent: #ff6b6b;
-        --lw-repealed: #ff6b6b;
+        --lw-absent: #e88787;
+        --lw-repealed: #e88787;
         --lw-note-bg: #21252c;
         --lw-backlink-bg: #26324a;
         --lw-backlink-fg: #c3d4f5;
@@ -643,8 +643,8 @@ li[data-task="?"]>p>input:checked::after {
  * necessarily through the operating system's prefers-color-scheme setting. */
 body.theme-dark .law,
 .theme-dark .law {
-    --lw-absent: #ff6b6b;
-    --lw-repealed: #ff6b6b;
+    --lw-absent: #e88787;
+    --lw-repealed: #e88787;
 }
 
 /* ---------------------------------------------------------------- page frame
@@ -769,6 +769,16 @@ body {
 .lawlink.external[data-sl-link-state="absent"],
 .lawlink.external[data-sl-link-state="absent"]>a {
     color: var(--lw-absent, #a3231f) !important;
+}
+
+/* An unresolved citation into this document is the local form of the same
+ * reader-facing problem: no destination is available. */
+.lawlink.unresolved,
+.lawlink.unresolved>a {
+    color: var(--lw-absent, #a3231f) !important;
+    text-decoration: underline wavy var(--lw-absent, #a3231f);
+    text-underline-offset: 0.2em;
+    border-bottom: 0;
 }
 
 [data-sl-link-state="unknown"],
