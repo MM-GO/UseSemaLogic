@@ -746,10 +746,11 @@ body {
 * citation span in an annotated statute and on a bare <a> in hand-written
 * markup, and a stylesheet should not have to know which.
 */
-[data-sl-link-state="confirmed"] {
-    /* Deliberately empty of decoration. A confirmed citation is the normal case,
-        and a page that marks the normal case has marked everything. */
-}
+/* confirmed carries no rule at all, and that is the decision rather than an
+* omission: a confirmed citation is the normal case, and a page that marks the
+* normal case has marked everything. The attribute and the link-confirmed class
+* are written regardless, so a frontend that wants to show it still can.
+* linkview/stylesheet_test.go holds this, so the silence stays deliberate. */
 
 [data-sl-link-state="partial"]>a,
 [data-sl-link-state="partial"] {
@@ -792,16 +793,22 @@ body {
 * 2026-08-17 an absent resolved citation therefore rendered as red text with a
 * wavy underline in the *link* colour, and a repealed one — which has no
 * !important rule to fall back on — stayed entirely blue.
+*
+* !important for the same reason the rule above it carries one: an embedding
+* theme styles its own links, and in Obsidian that theme is loaded after this
+* snippet. Specificity alone settles the contest with law.css's own link rule;
+* it does not settle one with a theme that declares !important, and the colour
+* half of this already had to be fought for that way.
 */
 .lawlink.resolved[data-sl-link-state="absent"]>a {
-    color: var(--lw-absent, #a3231f);
-    text-decoration: underline wavy var(--lw-absent, #a3231f);
+    color: var(--lw-absent, #a3231f) !important;
+    text-decoration: underline wavy var(--lw-absent, #a3231f) !important;
     text-underline-offset: 0.2em;
 }
 
 .lawlink.resolved[data-sl-link-state="repealed"]>a {
-    color: var(--lw-repealed, #a3231f);
-    text-decoration: line-through solid var(--lw-repealed, #a3231f);
+    color: var(--lw-repealed, #a3231f) !important;
+    text-decoration: line-through solid var(--lw-repealed, #a3231f) !important;
     text-decoration-thickness: 1px;
 }
 
