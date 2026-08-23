@@ -4,6 +4,18 @@
 
 The PlugIn for SemaLogic is under development.
 
+Unreleased - loading a statute in the client ([WP23a](WP23a-Load-a-Statute-in-the-Client.md)):
+
+* New ribbon icon *Gesetz laden ...* (beside the view toggles) and a command of the same name: a fuzzy picker over the whole statute catalog (`GET /law/index`), matching abbreviation, official title and every alias, with the abbreviation ranked highest
+* An empty query lists the statutes last opened; they are kept in the plugin settings
+* Statutes the installation knows but does not hold are marked *nicht vorhanden* and cannot be opened
+* The chosen statute opens as an ordinary Markdown note under `SemaLogic/Gesetze/`, in a new tab of the main editor area - not in a plugin view. Preferred source is the imported `raw.md`; where the server does not hold it, the served document is fetched and deannotated
+* The note's frontmatter records `sl-law-id`, version, source and ETag, so re-opening the same statute revalidates with `If-None-Match` and leaves an unchanged note untouched
+* New *Transfer as Markdown to Clipboard* action in the law view: the loaded document is deannotated by `/rules/parse` (`AnnotatedHTML`, `persistency:false`) and the Markdown goes to the clipboard, with a notice naming the statute and its size
+* New *Original-Markdown herunterladen* action in the law view, shown only where the server advertises the raw source (`X-SL-Raw-Download`): opens the imported `raw.md` unchanged in its own tab. It is a different artifact from the Markdown transfer and is labelled as such
+* New commands *UseSemaLogic: Gesetzes-Index pruefen* and *erstes Gesetz aus dem Index laden (Test)* for diagnosing an empty picker
+* Law leaves are looked up with `instanceof` instead of `getViewType()`: Obsidian restores workspace leaves deferred, and the placeholder carries none of the view's methods
+
 Unreleased - SemaLogic Service API 00.03.00:
 
 * Every `/rules/parse` reply is read as the new `rulesout` envelope; markup, SVG and Canvas are extracted from `rules` instead of the raw body ([FRONTEND_MIGRATION_00_03_00.md](FRONTEND_MIGRATION_00_03_00.md))

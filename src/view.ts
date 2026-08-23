@@ -109,6 +109,9 @@ export class SemaLogicView extends ItemView {
   sectionOpen: Record<string, boolean> = {}
   // Result display mode while no settings are reachable (view without plugin comm).
   resultAsSourceFallback: boolean = false
+  // Set by a view that owns its display mode instead of following the global
+  // preference; undefined means "use the setting".
+  protected resultAsSourceOverride: boolean | undefined
   lastParseRequest: LastParseRequest | undefined
   bodytext: string = ""
   apiURL: string = ""
@@ -199,7 +202,7 @@ export class SemaLogicView extends ItemView {
   // API Obsidian's Electron does not reliably provide, and it rejects with
   // NotAllowedError whenever the document is not focused. writeText is the
   // supported path; execCommand("copy") on a detached textarea covers the rest.
-  private async writeToClipboard(text: string): Promise<void> {
+  protected async writeToClipboard(text: string): Promise<void> {
     if (navigator.clipboard?.writeText != undefined) {
       try {
         await navigator.clipboard.writeText(text)
@@ -393,7 +396,10 @@ export class SemaLogicView extends ItemView {
 
   // The result display mode. Persisted in the global settings, so the last
   // choice is what comes up again and the settings tab can change it as well.
+  // A view whose payload is source by nature (the raw Markdown of a statute)
+  // sets the override instead, and then owns the mode on its own.
   public getResultAsSource(): boolean {
+    if (this.resultAsSourceOverride != undefined) { return this.resultAsSourceOverride }
     const settings = this.slComm?.slPlugin?.settings
     if (settings == undefined) { return this.resultAsSourceFallback }
     return settings.showResultAsSource === true
@@ -402,7 +408,11 @@ export class SemaLogicView extends ItemView {
   private async toggleResultAsSource(): Promise<void> {
     const next = !this.getResultAsSource()
     const plugin = this.slComm?.slPlugin
-    if (plugin != undefined) {
+    if (this.resultAsSourceOverride != undefined) {
+      // View-local mode: toggling here must not rewrite the global preference
+      // for every other SemaLogic view.
+      this.resultAsSourceOverride = next
+    } else if (plugin != undefined) {
       plugin.settings.showResultAsSource = next
       await plugin.saveSettings()
     } else {

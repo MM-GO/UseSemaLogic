@@ -492,6 +492,75 @@ span[data-sl-ref] {
     }
 }
 
+/* ---------------------------------------------------------- statute picker
+ * WP23a T2. Two lines per row: the abbreviation is what a reader searches by,
+ * the official title is what tells two similar abbreviations apart. */
+.sl-law-picker .sl-law-suggestion-title {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.sl-law-picker .sl-law-suggestion-abbr {
+    font-weight: 600;
+}
+
+.sl-law-picker .sl-law-suggestion-subtitle {
+    font-size: 0.85em;
+    color: var(--text-muted);
+    line-height: 1.3;
+    /* 6131 official titles include some very long ones; one line each keeps the
+       list scannable. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* The registry knows this statute, this installation does not serve it. The row
+   stays visible so the reader learns that, but it cannot be opened. */
+.sl-law-picker .sl-law-suggestion.is-unavailable .sl-law-suggestion-abbr,
+.sl-law-picker .sl-law-suggestion.is-unavailable .sl-law-suggestion-subtitle {
+    color: var(--text-faint);
+}
+
+/* Marks a row that comes from the reader's own history rather than from the
+   catalog head that follows it. */
+.sl-law-picker .sl-law-suggestion-badge.is-recent {
+    border-color: var(--interactive-accent);
+    color: var(--text-accent);
+}
+
+.sl-law-picker .sl-law-suggestion-badge {
+    padding: 0 6px;
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 999px;
+    font-size: 0.72em;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+
+/* WP23a T6: says which of the two Markdown artifacts is on screen. */
+.sl-law-raw-hint {
+    margin: 0 0 8px 0;
+    font-size: 0.85em;
+    color: var(--text-muted);
+}
+
+/* The retry affordance inside a failure notice. */
+.sl-notice-action {
+    display: inline-block;
+    margin-top: 6px;
+    cursor: pointer;
+    text-decoration: underline;
+}
+
+/* Controls that only apply to some documents (e.g. the raw-source download,
+   which the server advertises per document) are removed from the row rather
+   than left sitting there disabled. */
+.sl-hidden {
+    display: none;
+}
+
 /* ------------------------------------------------------------- task states
  * Obsidian renders "- [?] text" as a *checked* checkbox and exposes the
  * character between the brackets as a data-task attribute -- on the <input>

@@ -11,7 +11,28 @@ import { createTemplateFolder } from 'src/template';
 import { createExamples } from 'src/examples';
 import { createTestCanvas, createTemplateCanvas } from 'src/test_canvas';
 import { slTermHider } from "src/sl_term_hider";
-import { LawCatalogView, LawCatalogViewType } from "src/view_law_catalog";
+import { LawCatalogView, LawCatalogViewType, LawDocumentIdentity } from "src/view_law_catalog";
+import { LawRawMarkdownView, LawRawViewType } from "src/view_law_raw";
+import { LawPickerModal } from "src/law_picker";
+import { LawNoteMeta, buildLawNote, lawNotePath, lawNoteRevalidationEtag, readLawNoteMeta } from "src/law_note";
+import { deannotateLawHtml } from "src/law_transfer";
+import { LawLoadProgress } from "src/law_progress";
+import { LawStreamResponse, fetchLawDocumentStreaming, lawHeaderValue, resetLawStreaming } from "src/law_fetch";
+import {
+	LawIndexEntry, LawIndexRoute, LawIndexStore, LawIndexUnavailableError,
+	formatLawByteSize, makeLawIndexEntry, rememberLawRecent, utf8ByteLength
+} from "src/law_index";
+
+// What one statute fetch produced. `unchanged` marks a 304 against the note
+// that is already in the vault: nothing was transferred and nothing is written.
+type LawMarkdownResult = {
+	markdown: string
+	source: "raw.md" | "deannotate"
+	etag: string
+	version: string
+	lawId: string
+	unchanged: boolean
+}
 //import { Rstypes_SemanticTree } from 'src/const only for UP';
 
 export var DebugLevel = 0;
@@ -401,6 +422,7 @@ export interface SemaLogicPluginSettings {
 	sectionStyleEnabled: boolean;           // master on/off for the section-class styling
 	sectionStyleSlot: number;               // index of the active style slot
 	sectionStyleSlots: SLSectionStyleSlot[]; // named, independently switchable style slots
+	lawRecents: string[];                   // lawIds last opened from the statute picker, most recent first
 }
 export const Default_profile: SemaLogicPluginSettings = {
 	mySLSettings: [{
@@ -473,6 +495,9 @@ export const Default_profile: SemaLogicPluginSettings = {
 		defaultSectionStyleSlot("Style-Set 2"),
 		defaultSectionStyleSlot("Style-Set 3"),
 	],
+	// WP23a T2: the statute picker's empty-query list. A reader works with the
+	// same handful of statutes for weeks, so this is persisted with the settings.
+	lawRecents: [],
 }
 
 
@@ -1249,6 +1274,18 @@ export default class SemaLogicPlugin extends Plugin {
 	sectionStyleEl: HTMLStyleElement | undefined
 	private semaLogicViewRegistered: boolean = false
 	private lawCatalogViewRegistered: boolean = false
+	private lawRawViewRegistered: boolean = false
+	// WP23a T1: the session copy of /law/index. The fetched statutes themselves
+	// are not cached here - the note in the vault carries its own ETag, so
+	// re-opening one revalidates against the file the reader can see.
+	private lawIndexStore: LawIndexStore | undefined
+	// Set once /law/index answered 404: this server predates WP23a S1.
+	private lawIndexUnavailable: boolean = false
+	// Set once the raw-source route answered something other than 404: this
+	// server does not implement WP23's download at all.
+	private lawRawDownloadUnavailable: boolean = false
+	private lawLoadProgress: LawLoadProgress = new LawLoadProgress()
+	private lawLoadInFlight: string | undefined
 
 	// Due to change in Sprint 1/2023 to inline dialects, detection of contexts will be needed in later sprints 
 	private getContextFromLine(mydialectID: string) {
@@ -1280,7 +1317,12 @@ export default class SemaLogicPlugin extends Plugin {
 	setViews(): void {
 		this.slComm.activatedASP = false
 		this.app.workspace.iterateAllLeaves((leaf) => {
-			switch (leaf.view.getViewType()) {
+			// instanceof, not getViewType(): a deferred leaf reports the type
+			// without carrying the view, and adopting the placeholder as
+			// slComm.slview would break every later call on it.
+			switch (leaf.view instanceof SemaLogicView || leaf.view instanceof ASPView
+				? leaf.view.getViewType()
+				: "") {
 				case SemaLogicViewType: {
 					this.slComm.slview = (leaf.view as SemaLogicView)
 					this.slComm.slview.setComm(this.slComm)
@@ -1559,6 +1601,7 @@ export default class SemaLogicPlugin extends Plugin {
 		// unusable and later causes activateView to create a second one.
 		this.registerSemaLogicView()
 		this.registerLawCatalogView()
+		this.registerLawRawView()
 
 		// Workspace leaves are restored after plugins are loaded. Creating the
 		// SemaLogic leaf before that point can race the layout restore.
@@ -1592,6 +1635,46 @@ export default class SemaLogicPlugin extends Plugin {
 				await this.activateView()
 			},
 		});
+		// WP23a T2 - the picker is reachable from the command palette as well as
+		// from the button in the Law view.
+		this.addCommand({
+			id: "sl_open_law_picker",
+			name: "UseSemaLogic: Gesetz laden ...",
+			callback: async () => {
+				await this.openLawPicker()
+			},
+		});
+		// Diagnosis for an empty picker: what /law/index actually answered.
+		this.addCommand({
+			id: "sl_check_law_index",
+			name: "UseSemaLogic: Gesetzes-Index pruefen",
+			callback: async () => {
+				await this.describeLawIndex()
+			},
+		});
+		// Diagnosis for a failing load: reports what each of the three routes a
+		// statute load talks to actually answers, then runs the load itself
+		// without the picker in between.
+		this.addCommand({
+			id: "sl_load_first_law",
+			name: "UseSemaLogic: Ladeweg pruefen (erstes Gesetz)",
+			callback: async () => {
+				await this.describeLawLoad()
+			},
+		});
+		// WP23a T5 - the Markdown round trip of whatever Law view is in front.
+		this.addCommand({
+			id: "sl_law_transfer_markdown",
+			name: "UseSemaLogic: Transfer as Markdown to Clipboard",
+			callback: async () => {
+				const view = this.getActiveLawCatalogView()
+				if (view == undefined) {
+					new Notice("UseSemaLogic: es ist kein Gesetz geladen.")
+					return
+				}
+				await view.transferAsMarkdown()
+			},
+		});
 		this.addCommand({
 			id: "sl_toggle_result_source",
 			name: "UseSemaLogic: toggle result source mode",
@@ -1614,6 +1697,13 @@ export default class SemaLogicPlugin extends Plugin {
 				}
 			}
 		});
+		// WP23a T2 - the statute picker sits in the ribbon beside the view
+		// toggles, not in the law view: a reader opens a statute *before* there
+		// is a law view to press a button in.
+		const lawRibbon = this.addRibbonIcon("scale", "Gesetz laden ...", () => {
+			void this.openLawPicker()
+		});
+		lawRibbon.setAttr("data-sl-test", "law-picker-ribbon")
 		// add an RibbonIcon to activcate and deactivate the Knowledge.View
 		const knowledgeRibbon = this.addRibbonIcon("share-2", "On/Off Knowledge.View", () => {
 			this.setViews()
@@ -2011,6 +2101,608 @@ export default class SemaLogicPlugin extends Plugin {
 		return { url, method: "GET" }
 	}
 
+	// The same request, with extra headers and without requestUrl's throw on
+	// 4xx: WP23a needs to read 304 and 404 rather than catch them.
+	private createLawApiRequest(url: string, extraHeaders: Record<string, string> = {}): RequestUrlParam {
+		const base = this.createExternalLawRequest(url)
+		return { ...base, headers: { ...(base.headers ?? {}), ...extraHeaders }, throw: false }
+	}
+
+	private lawRequestHeaders(extraHeaders: Record<string, string> = {}): Record<string, string> {
+		const profile = this.settings.mySLSettings[this.settings.mySetting]
+		const headers: Record<string, string> = { ...extraHeaders }
+		if (profile.myUseHttpsSL && profile.myUserSL != "") {
+			headers["Authorization"] = "Basic " + btoa(profile.myUserSL + ":" + profile.myPasswordSL)
+		}
+		return headers
+	}
+
+	// WP23a T1 - the catalog index, fetched on first use rather than at plugin
+	// load, and revalidated with its ETag afterwards.
+	private getLawIndexStore(): LawIndexStore {
+		if (this.lawIndexStore == undefined) {
+			this.lawIndexStore = new LawIndexStore(async (etag) => {
+				// A bare "/law/index" handed to Obsidian is read as a vault path;
+				// WP20a T3's rule is that every Law URL is resolved against the
+				// configured API base.
+				const url = this.resolveExternalLawUrl(LawIndexRoute)
+				if (url == undefined) {
+					throw new Error(`the law index URL could not be resolved against ${getHostPort(this.settings)}`)
+				}
+				const headers: Record<string, string> = {}
+				// Cache-Control: no-cache on the route - revalidate, and let the
+				// 304 do the work.
+				if (etag.length > 0) { headers["If-None-Match"] = etag }
+				const response = await requestUrl(this.createLawApiRequest(url, headers))
+				return {
+					status: response.status,
+					text: response.text ?? "",
+					etag: lawHeaderValue(response.headers, "ETag")
+				}
+			})
+		}
+		return this.lawIndexStore
+	}
+
+	// Dropped whenever the configured server may have changed - a different
+	// installation has a different catalog and different ETags.
+	public resetLawCaches(): void {
+		this.lawIndexStore?.reset()
+		this.lawIndexUnavailable = false
+		this.lawRawDownloadUnavailable = false
+		resetLawStreaming()
+	}
+
+	// WP23a T2 - the statute picker. 6130 published statutes rule out a dropdown.
+	public async openLawPicker(): Promise<void> {
+		if (this.lawIndexUnavailable) {
+			new Notice("UseSemaLogic: Dieser Server kennt noch keinen Gesetzes-Index.")
+			return
+		}
+		let entries: LawIndexEntry[]
+		try {
+			entries = await this.getLawIndexStore().load()
+		} catch (e) {
+			if (e instanceof LawIndexUnavailableError) {
+				// The server predates WP23a S1. One clear notice, and the action
+				// stays disabled - guessing LawLinks instead is not an option.
+				this.lawIndexUnavailable = true
+				new Notice("UseSemaLogic: Dieser Server kennt noch keinen Gesetzes-Index.")
+				slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview,
+					`Law index route is missing on ${getHostPort(this.settings)}; the statute picker is disabled for this session`)
+				return
+			}
+			new Notice(`UseSemaLogic: Der Gesetzes-Index konnte nicht geladen werden. ${e instanceof Error ? e.message : String(e)}`, 15000)
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview,
+				`Law index load failed: ${e instanceof Error ? e.message : String(e)}`)
+			return
+		}
+		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview,
+			`Law index available with ${entries.length} statute(s)`)
+		if (entries.length == 0) {
+			// An empty picker is indistinguishable from a broken one, so it is
+			// never opened: the catalog is empty, and that is what gets said.
+			new Notice("UseSemaLogic: Der Gesetzes-Index dieses Servers enthaelt keine Gesetze. "
+				+ "Details liefert das Kommando \"UseSemaLogic: Gesetzes-Index pruefen\".")
+			return
+		}
+		new LawPickerModal(this.app, entries, this.settings.lawRecents ?? [], (entry) => {
+			// Without this catch a throw on the way to the request would be an
+			// unhandled rejection: silent, and indistinguishable from a click
+			// that never arrived.
+			void this.openLawStatute(entry).catch((e) => {
+				this.lawLoadProgress.stop()
+				const message = e instanceof Error ? e.message : String(e)
+				new Notice(`UseSemaLogic: ${entry.abbreviation || entry.lawId} konnte nicht geoeffnet werden. ${message}`, 15000)
+				console.error("UseSemaLogic: openLawStatute failed", e)
+			})
+		}).open()
+	}
+
+	// WP23a T3/T4 - open the chosen statute.
+	//
+	// The statute lands as an ordinary Markdown tab in the main editor area, not
+	// in a plugin view. That forces a real file: Obsidian has no way to show an
+	// in-memory string as a standard Markdown view. The note's frontmatter is
+	// therefore the cache - it records the artifact and its ETag, so re-opening
+	// the same statute revalidates and leaves an unchanged note untouched.
+	public async openLawStatute(entry: LawIndexEntry): Promise<void> {
+		const name = entry.abbreviation || entry.title || entry.lawId
+		// Checked before the overlay is touched: starting a second one would take
+		// the running load's progress display away from it.
+		if (this.lawLoadInFlight != undefined) {
+			new Notice(`UseSemaLogic: ${this.lawLoadInFlight} wird bereits geladen.`)
+			return
+		}
+		// From here the overlay comes up before anything can go wrong, so that
+		// choosing a statute always produces something visible.
+		this.lawLoadProgress.start("Gesetz laden", `${name} wird geladen ...`)
+		this.lawLoadInFlight = name
+		try {
+			const notePath = normalizePath(lawNotePath(entry.abbreviation, entry.lawId))
+			const existing = this.app.vault.getAbstractFileByPath(notePath)
+			const existingFile = existing instanceof TFile ? existing : undefined
+			const existingMeta = existingFile != undefined
+				? readLawNoteMeta(await this.app.vault.read(existingFile))
+				: undefined
+
+			const fetched = await this.fetchLawMarkdown(entry, existingMeta)
+			if (fetched == undefined) { return }
+
+			if (fetched.unchanged && existingFile != undefined) {
+				// The note already holds this version; opening it is the whole job.
+				await this.openNoteInMarkdownArea(existingFile)
+				await this.rememberLawStatute(entry.lawId)
+				new Notice(`UseSemaLogic: ${name} ist unveraendert - vorhandene Notiz geoeffnet.`)
+				slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview,
+					`Law note revalidated with 304 (lawId=${entry.lawId}, path=${notePath}, source=${fetched.source})`)
+				return
+			}
+
+			const note = buildLawNote(fetched.markdown, {
+				lawId: fetched.lawId,
+				abbreviation: entry.abbreviation,
+				title: entry.title,
+				version: fetched.version,
+				source: fetched.source,
+				etag: fetched.etag,
+				retrieved: new Date().toISOString()
+			})
+			const file = await this.writeLawNote(notePath, note, existingFile)
+			await this.openNoteInMarkdownArea(file)
+			await this.rememberLawStatute(entry.lawId)
+			new Notice(`UseSemaLogic: ${name} geladen - ${formatLawByteSize(utf8ByteLength(fetched.markdown))}`
+				+ ` (${fetched.source == "raw.md" ? "Originalquelle" : "Deannotate"})`)
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview,
+				`Law note written (lawId=${fetched.lawId}, path=${notePath}, source=${fetched.source},`
+				+ ` version=${fetched.version || "unknown"}, bytes=${fetched.markdown.length})`)
+		} catch (e) {
+			// Nothing partial is left behind: the note is written in one go, and
+			// only after the bytes are in hand.
+			const message = e instanceof Error ? e.message : String(e)
+			this.showLawRetryNotice(`UseSemaLogic: ${name} konnte nicht geladen werden. ${message}`, () => {
+				void this.openLawStatute(entry)
+			})
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview,
+				`Law statute load failed (lawId=${entry.lawId}): ${message}`)
+		} finally {
+			this.lawLoadProgress.stop()
+			this.lawLoadInFlight = undefined
+		}
+	}
+
+	// Fetches the statute as Markdown, preferring the imported source and falling
+	// back to the round trip of the served document. `undefined` means the load
+	// was handled and abandoned (the statute is gone from the repository).
+	private async fetchLawMarkdown(entry: LawIndexEntry,
+		existingMeta: Partial<LawNoteMeta> | undefined): Promise<LawMarkdownResult | undefined> {
+		const name = entry.abbreviation || entry.title || entry.lawId
+
+		// 1. The imported source. WP23 SS3's route is fixed, so it is asked
+		// directly instead of first pulling an 11 MB document to read a header off
+		// it. The whole route is optional, and a server that does not have it
+		// answers in more than one way: 404 where the route exists but this
+		// statute has no raw stage, and 400 where there is no such route at all
+		// and the path fell through to the LawLink address parser. Neither is a
+		// reason to abandon the load - both mean "use the other artifact".
+		const rawUrl = this.lawRawDownloadUnavailable
+			? undefined
+			: this.resolveExternalLawUrl(`/law/download/${encodeURIComponent(entry.lawId)}/raw.md`)
+		if (rawUrl != undefined) {
+			const rawEtag = lawNoteRevalidationEtag(existingMeta, "raw.md")
+			const raw = await this.fetchLawBytes(rawUrl, rawEtag, `${name} (Originalquelle)`)
+			if (raw.status == 304 && rawEtag.length > 0) {
+				return { markdown: "", source: "raw.md", etag: rawEtag, version: existingMeta?.version ?? "", lawId: entry.lawId, unchanged: true }
+			}
+			if (raw.status >= 200 && raw.status < 300) {
+				return {
+					markdown: raw.text,
+					source: "raw.md",
+					etag: lawHeaderValue(raw.headers, "ETag"),
+					version: lawHeaderValue(raw.headers, "X-SL-Version"),
+					lawId: lawHeaderValue(raw.headers, "X-SL-Law-Id") || entry.lawId,
+					unchanged: false
+				}
+			}
+			if (raw.status >= 500) {
+				// The route is there and broke; that is worth reporting.
+				throw new Error(`HTTP ${raw.status} von /law/download/<id>/raw.md`)
+			}
+			if (raw.status == 404) {
+				slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview,
+					`No raw stage for ${entry.lawId}; falling back to the deannotate round trip`)
+			} else {
+				// 400, 405, 501 ...: this installation does not understand the
+				// route. Asking again for every further statute is wasted, so it
+				// is asked once per session.
+				this.lawRawDownloadUnavailable = true
+				slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview,
+					`The raw source route answered HTTP ${raw.status}; this server does not serve it,`
+					+ ` using the deannotate round trip for the rest of the session`)
+			}
+		}
+
+		// 2. The round trip of the served document.
+		const docUrl = this.resolveExternalLawUrl(`/law/doc/${encodeURIComponent(entry.lawId)}?view=snapshot`)
+		if (docUrl == undefined) {
+			throw new Error(`die Adresse von ${name} konnte nicht aufgeloest werden`)
+		}
+		const docEtag = lawNoteRevalidationEtag(existingMeta, "deannotate")
+		const doc = await this.fetchLawBytes(docUrl, docEtag, name)
+		if (doc.status == 304 && docEtag.length > 0) {
+			return { markdown: "", source: "deannotate", etag: docEtag, version: existingMeta?.version ?? "", lawId: entry.lawId, unchanged: true }
+		}
+		if (doc.status == 404) {
+			// The catalog and the repository disagree: a check-in can change what is
+			// held after the index was fetched.
+			new Notice(`UseSemaLogic: ${name} ist auf diesem Server nicht verfuegbar.`)
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview,
+				`Law document is gone from the repository (lawId=${entry.lawId}); revalidating the index`)
+			await this.revalidateLawIndexAndReopenPicker()
+			return undefined
+		}
+		if (doc.status < 200 || doc.status >= 300) {
+			throw new Error(`HTTP ${doc.status} von /law/doc/<id>?view=snapshot`)
+		}
+		this.lawLoadProgress.setMessage(`${name} wird nach Markdown gewandelt ...`)
+		this.lawLoadProgress.update(0, 0)
+		const deannotated = await deannotateLawHtml(this.settings, doc.text)
+		if (deannotated.mediaType != "text/markdown") {
+			throw new Error(`der Dienst lieferte ${deannotated.mediaType || "einen unbekannten Typ"} statt Markdown`
+				+ " - das Dokument wurde nicht als annotiertes HTML erkannt")
+		}
+		if (deannotated.markdown.length == 0) {
+			throw new Error("der Dienst lieferte kein Markdown zurueck")
+		}
+		return {
+			markdown: deannotated.markdown,
+			source: "deannotate",
+			etag: lawHeaderValue(doc.headers, "ETag"),
+			version: lawHeaderValue(doc.headers, "X-SL-Version"),
+			lawId: lawHeaderValue(doc.headers, "X-SL-Law-Id") || entry.lawId,
+			unchanged: false
+		}
+	}
+
+	// One conditional GET with byte progress where the platform allows it, and
+	// requestUrl as the fallback that always works.
+	private async fetchLawBytes(url: string, etag: string, label: string): Promise<LawStreamResponse> {
+		this.lawLoadProgress.setMessage(`${label} wird geladen ...`)
+		this.lawLoadProgress.update(0, 0)
+		const conditional: Record<string, string> = {}
+		if (etag.length > 0) { conditional["If-None-Match"] = etag }
+		const headers = this.lawRequestHeaders(conditional)
+		const streamed = await fetchLawDocumentStreaming(url, headers,
+			(loaded, total) => this.lawLoadProgress.update(loaded, total))
+		if (streamed != undefined) { return streamed }
+		this.lawLoadProgress.update(0, 0)
+		const buffered = await requestUrl(this.createLawApiRequest(url, headers))
+		return { status: buffered.status, text: buffered.text ?? "", headers: buffered.headers ?? {} }
+	}
+
+	private async writeLawNote(path: string, content: string, existingFile: TFile | undefined): Promise<TFile> {
+		if (existingFile != undefined) {
+			await this.app.vault.modify(existingFile, content)
+			return existingFile
+		}
+		const folder = path.split("/").slice(0, -1).join("/")
+		if (folder.length > 0 && this.app.vault.getAbstractFileByPath(folder) == null) {
+			await this.app.vault.createFolder(folder)
+		}
+		const created = await this.app.vault.create(path, content)
+		return created
+	}
+
+	// Opens the note where Obsidian's own Markdown tabs live: a new tab in the
+	// main area, in a group that is not holding one of this plugin's views.
+	private async openNoteInMarkdownArea(file: TFile): Promise<void> {
+		// An already open tab for this note wins over a second one.
+		let openLeaf: WorkspaceLeaf | undefined
+		this.app.workspace.iterateRootLeaves((leaf) => {
+			if (openLeaf != undefined || !(leaf.view instanceof MarkdownView)) { return }
+			if (leaf.view.file?.path == file.path) { openLeaf = leaf }
+		})
+		if (openLeaf != undefined) {
+			this.app.workspace.setActiveLeaf(openLeaf, { focus: true })
+			this.app.workspace.revealLeaf(openLeaf)
+			return
+		}
+		const host = this.findMarkdownAreaLeaf()
+		if (host != undefined) {
+			// getLeaf("tab") opens beside the active leaf, so the group is chosen by
+			// making a non-plugin leaf active first.
+			this.app.workspace.setActiveLeaf(host, { focus: false })
+		}
+		const leaf = this.app.workspace.getLeaf("tab")
+		await leaf.openFile(file)
+		this.app.workspace.revealLeaf(leaf)
+	}
+
+	// The most recent leaf in the main area that is not a SemaLogic view. The
+	// SemaLogic view lives in its own split, and a statute must not land there.
+	private findMarkdownAreaLeaf(): WorkspaceLeaf | undefined {
+		const recent = this.app.workspace.getMostRecentLeaf(this.app.workspace.rootSplit)
+		if (recent != null && !(recent.view instanceof SemaLogicView) && !(recent.view instanceof ASPView)) {
+			return recent
+		}
+		let candidate: WorkspaceLeaf | undefined
+		this.app.workspace.iterateRootLeaves((leaf) => {
+			if (candidate != undefined) { return }
+			if (leaf.view instanceof SemaLogicView || leaf.view instanceof ASPView) { return }
+			candidate = leaf
+		})
+		return candidate
+	}
+
+	// Diagnosis for "the picker shows nothing". Reports what the route actually
+	// answered rather than what the client made of it: the resolved URL, the
+	// status, the payload size, the declared schema, the row count and the first
+	// row verbatim. Written to the console *and* shown as a notice, because the
+	// plugin's own logging is silent at the default debug level.
+	public async describeLawIndex(): Promise<void> {
+		const url = this.resolveExternalLawUrl(LawIndexRoute)
+		if (url == undefined) {
+			new Notice(`UseSemaLogic: /law/index laesst sich nicht gegen ${getHostPort(this.settings)} aufloesen.`)
+			return
+		}
+		const lines: string[] = [`GET ${url}`]
+		try {
+			// Deliberately unconditional: a 304 would report nothing useful here.
+			const response = await requestUrl(this.createLawApiRequest(url))
+			const body = response.text ?? ""
+			lines.push(`Status ${response.status}`)
+			lines.push(`Content-Type ${lawHeaderValue(response.headers, "Content-Type") || "(keiner)"}`)
+			lines.push(`ETag ${lawHeaderValue(response.headers, "ETag") || "(keiner)"}`)
+			lines.push(`${formatLawByteSize(body.length)} Rumpf`)
+			if (response.status == 200) {
+				let parsedBody: any
+				try {
+					parsedBody = JSON.parse(body)
+				} catch (e) {
+					lines.push(`Rumpf ist kein JSON: ${body.slice(0, 200)}`)
+					parsedBody = undefined
+				}
+				if (parsedBody != undefined) {
+					lines.push(`schema "${parsedBody.schema ?? "(fehlt)"}"`)
+					lines.push(`Schluessel: ${Object.keys(parsedBody).join(", ") || "(keine)"}`)
+					const statutes = parsedBody.statutes
+					if (Array.isArray(statutes)) {
+						lines.push(`${statutes.length} Zeile(n)`)
+						if (statutes.length > 0) {
+							lines.push(`erste Zeile: ${JSON.stringify(statutes[0]).slice(0, 200)}`)
+							lines.push(makeLawIndexEntry(statutes[0]) != undefined
+								? "erste Zeile ist lesbar"
+								: "erste Zeile konnte NICHT gelesen werden - die Zeilenform passt nicht")
+						}
+					} else {
+						lines.push(`"statutes" ist ${statutes == undefined ? "nicht vorhanden" : typeof statutes}, kein Array`)
+					}
+				}
+			}
+		} catch (e) {
+			lines.push(`Transportfehler: ${e instanceof Error ? e.message : String(e)}`)
+		}
+		const report = lines.join("\n")
+		// console.log directly: slconsolelog stays silent while myDebugLevel is 0,
+		// and this command exists precisely for the case where nothing is visible.
+		console.log("UseSemaLogic law index check\n" + report)
+		new Notice(`UseSemaLogic Gesetzes-Index:\n${report}`, 30000)
+	}
+
+	// Probes every route a statute load uses and reports each status, then loads.
+	// A bare "HTTP 400" does not say which of the three refused; this does.
+	public async describeLawLoad(): Promise<void> {
+		const lines: string[] = []
+		let first: LawIndexEntry | undefined
+		try {
+			const entries = await this.getLawIndexStore().load()
+			first = this.settings.lawRecents?.length > 0
+				? entries.find((entry) => entry.lawId == this.settings.lawRecents[0] && entry.held)
+				: undefined
+			if (first == undefined) { first = entries.find((entry) => entry.held) }
+			if (first == undefined) {
+				new Notice(`UseSemaLogic: keines der ${entries.length} Gesetze im Index ist auf diesem Server vorhanden (held).`, 15000)
+				return
+			}
+			lines.push(`Gesetz: ${first.abbreviation || first.lawId} (${first.lawId})`)
+
+			const rawUrl = this.resolveExternalLawUrl(`/law/download/${encodeURIComponent(first.lawId)}/raw.md`)
+			if (rawUrl != undefined) {
+				const raw = await requestUrl(this.createLawApiRequest(rawUrl))
+				lines.push(`GET /law/download/<id>/raw.md -> ${raw.status}`
+					+ (raw.status == 200 ? ` (${formatLawByteSize((raw.text ?? "").length)})` : ""))
+				if (raw.status != 200 && raw.status != 404) {
+					lines.push("  -> diese Route kennt der Server nicht; es wird deannotiert")
+				}
+			}
+
+			const docUrl = this.resolveExternalLawUrl(`/law/doc/${encodeURIComponent(first.lawId)}?view=snapshot`)
+			let html = ""
+			if (docUrl != undefined) {
+				const doc = await requestUrl(this.createLawApiRequest(docUrl))
+				html = doc.text ?? ""
+				lines.push(`GET /law/doc/<id>?view=snapshot -> ${doc.status}`
+					+ (doc.status == 200 ? ` (${formatLawByteSize(html.length)})` : ""))
+			}
+
+			if (html.length > 0) {
+				try {
+					const deannotated = await deannotateLawHtml(this.settings, html)
+					lines.push(`POST /rules/parse -> mediaType ${deannotated.mediaType || "(keiner)"},`
+						+ ` ${formatLawByteSize(utf8ByteLength(deannotated.markdown))} Markdown`)
+				} catch (e) {
+					lines.push(`POST /rules/parse -> ${e instanceof Error ? e.message : String(e)}`)
+				}
+			}
+		} catch (e) {
+			lines.push(`Abbruch: ${e instanceof Error ? e.message : String(e)}`)
+		}
+		const report = lines.join("\n")
+		console.log("UseSemaLogic law load check\n" + report)
+		new Notice(`UseSemaLogic Ladeweg:\n${report}`, 30000)
+		if (first != undefined) { await this.openLawStatute(first) }
+	}
+
+	private async revalidateLawIndexAndReopenPicker(): Promise<void> {
+		this.lawLoadProgress.setMessage("Gesetzes-Index wird aktualisiert ...")
+		this.lawLoadProgress.update(0, 0)
+		try {
+			await this.getLawIndexStore().load(true)
+		} catch (e) {
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview,
+				`Law index revalidation failed: ${e instanceof Error ? e.message : String(e)}`)
+		}
+		await this.openLawPicker()
+	}
+
+	// A Notice with an action: the retry has to be one click away, not a repeat
+	// of the whole picker flow.
+	private showLawRetryNotice(message: string, retry: () => void): void {
+		const fragment = document.createDocumentFragment()
+		fragment.createEl("div", { text: message })
+		const action = fragment.createEl("a", { text: "Erneut versuchen", cls: "sl-notice-action" })
+		action.setAttr("href", "#")
+		const notice = new Notice(fragment, 15000)
+		action.addEventListener("click", (evt) => {
+			evt.preventDefault()
+			notice.hide()
+			retry()
+		})
+	}
+
+	private async rememberLawStatute(lawId: string): Promise<void> {
+		const previous = this.settings.lawRecents ?? []
+		const recents = rememberLawRecent(previous, lawId)
+		// Element-wise: the order is what the empty-query list shows, so an
+		// unchanged order must not cost a settings write.
+		if (recents.length == previous.length && recents.every((id, index) => id == previous[index])) { return }
+		this.settings.lawRecents = recents
+		await this.saveData(this.settings)
+	}
+
+	// WP23 SS3 / WP23a T6 - the *other* Markdown artifact: the imported source
+	// of the statute, byte for byte, opened in its own tab. It is never a
+	// stand-in for the Deannotate round trip and vice versa.
+	public async openLawRawMarkdown(rawDownloadUrl: string, identity: LawDocumentIdentity, title: string): Promise<void> {
+		const url = this.resolveExternalLawUrl(rawDownloadUrl)
+		if (url == undefined) {
+			new Notice(`UseSemaLogic: die Adresse des Original-Markdowns von ${title} konnte nicht aufgeloest werden.`)
+			return
+		}
+		const existing = this.findLawRawView(url)
+		if (existing != undefined) {
+			this.app.workspace.revealLeaf(existing.leaf)
+			return
+		}
+		this.lawLoadProgress.start("Original-Markdown", `${title} (raw.md) wird geladen ...`)
+		let status: number | undefined
+		try {
+			const response = await requestUrl(this.createLawApiRequest(url))
+			status = response.status
+			if (response.status == 404) {
+				// The advertised action outlived the bundle it pointed at. Do not
+				// fall back to another stage - that would label a different
+				// artifact as the original source.
+				new Notice(`UseSemaLogic: das Original-Markdown von ${title} ist nicht mehr verfuegbar.`)
+				return
+			}
+			if (response.status < 200 || response.status >= 300) {
+				throw new Error(`HTTP ${response.status}`)
+			}
+			const markdown = response.text ?? ""
+			const fileName = this.lawRawFileName(response.headers, url, identity.lawId)
+			this.registerLawRawView()
+			const leaf = this.app.workspace.getLeaf("tab")
+			await leaf.setViewState({ type: LawRawViewType, active: true })
+			const rawView = leaf.view
+			if (!(rawView instanceof LawRawMarkdownView)) {
+				throw new Error(`the raw markdown view could not be created (got ${leaf.view.getViewType()})`)
+			}
+			rawView.setComm(this.slComm)
+			rawView.showRawMarkdown(markdown, url, {
+				lawId: lawHeaderValue(response.headers, "X-SL-Law-Id") || identity.lawId,
+				version: lawHeaderValue(response.headers, "X-SL-Version") || identity.version,
+				abbreviation: identity.abbreviation,
+				fileName
+			})
+			this.app.workspace.revealLeaf(leaf)
+			new Notice(`UseSemaLogic: ${fileName} geladen - ${formatLawByteSize(response.arrayBuffer?.byteLength ?? markdown.length)}`)
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview,
+				`Law raw markdown opened (lawId=${identity.lawId}, file=${fileName}, bytes=${markdown.length})`)
+		} catch (e) {
+			const message = e instanceof Error ? e.message : String(e)
+			new Notice(`UseSemaLogic: das Original-Markdown von ${title} konnte nicht geladen werden. ${message}`)
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview,
+				`Law raw markdown failed (lawId=${identity.lawId}, status=${status ?? "transport error"}): ${message}`)
+		} finally {
+			this.lawLoadProgress.stop()
+		}
+	}
+
+	// The name the server itself gave the download. Content-Disposition is the
+	// authority - the bundle's stage files are named per statute and are
+	// resolved server side, so no fixed stage name is assumed here. The route's
+	// own document segment is the fallback, and the canonical document id the
+	// last resort; caller-supplied text never becomes a file name.
+	private lawRawFileName(headers: Record<string, string> | undefined, url: string, lawId: string): string {
+		const disposition = lawHeaderValue(headers, "Content-Disposition")
+		const quoted = /filename\s*=\s*"([^"]+)"/i.exec(disposition)
+		const bare = /filename\s*=\s*([^;]+)/i.exec(disposition)
+		const advertised = (quoted?.[1] ?? bare?.[1] ?? "").trim()
+		// Only the base name, and only if it is one: a header must not be able
+		// to steer anything path-shaped.
+		if (advertised.length > 0 && !/[\/]/.test(advertised)) { return advertised }
+		try {
+			const segments = new URL(url).pathname.split("/").filter((segment) => segment.length > 0)
+			const docSegment = segments.length >= 2 ? decodeURIComponent(segments[segments.length - 2]) : lawId
+			return `${docSegment || lawId}.raw.md`
+		} catch (e) {
+			return `${lawId}.raw.md`
+		}
+	}
+
+	// Obsidian 1.7.2 and later restore workspace leaves *deferred*: the leaf
+	// reports its real view type while `leaf.view` is a placeholder that carries
+	// none of the view's methods. getViewType() is therefore not proof of an
+	// instance - only instanceof is - and every lookup below relies on that.
+	private static isDeferredLeaf(leaf: WorkspaceLeaf): boolean {
+		return (leaf as unknown as { isDeferred?: boolean }).isDeferred === true
+	}
+
+	// Turns a deferred leaf into a real view. Absent on older Obsidian versions,
+	// where nothing is deferred in the first place.
+	private async loadDeferredLeaf(leaf: WorkspaceLeaf): Promise<void> {
+		const loader = (leaf as unknown as { loadIfDeferred?: () => Promise<void> }).loadIfDeferred
+		if (typeof loader == "function") { await loader.call(leaf) }
+	}
+
+	// The Law view the reader is looking at, or the only one that is open.
+	private getActiveLawCatalogView(): LawCatalogView | undefined {
+		const active = this.app.workspace.getActiveViewOfType(LawCatalogView)
+		if (active != null) { return active }
+		let single: LawCatalogView | undefined
+		let count = 0
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			if (!(leaf.view instanceof LawCatalogView)) { return }
+			count++
+			single = leaf.view
+		})
+		return count == 1 ? single : undefined
+	}
+
+	private findLawRawView(downloadUrl: string): { leaf: WorkspaceLeaf; view: LawRawMarkdownView } | undefined {
+		let found: { leaf: WorkspaceLeaf; view: LawRawMarkdownView } | undefined
+		this.app.workspace.iterateAllLeaves((leaf) => {
+			// A deferred leaf cannot be asked which document it holds without
+			// being loaded first; it is skipped, and a fresh tab is opened.
+			if (found != undefined || !(leaf.view instanceof LawRawMarkdownView)) { return }
+			if (leaf.view.isRawDocument(downloadUrl)) {
+				found = { leaf, view: leaf.view }
+			}
+		})
+		return found
+	}
+
 	private async openExternalLawLink(link: HTMLAnchorElement): Promise<void> {
 		// All routing data is supplied by the server. In particular, do not infer
 		// a provision from the anchor text or from its resolver href.
@@ -2040,7 +2732,11 @@ export default class SemaLogicPlugin extends Plugin {
 					if (response.status < 200 || response.status >= 300) {
 						throw new Error(`HTTP ${response.status}`)
 					}
-					await this.openLawCatalogDocument(title, resolvedCatalogUrl, response.text ?? "", targetId)
+					await this.openLawCatalogDocument(title, resolvedCatalogUrl, response.text ?? "", targetId, {
+						lawId: lawHeaderValue(response.headers, "X-SL-Law-Id") || (lawId ?? ""),
+						version: lawHeaderValue(response.headers, "X-SL-Version"),
+						abbreviation: title
+					}, lawHeaderValue(response.headers, "X-SL-Raw-Download"))
 					return
 				} catch (e) {
 					slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview,
@@ -2061,22 +2757,30 @@ export default class SemaLogicPlugin extends Plugin {
 	private findLawCatalogView(catalogUrl: string): { leaf: WorkspaceLeaf; view: LawCatalogView } | undefined {
 		let found: { leaf: WorkspaceLeaf; view: LawCatalogView } | undefined
 		this.app.workspace.iterateAllLeaves((leaf) => {
-			if (found != undefined || leaf.view.getViewType() != LawCatalogViewType) { return }
-			const view = leaf.view as LawCatalogView
-			if (view.isCatalogDocument(catalogUrl)) {
-				found = { leaf, view }
+			// Same as above: a deferred leaf reports the right view type but has
+			// no isCatalogDocument to ask. Skipping it costs one extra tab; not
+			// skipping it threw "view.isCatalogDocument is not a function".
+			if (found != undefined || !(leaf.view instanceof LawCatalogView)) { return }
+			if (leaf.view.isCatalogDocument(catalogUrl)) {
+				found = { leaf, view: leaf.view }
 			}
 		})
 		return found
 	}
 
-	private async openLawCatalogDocument(title: string, catalogUrl: string, fragment: string, targetId: string): Promise<void> {
+	private async openLawCatalogDocument(title: string, catalogUrl: string, fragment: string, targetId: string,
+		identity?: LawDocumentIdentity, rawDownloadUrl: string = ""): Promise<void> {
 		this.registerLawCatalogView()
 		const leaf = this.app.workspace.getLeaf("tab")
 		await leaf.setViewState({ type: LawCatalogViewType, active: true })
-		const catalogView = leaf.view as LawCatalogView
+		const catalogView = leaf.view
+		if (!(catalogView instanceof LawCatalogView)) {
+			// setViewState is supposed to instantiate the registered view; if it
+			// did not, say so rather than failing later on a missing method.
+			throw new Error(`the law view could not be created (got ${leaf.view.getViewType()})`)
+		}
 		catalogView.setComm(this.slComm)
-		catalogView.showLawDocument(title, catalogUrl, fragment, targetId)
+		catalogView.showLawDocument(title, catalogUrl, fragment, targetId, identity, rawDownloadUrl)
 		this.app.workspace.revealLeaf(leaf)
 	}
 
@@ -4072,6 +4776,12 @@ export default class SemaLogicPlugin extends Plugin {
 		this.lawCatalogViewRegistered = true
 	}
 
+	private registerLawRawView(): void {
+		if (this.lawRawViewRegistered) { return }
+		this.registerView(LawRawViewType, (leaf) => new LawRawMarkdownView(leaf))
+		this.lawRawViewRegistered = true
+	}
+
 	private getSemaLogicLeaves(): WorkspaceLeaf[] {
 		const leaves: WorkspaceLeaf[] = []
 		this.app.workspace.iterateAllLeaves((leaf) => {
@@ -4094,19 +4804,77 @@ export default class SemaLogicPlugin extends Plugin {
 			`Removed ${leaves.length - 1} duplicate SemaLogic workspace leaf/leaves during startup`)
 	}
 
+	// Restored law leaves are exactly the ones Obsidian defers, so this collects
+	// them by view type first and then loads each one before touching it. The
+	// previous version called setComm on the placeholder, which threw inside the
+	// iteration and left the whole startup initialisation unfinished.
 	private initializeRestoredLawCatalogViews(): void {
+		const candidates: WorkspaceLeaf[] = []
 		this.app.workspace.iterateAllLeaves((leaf) => {
-			if (leaf.view.getViewType() != LawCatalogViewType) { return }
-			const view = leaf.view as LawCatalogView
-			view.setComm(this.slComm)
-			const restoreState = view.getCatalogRestoreState()
-			if (restoreState != undefined) {
-				void this.restoreLawCatalogView(view, restoreState)
+			const viewType = leaf.view.getViewType()
+			if (viewType == LawRawViewType || viewType == LawCatalogViewType) {
+				candidates.push(leaf)
 			}
 		})
+		candidates.forEach((leaf) => { void this.initializeRestoredLawLeaf(leaf) })
 	}
 
-	private async restoreLawCatalogView(view: LawCatalogView, state: { lawTitle: string; catalogUrl: string; targetId: string }): Promise<void> {
+	private async initializeRestoredLawLeaf(leaf: WorkspaceLeaf): Promise<void> {
+		try {
+			if (SemaLogicPlugin.isDeferredLeaf(leaf)) {
+				await this.loadDeferredLeaf(leaf)
+			}
+			const view = leaf.view
+			if (view instanceof LawRawMarkdownView) {
+				view.setComm(this.slComm)
+				const rawState = view.getRawRestoreState()
+				if (rawState != undefined) {
+					await this.restoreLawRawView(view, rawState)
+				}
+				return
+			}
+			if (view instanceof LawCatalogView) {
+				view.setComm(this.slComm)
+				const restoreState = view.getCatalogRestoreState()
+				if (restoreState != undefined) {
+					await this.restoreLawCatalogView(view, restoreState)
+				}
+				return
+			}
+			slconsolelog(DebugLevMap.DebugLevel_Informative, undefined,
+				`Law leaf ${leaf.view.getViewType()} stayed deferred and was left untouched`)
+		} catch (e) {
+			slconsolelog(DebugLevMap.DebugLevel_Error, undefined,
+				`Restoring a law leaf failed: ${e instanceof Error ? e.message : String(e)}`)
+		}
+	}
+
+	private async restoreLawRawView(view: LawRawMarkdownView,
+		state: { lawTitle: string; downloadUrl: string; lawId: string; lawVersion: string; lawAbbreviation: string; fileName: string }): Promise<void> {
+		let responseStatus: number | undefined
+		try {
+			const response = await requestUrl(this.createLawApiRequest(state.downloadUrl))
+			responseStatus = response.status
+			if (response.status < 200 || response.status >= 300) {
+				throw new Error(`HTTP ${response.status}`)
+			}
+			view.showRawMarkdown(response.text ?? "", state.downloadUrl, {
+				lawId: state.lawId,
+				version: state.lawVersion,
+				abbreviation: state.lawAbbreviation,
+				fileName: state.fileName || this.lawRawFileName(response.headers, state.downloadUrl, state.lawId)
+			})
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview,
+				`Restored law raw markdown view (url=${state.downloadUrl})`)
+		} catch (e) {
+			view.showRestoreError(`UseSemaLogic: ${state.lawTitle} konnte nicht neu geladen werden. ${e instanceof Error ? e.message : String(e)}`)
+			slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview,
+				`Law raw markdown restore failed (url=${state.downloadUrl}, status=${responseStatus ?? "transport error"}): ${e instanceof Error ? e.message : String(e)}`)
+		}
+	}
+
+	private async restoreLawCatalogView(view: LawCatalogView,
+		state: { lawTitle: string; catalogUrl: string; targetId: string; lawId: string; lawVersion: string; lawAbbreviation: string }): Promise<void> {
 		let responseStatus: number | undefined
 		try {
 			const response = await requestUrl(this.createExternalLawRequest(state.catalogUrl))
@@ -4114,7 +4882,11 @@ export default class SemaLogicPlugin extends Plugin {
 			if (response.status < 200 || response.status >= 300) {
 				throw new Error(`HTTP ${response.status}`)
 			}
-			view.showLawDocument(state.lawTitle, state.catalogUrl, response.text ?? "", state.targetId)
+			view.showLawDocument(state.lawTitle, state.catalogUrl, response.text ?? "", state.targetId, {
+				lawId: lawHeaderValue(response.headers, "X-SL-Law-Id") || state.lawId,
+				version: lawHeaderValue(response.headers, "X-SL-Version") || state.lawVersion,
+				abbreviation: state.lawAbbreviation
+			}, lawHeaderValue(response.headers, "X-SL-Raw-Download"))
 			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview,
 				`Restored law catalog view (url=${state.catalogUrl}, target=${state.targetId})`)
 		} catch (e) {
@@ -4683,11 +5455,19 @@ export default class SemaLogicPlugin extends Plugin {
 			this.settings.showSelectionActionButtons = Platform.isAndroidApp;
 			await this.saveData(this.settings);
 		}
+		// Older data.json files predate the statute picker.
+		if (!Array.isArray(this.settings.lawRecents)) {
+			this.settings.lawRecents = [];
+		}
 		this.ensureSectionStyleSettings();
 	}
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+		// The server profile may have changed with these settings: another
+		// installation has another catalog, other ETags and possibly no
+		// /law/index at all.
+		this.resetLawCaches();
 		if (this.slComm.slview != undefined) { this.slComm.slview.setNewInitial(this.settings.mySLSettings[this.settings.mySetting].myOutputFormat, false) }
 		this.updateOutstanding = true;
 		//this.semaLogicParse();
