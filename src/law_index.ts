@@ -168,6 +168,61 @@ export function parseLawIndex(body: string): LawIndexEntry[] {
   return entries
 }
 
+// The route a statute's annotated document is served from. One spelling, so a
+// reference, a citation and the picker all fetch the same bytes.
+export function lawDocumentRoute(lawId: string): string {
+  return `/law/doc/${encodeURIComponent(lawId)}?view=snapshot`
+}
+
+// A node address ("DE.GESETZ.SGB_8.P13") begins with the statute's own lawId and
+// continues with the path inside it. Where one ends cannot be decided by
+// counting dots - "DE.GESETZ.SGB_10" and "DE.GESETZ.SGB_10_KAP1_2" are both real
+// ids - so it is decided against the catalog itself: the longest known lawId the
+// address continues with a dot. "" where the catalog knows no such statute,
+// which is an answer, not a guess.
+export function lawIdForAddress(address: string, lawIds: Iterable<string>): string {
+  const known = lawIds instanceof Set ? lawIds as Set<string> : new Set(lawIds)
+  if (known.has(address)) { return address }
+  let best = ""
+  for (let i = 0; i < address.length; i++) {
+    if (address.charAt(i) != ".") { continue }
+    const candidate = address.slice(0, i)
+    if (candidate.length > best.length && known.has(candidate)) { best = candidate }
+  }
+  return best
+}
+
+// A served document names itself on its root element: a short designation for
+// the narrow tab caption, data-sl-title the full name for the view header. Read
+// off the bytes rather than the rendered DOM, which has been through Obsidian's
+// sanitizer, and only from the root tag - a nested element carries its own
+// names, and the first match in the file need not be the document's.
+export function readLawDocumentTitles(fragment: string): { shortTitle: string; title: string } {
+  const root = /<section[^>]*\sclass="law[^"]*"[^>]*>/.exec(fragment.slice(0, 8000))
+  const tag = root == undefined ? "" : root[0]
+  return {
+    // data-sl-lawlink-source is the designation a citation uses ("SGB 8",
+    // "BAfoeG"), and it is the dependable one: SGB 8's data-sl-shorttitle reads
+    // "Artikel 1 des Gesetzes v. 26. Juni 1990, BGBl. I S. 1163", which is a
+    // promulgation note and not a tab caption (checked against a live service,
+    // 2026-08-24).
+    shortTitle: attributeValue(tag, "data-sl-lawlink-source") || attributeValue(tag, "data-sl-shorttitle"),
+    title: attributeValue(tag, "data-sl-title")
+  }
+}
+
+function attributeValue(html: string, name: string): string {
+  const match = new RegExp(`${name}="([^"]*)"`).exec(html)
+  if (match == undefined) { return "" }
+  return match[1]
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .trim()
+}
+
 // Score tiers, lower is better. The abbreviation is what a reader knows, so it
 // outranks the alias, which outranks the official title.
 const FieldAbbreviation = 0

@@ -4,6 +4,7 @@ import { SemaLogicPluginComm, DebugLevel, SemaLogicPluginSettings } from "../mai
 import { slconsolelog } from './utils'
 import { ViewUtils } from "./view_utils";
 import { getHostPort } from "./utils";
+import { decorateBacklinkEntries } from "./law_backlinks";
 import {
   Diagnostic, Diagnostics, Rulesout, RulesoutContent, RulesoutTextFormat,
   countFindings, diagnosticMessage, emptyDiagnostics, extractRulesout, markdownSource,
@@ -267,6 +268,14 @@ export class SemaLogicView extends ItemView {
     }
     target.scrollIntoView({ block: "center" })
     return true
+  }
+
+  // Whether that address exists in what is rendered right now. The backlink
+  // route asks before it decides between a jump and a fetch, so a reference
+  // into the open document never pulls the same statute over the wire again.
+  public hasLawLinkTarget(targetId: string): boolean {
+    return Array.from(this.contentEl.querySelectorAll<HTMLElement>("[id]"))
+      .some((element) => element.id == targetId)
   }
 
   onload(): void {
@@ -959,6 +968,10 @@ export class SemaLogicView extends ItemView {
     }
     this.renderDiagnostics()
     this.getCurrHTML()
+    // Only the entries this plugin can route are marked as links, so a
+    // reference the server described without a target keeps its quiet
+    // presentation instead of promising a jump that cannot happen.
+    decorateBacklinkEntries(this.contentEl)
   }
 
   // Diagnostics are part of every reply, so the finding count is rendered

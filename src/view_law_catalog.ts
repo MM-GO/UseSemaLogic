@@ -43,7 +43,11 @@ export class LawCatalogView extends SemaLogicView {
   }
 
   getDisplayText(): string {
-    return this.lawTitle
+    // The short designation, not the full title (issues-private/01). Obsidian's
+    // tab captions are narrow: several open statutes truncate to nearly the
+    // same text, and the reader can no longer tell them apart. The full title
+    // stays visible in the view header.
+    return this.lawAbbreviation || this.lawTitle
   }
 
   getState(): { lawTitle: string; catalogUrl: string; targetId: string; lawId: string; lawVersion: string; lawAbbreviation: string } {

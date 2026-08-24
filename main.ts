@@ -16,11 +16,16 @@ import { LawRawMarkdownView, LawRawViewType } from "src/view_law_raw";
 import { LawPickerModal } from "src/law_picker";
 import { LawNoteMeta, buildLawNote, lawNotePath, lawNoteRevalidationEtag, readLawNoteMeta } from "src/law_note";
 import { deannotateLawHtml } from "src/law_transfer";
+import {
+	LawCitationSelector, LawLinkRoute, backlinkEntryMarkup, decorateBacklinkEntries,
+	findBacklinkSource, resolveBacklinkRoute, routeFromLawHref
+} from "src/law_backlinks";
 import { LawLoadProgress } from "src/law_progress";
 import { LawStreamResponse, fetchLawDocumentStreaming, lawHeaderValue, resetLawStreaming } from "src/law_fetch";
 import {
 	LawIndexEntry, LawIndexRoute, LawIndexStore, LawIndexUnavailableError,
-	formatLawByteSize, makeLawIndexEntry, rememberLawRecent, utf8ByteLength
+	formatLawByteSize, lawDocumentRoute, lawIdForAddress, makeLawIndexEntry,
+	readLawDocumentTitles, rememberLawRecent, utf8ByteLength
 } from "src/law_index";
 
 // What one statute fetch produced. `unchanged` marks a 304 against the note
@@ -1453,6 +1458,53 @@ export default class SemaLogicPlugin extends Plugin {
 			evt.stopPropagation()
 			void this.openExternalLawLink(link)
 		}, true)
+		// The reference list of an AnnotatedHTML-with-backlinks document. Its
+		// entries sit outside .lawlink and outside the annotated citation markup,
+		// so none of the three routes above ever saw them and the list named a
+		// reference without leading to it (issues-private/02).
+		this.registerDomEvent(document, "click", (evt: MouseEvent) => {
+			const target = evt.target as HTMLElement | null
+			if (target == undefined) { return }
+			const source = findBacklinkSource(target)
+			if (source == undefined) { return }
+			evt.preventDefault()
+			evt.stopPropagation()
+			void this.openBacklinkTarget(source)
+		}, true)
+		// A resolved citation in the running text. The service writes it as a bare
+		// <a href="https://<host>/law/<address>"> inside span.lawlink.external -
+		// no data-sl-* at all - so none of the routes above matched it and
+		// Obsidian opened it as an ordinary external link, landing the reader on
+		// the public page although the statute sits in the catalog.
+		this.registerDomEvent(document, "click", (evt: MouseEvent) => {
+			const target = evt.target as HTMLElement | null
+			const link = target?.closest(LawCitationSelector) as HTMLAnchorElement | null
+			if (link == undefined) { return }
+			// The two routes that already own their links: an in-document jump,
+			// and a citation carrying the full server contract.
+			const href = link.getAttribute("href") ?? ""
+			if (href.startsWith("#")) { return }
+			if (link.closest("a[data-sl-link-kind='external-law']") != undefined) { return }
+			const route = routeFromLawHref(href, (link.textContent ?? "").trim())
+			if (route == undefined) { return }
+			evt.preventDefault()
+			evt.stopPropagation()
+			slconsolelog(DebugLevMap.DebugLevel_Informative, undefined,
+				`Law citation click: address=${route.lawAddress || "none"}, target=${route.targetId || "none"}, href=${href}`)
+			void this.openLawTarget(route)
+		}, true)
+		// A span that behaves like a link is given role and tabindex by
+		// decorateBacklinkEntries; Enter has to do what the click does.
+		this.registerDomEvent(document, "keydown", (evt: KeyboardEvent) => {
+			if (evt.key != "Enter") { return }
+			const target = evt.target as HTMLElement | null
+			if (target == undefined || target.tagName == "A") { return }
+			const source = findBacklinkSource(target)
+			if (source == undefined) { return }
+			evt.preventDefault()
+			evt.stopPropagation()
+			void this.openBacklinkTarget(source)
+		}, true)
 		this.registerDomEvent(document, "click", (evt: MouseEvent) => {
 			const target = evt.target as HTMLElement | null
 			const link = target?.closest(".lawlink > a[href^='#']") as HTMLAnchorElement | null
@@ -2323,7 +2375,7 @@ export default class SemaLogicPlugin extends Plugin {
 		}
 
 		// 2. The round trip of the served document.
-		const docUrl = this.resolveExternalLawUrl(`/law/doc/${encodeURIComponent(entry.lawId)}?view=snapshot`)
+		const docUrl = this.resolveExternalLawUrl(lawDocumentRoute(entry.lawId))
 		if (docUrl == undefined) {
 			throw new Error(`die Adresse von ${name} konnte nicht aufgeloest werden`)
 		}
@@ -2706,52 +2758,219 @@ export default class SemaLogicPlugin extends Plugin {
 	private async openExternalLawLink(link: HTMLAnchorElement): Promise<void> {
 		// All routing data is supplied by the server. In particular, do not infer
 		// a provision from the anchor text or from its resolver href.
-		const catalogUrl = link.dataset.slCatalogUrl
-		const giiUrl = link.dataset.slGiiUrl
-		const targetId = link.dataset.slTargetId
-		const lawId = link.dataset.slLawId
-		const title = link.dataset.slLawTitle || lawId || "statute"
-		if (targetId == undefined || targetId.length == 0) {
+		//
+		// data-sl-target-id is mandatory for a citation (WORKPACKAGE_EXTERNAL_LAW_LINKS):
+		// the link names a provision, and opening the statute at its first line
+		// would answer a different question than the reader asked. The check
+		// belongs here rather than in openLawTarget, which also serves routes
+		// that legitimately address a whole document.
+		const title = link.dataset.slLawTitle || link.dataset.slLawId || "statute"
+		if ((link.dataset.slTargetId ?? "").length == 0) {
 			new Notice(`UseSemaLogic: no provision target is available for ${title}.`)
+			slconsolelog(DebugLevMap.DebugLevel_Error, undefined,
+				`External law link without data-sl-target-id: ${link.outerHTML.slice(0, 300)}`)
 			return
 		}
+		await this.openLawTarget({
+			catalogUrl: link.dataset.slCatalogUrl ?? "",
+			giiUrl: link.dataset.slGiiUrl ?? "",
+			targetId: link.dataset.slTargetId ?? "",
+			lawId: link.dataset.slLawId ?? "",
+			lawTitle: link.dataset.slLawTitle ?? "",
+			label: (link.textContent ?? "").trim(),
+			lawAddress: "",
+			resolverUrl: ""
+		})
+	}
 
-		if (catalogUrl != undefined && catalogUrl.length > 0) {
-			const resolvedCatalogUrl = this.resolveExternalLawUrl(catalogUrl)
-			if (resolvedCatalogUrl != undefined) {
-				const existingView = this.findLawCatalogView(resolvedCatalogUrl)
-				if (existingView != undefined) {
+	// The one implementation behind every route that leaves the current
+	// document: the catalog document first, the public GII address second, and
+	// an already open law tab reused rather than duplicated.
+	private async openLawTarget(route: LawLinkRoute): Promise<void> {
+		const catalogUrl = route.catalogUrl
+		const giiUrl = route.giiUrl
+		const targetId = route.targetId
+		const lawId = route.lawId
+		// The server's own name first, its identity second, the entry's visible
+		// text last - a tab called "statute" tells the reader nothing.
+		const title = route.lawTitle || lawId || route.label || "statute"
+
+		// The catalog is always preferred, and a route that named only the statute
+		// still gets a catalog attempt: /law/doc/<lawId> is where the picker loads
+		// every statute from. GII is the fallback, never the first choice.
+		const catalogCandidates: string[] = []
+		if (catalogUrl.length > 0) { catalogCandidates.push(catalogUrl) }
+		if (lawId.length > 0) {
+			const byLawId = lawDocumentRoute(lawId)
+			if (!catalogCandidates.includes(byLawId)) { catalogCandidates.push(byLawId) }
+		}
+
+		// Kept so the reader can be told which attempt failed and how, rather
+		// than only that something else opened.
+		const failures: string[] = []
+
+		// A reference carries a /law/<address>, which resolves to the public
+		// page. The statute it names is still in the catalog, so the address is
+		// matched against the index and the catalog document asked for instead.
+		if (route.lawAddress.length > 0) {
+			const addressLawId = await this.lawIdForAddress(route.lawAddress)
+			if (addressLawId.length > 0) {
+				const byAddress = lawDocumentRoute(addressLawId)
+				if (!catalogCandidates.includes(byAddress)) { catalogCandidates.push(byAddress) }
+			} else {
+				failures.push(`${route.lawAddress}: im Gesetzes-Index nicht gefunden`)
+			}
+		}
+		for (const candidate of catalogCandidates) {
+			const resolvedCatalogUrl = this.resolveExternalLawUrl(candidate)
+			if (resolvedCatalogUrl == undefined) {
+				failures.push(`${candidate}: nicht aufloesbar`)
+				continue
+			}
+			const existingView = this.findLawCatalogView(resolvedCatalogUrl)
+			if (existingView != undefined) {
+				// Without a node address the tab itself is the answer; asking
+				// navigateToProvision for "" would report a missing provision
+				// that was never named.
+				if (targetId.length > 0) {
 					existingView.view.navigateToProvision(targetId)
-					this.app.workspace.revealLeaf(existingView.leaf)
-					return
 				}
-				let responseStatus: number | undefined
-				try {
-					const response = await requestUrl(this.createExternalLawRequest(resolvedCatalogUrl))
-					responseStatus = response.status
-					if (response.status < 200 || response.status >= 300) {
-						throw new Error(`HTTP ${response.status}`)
-					}
-					await this.openLawCatalogDocument(title, resolvedCatalogUrl, response.text ?? "", targetId, {
-						lawId: lawHeaderValue(response.headers, "X-SL-Law-Id") || (lawId ?? ""),
-						version: lawHeaderValue(response.headers, "X-SL-Version"),
-						abbreviation: title
-					}, lawHeaderValue(response.headers, "X-SL-Raw-Download"))
-					return
-				} catch (e) {
-					slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview,
-						`Catalog law document failed (url=${resolvedCatalogUrl}, status=${responseStatus ?? "transport error"}): ${e instanceof Error ? e.message : String(e)}`)
-					slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview,
-						{ url: resolvedCatalogUrl, method: "GET", responseStatus })
+				this.app.workspace.revealLeaf(existingView.leaf)
+				return
+			}
+			let responseStatus: number | undefined
+			try {
+				const response = await requestUrl(this.createExternalLawRequest(resolvedCatalogUrl))
+				responseStatus = response.status
+				if (response.status < 200 || response.status >= 300) {
+					throw new Error(`HTTP ${response.status}`)
 				}
+				const servedLawId = lawHeaderValue(response.headers, "X-SL-Law-Id") || lawId
+				// Two different strings on purpose (issues-private/01): tab captions
+				// are narrow, so the caption is the short designation and the full
+				// title stays in the view header. The served document names itself
+				// on its root element, and that beats every other source - a
+				// data-sl-law-id reads "DE.GESETZ.AUFENTHG" where the document says
+				// "AufenthG". The anchor text is a citation, not a statute's name,
+				// and becomes neither.
+				const servedTitles = readLawDocumentTitles(response.text ?? "")
+				const shortName = servedTitles.shortTitle || lawId || servedLawId || "Law"
+				const documentTitle = servedTitles.title || route.lawTitle || shortName
+				await this.openLawCatalogDocument(documentTitle, resolvedCatalogUrl, response.text ?? "", targetId, {
+					lawId: servedLawId,
+					version: lawHeaderValue(response.headers, "X-SL-Version"),
+					abbreviation: shortName
+				}, lawHeaderValue(response.headers, "X-SL-Raw-Download"))
+				return
+			} catch (e) {
+				failures.push(`${candidate}: ${responseStatus ?? "Transportfehler"}`)
+				// undefined, not slComm.slview: routed through a view this line is
+				// dropped whenever that view has inline debugging on, and it is the
+				// one line that says whether a GII fallback was the server's doing
+				// or the client's.
+				slconsolelog(DebugLevMap.DebugLevel_Error, undefined,
+					`Catalog law document failed (url=${resolvedCatalogUrl}, status=${responseStatus ?? "transport error"}): ${e instanceof Error ? e.message : String(e)}`)
+				slconsolelog(DebugLevMap.DebugLevel_Error, undefined,
+					{ url: resolvedCatalogUrl, method: "GET", responseStatus })
 			}
 		}
 
-		if (giiUrl != undefined && giiUrl.length > 0) {
-			window.open(giiUrl, "_blank", "noopener,noreferrer")
+		// Everything above stays inside the vault. What is left leaves it: the
+		// named public address, or the service's own resolver, which answers 302
+		// to the public page. Both are last resorts, never a first choice.
+		const publicUrl = giiUrl.length > 0
+			? giiUrl
+			: (route.resolverUrl.length > 0 ? this.resolveExternalLawUrl(route.resolverUrl) ?? "" : "")
+		if (publicUrl.length > 0) {
+			// Leaving Obsidian is a visible event and needs a visible reason: the
+			// catalog is preferred, so reaching this line always means either the
+			// link named no catalog address or every catalog request failed.
+			const reason = failures.length > 0
+				? `der Katalog antwortete ${failures.join("; ")}`
+				: "der Verweis nennt keine Katalog-Adresse und kein Gesetzeskennzeichen"
+			new Notice(`UseSemaLogic: ${title} kommt nicht aus dem Katalog (${reason});`
+				+ " geoeffnet wird Gesetze im Internet.", 10000)
+			slconsolelog(DebugLevMap.DebugLevel_Error, undefined,
+				`Falling back to the public page for ${title} (${reason}; url=${publicUrl})`)
+			window.open(publicUrl, "_blank", "noopener,noreferrer")
 			return
 		}
 		new Notice(`UseSemaLogic: ${title} could not be opened.`)
+		slconsolelog(DebugLevMap.DebugLevel_Error, undefined,
+			`Law target has neither a catalog nor a public address (lawId=${lawId || "unknown"}, target=${targetId || "none"};`
+			+ ` catalog attempts: ${failures.length > 0 ? failures.join("; ") : "none"})`)
+	}
+
+	// A clicked entry of the reference list. Two outcomes, decided by where the
+	// citing provision is rather than by how the entry looks: inside the open
+	// document it is a jump, anywhere else it is the external law route, which
+	// opens a law tab or reuses the one that already holds that statute.
+	private async openBacklinkTarget(source: HTMLElement): Promise<void> {
+		const route = resolveBacklinkRoute(source)
+		if (route == undefined) {
+			// Deliberately not a guess: such an entry names its provision in words
+			// only, and turning that label back into an address is exactly what
+			// must not happen. The markup is logged so the missing server
+			// attributes can be named (docs/WORKPACKAGE_EXTERNAL_LAW_LINKS.md).
+			// undefined, not slComm.slview: routed through a view, this line is
+			// dropped whenever that view is not the SemaLogic view or has inline
+			// debugging on - and a diagnostic that hides is worse than none.
+			new Notice("UseSemaLogic: zu diesem Verweis liefert der Dienst kein Sprungziel."
+				+ " Das Markup des Eintrags steht im Log (Entwicklerkonsole).")
+			slconsolelog(DebugLevMap.DebugLevel_Error, undefined,
+				`Backlink entry without routing data: ${backlinkEntryMarkup(source)}`)
+			return
+		}
+		// Every backlink click is traceable: the entry as the server wrote it and
+		// what could be read out of it, so a half-addressed entry can be named
+		// instead of guessed at.
+		slconsolelog(route.targetId.length > 0 ? DebugLevMap.DebugLevel_Informative : DebugLevMap.DebugLevel_Error,
+			undefined, `Backlink click: target=${route.targetId || "none"}, lawId=${route.lawId || "none"},`
+			+ ` catalogUrl=${route.catalogUrl || "none"}, giiUrl=${route.giiUrl || "none"};`
+			+ ` entry=${backlinkEntryMarkup(source)}`)
+		const view = this.findSemaLogicViewContainingElement(source)
+		if (route.targetId.length > 0 && view != undefined && view.hasLawLinkTarget(route.targetId)) {
+			if (view instanceof LawCatalogView) {
+				view.navigateToProvision(route.targetId)
+			} else {
+				view.navigateToLawLinkTarget(route.targetId)
+			}
+			slconsolelog(DebugLevMap.DebugLevel_Informative, undefined,
+				`Navigated a backlink inside the open document (target=${route.targetId})`)
+			return
+		}
+		// Another statute: the external law route, which prefers the catalog and
+		// falls back on the statute's own /law/doc address before it ever leaves
+		// Obsidian.
+		if (route.catalogUrl.length == 0 && route.lawId.length == 0
+			&& route.giiUrl.length == 0 && route.lawAddress.length == 0) {
+			new Notice(`UseSemaLogic: ${route.targetId || "dieser Verweis"} steht nicht in diesem Dokument,`
+				+ " und der Verweis nennt kein anderes Gesetz.")
+			slconsolelog(DebugLevMap.DebugLevel_Error, undefined,
+				`Backlink target is neither in the open document nor addressable elsewhere (target=${route.targetId || "none"})`)
+			return
+		}
+		await this.openLawTarget(route)
+	}
+
+	// Which statute a node address belongs to. Only the catalog knows where a
+	// lawId ends and the node path begins, and the session already holds the
+	// index for the picker. A server without the index route leaves the address
+	// unresolvable - reported, not guessed around.
+	private async lawIdForAddress(address: string): Promise<string> {
+		try {
+			const entries = await this.getLawIndexStore().load()
+			const lawId = lawIdForAddress(address, entries.map((entry) => entry.lawId))
+			if (lawId.length == 0) {
+				slconsolelog(DebugLevMap.DebugLevel_Error, undefined,
+					`No catalog statute matches the address ${address} (${entries.length} statutes known)`)
+			}
+			return lawId
+		} catch (e) {
+			slconsolelog(DebugLevMap.DebugLevel_Error, undefined,
+				`The law index could not be consulted for ${address}: ${e instanceof Error ? e.message : String(e)}`)
+			return ""
+		}
 	}
 
 	private findLawCatalogView(catalogUrl: string): { leaf: WorkspaceLeaf; view: LawCatalogView } | undefined {

@@ -1,7 +1,8 @@
 import {
   LawIndexRow, LawIndexStore, LawIndexUnavailableError,
   compactLawText, filterLawEntries, firstLawEntries, foldLawText, formatLawByteSize,
-  makeLawIndexEntry, orderLawRecents, parseLawIndex, rememberLawRecent, utf8ByteLength
+  lawDocumentRoute, lawIdForAddress, makeLawIndexEntry, orderLawRecents, parseLawIndex,
+  readLawDocumentTitles, rememberLawRecent, utf8ByteLength
 } from "./law_index"
 
 const rows: LawIndexRow[] = [
@@ -203,5 +204,79 @@ describe("sizes", () => {
     expect(formatLawByteSize(512)).toBe("512 B")
     expect(formatLawByteSize(140923)).toBe("137,6 KB")
     expect(formatLawByteSize(11.4 * 1024 * 1024)).toBe("11,4 MB")
+  })
+})
+
+describe("lawIdForAddress", () => {
+  // The catalog of this installation, in the shapes that make the decision hard.
+  const known = [
+    "DE.GESETZ.BAFOEG", "DE.GESETZ.AFBG", "DE.GESETZ.2_HSTRUKTG",
+    "DE.GESETZ.SGB_8", "DE.GESETZ.SGB_10", "DE.GESETZ.SGB_10_KAP1_2",
+    "DE.GESETZ.FREIZUEGG_EU"
+  ]
+
+  test("splits an address at the statute it belongs to", () => {
+    expect(lawIdForAddress("DE.GESETZ.AFBG.P10.A2.S2", known)).toBe("DE.GESETZ.AFBG")
+    expect(lawIdForAddress("DE.GESETZ.2_HSTRUKTG.P8.A4.S1", known)).toBe("DE.GESETZ.2_HSTRUKTG")
+    expect(lawIdForAddress("DE.GESETZ.FREIZUEGG_EU.P1.A2.N3", known)).toBe("DE.GESETZ.FREIZUEGG_EU")
+  })
+
+  // Counting dots would answer "DE.GESETZ.SGB_10" for both of these.
+  test("the longest known statute wins, not the shortest prefix", () => {
+    expect(lawIdForAddress("DE.GESETZ.SGB_10_KAP1_2.P1", known)).toBe("DE.GESETZ.SGB_10_KAP1_2")
+    expect(lawIdForAddress("DE.GESETZ.SGB_10.P1", known)).toBe("DE.GESETZ.SGB_10")
+  })
+
+  test("an address that is a statute itself is that statute", () => {
+    expect(lawIdForAddress("DE.GESETZ.SGB_8", known)).toBe("DE.GESETZ.SGB_8")
+  })
+
+  test("a statute the catalog does not know is not invented", () => {
+    expect(lawIdForAddress("DE.GESETZ.NOTHELD.P1", known)).toBe("")
+    expect(lawIdForAddress("", known)).toBe("")
+  })
+})
+
+describe("lawDocumentRoute", () => {
+  test("one spelling for every caller", () => {
+    expect(lawDocumentRoute("DE.GESETZ.SGB_8")).toBe("/law/doc/DE.GESETZ.SGB_8?view=snapshot")
+  })
+})
+
+describe("readLawDocumentTitles", () => {
+  // SGB 8 as the live service serves it: the short title is its promulgation
+  // note, and only data-sl-lawlink-source is the designation a tab can carry.
+  test("the citation designation beats the short title", () => {
+    const fragment = `<section class="law" data-sl-lawlink-source="SGB 8"`
+      + ` data-sl-shorttitle="Artikel 1 des Gesetzes v. 26. Juni 1990, BGBl. I S. 1163"`
+      + ` data-sl-title="Sozialgesetzbuch (SGB) - Achtes Buch (VIII) -" id="DE.GESETZ.SGB_8">`
+    expect(readLawDocumentTitles(fragment).shortTitle).toBe("SGB 8")
+    expect(readLawDocumentTitles(fragment).title).toBe("Sozialgesetzbuch (SGB) - Achtes Buch (VIII) -")
+  })
+
+  test("a nested element does not name the document", () => {
+    const fragment = `<section class="law" data-sl-lawlink-source="BAfoeG" data-sl-title="Bundesgesetz">`
+      + `<section class="section" data-sl-lawlink-source="Anlage" data-sl-title="Anlage 1">`
+    expect(readLawDocumentTitles(fragment)).toEqual({ shortTitle: "BAfoeG", title: "Bundesgesetz" })
+  })
+
+  test("reads the names the document gives itself", () => {
+    const fragment = `<section class="law" data-sl-shorttitle="AFBG"`
+      + ` data-sl-title="Gesetz zur Foerderung der beruflichen Aufstiegsfortbildung"`
+      + ` id="DE.GESETZ.AFBG"><h1>AFBG</h1></section>`
+    expect(readLawDocumentTitles(fragment)).toEqual({
+      shortTitle: "AFBG",
+      title: "Gesetz zur Foerderung der beruflichen Aufstiegsfortbildung"
+    })
+  })
+
+  test("entities in an attribute are text again", () => {
+    expect(readLawDocumentTitles(`<section class="law" data-sl-title="Recht &amp; Ordnung">`).title)
+      .toBe("Recht & Ordnung")
+  })
+
+  test("a document that names itself nowhere reports nothing", () => {
+    expect(readLawDocumentTitles(`<section class="law"><h1>x</h1></section>`))
+      .toEqual({ shortTitle: "", title: "" })
   })
 })

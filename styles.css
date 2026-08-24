@@ -1143,6 +1143,42 @@ body {
     color: var(--lw-muted, #6b7280);
 }
 
+/* Reference entries that lead somewhere. The class is put on by
+ * decorateBacklinkEntries and only where the plugin resolved an address, so an
+ * entry the server described without a target keeps the quiet presentation
+ * above rather than promising a jump that cannot happen. */
+.sl-backlink-clickable {
+    cursor: pointer;
+    color: var(--lw-accent);
+    text-decoration: none;
+}
+
+.sl-backlink-clickable:hover,
+.sl-backlink-clickable:focus-visible {
+    text-decoration: underline;
+}
+
+.sl-backlink-clickable:focus-visible {
+    outline: 2px solid var(--lw-accent);
+    outline-offset: 2px;
+    border-radius: 0.15em;
+}
+
+/* The em dash the entry's source label carries as a separator is punctuation
+ * between two texts, not part of the link. */
+.backlink-inline .backlink-source.sl-backlink-clickable::after {
+    text-decoration: none;
+    color: var(--lw-muted, #6b7280);
+}
+
+/* An affordance again: on paper the entry is read, not activated. */
+@media print {
+    .sl-backlink-clickable {
+        color: inherit;
+        text-decoration: none;
+    }
+}
+
 /* --------------------------------------------------------------------- root */
 .law {
     --lw-body-font-size: 1.0625rem;
