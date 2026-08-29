@@ -132,6 +132,13 @@ If your plugin does not need CSS, delete this file.
 
 .sl-diag-group>summary {
     cursor: pointer;
+    /* The severity section keeps its disclosure triangle. Repeated-finding
+       groups are still clickable, but read as an indented diagnostic row. */
+    list-style: none;
+}
+
+.sl-diag-group>summary::-webkit-details-marker {
+    display: none;
 }
 
 .sl-diag-group-summary>.sl-diag-item {
