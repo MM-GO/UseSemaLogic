@@ -1160,12 +1160,15 @@ export class SemaLogicView extends ItemView {
     const summary = details.createEl("summary", { cls: "sl-diag-group-summary" })
     // The group total leads the same diagnostic card used for individual
     // findings, making the expandable row immediately distinguishable.
-    this.renderDiagnosticItem(summary, entry.item, entry.count, true)
+    // A group can collect different locations, so only its expanded individual
+    // findings get a destination link.
+    this.renderDiagnosticItem(summary, entry.item, entry.count, true, false)
     const children = details.createEl("div", { cls: "sl-diag-group-items" })
     entry.items.forEach(item => this.renderDiagnosticItem(children, item, 1))
   }
 
-  private renderDiagnosticItem(container: HTMLElement, item: Diagnostic, count: number, countFirst: boolean = false): void {
+  private renderDiagnosticItem(container: HTMLElement, item: Diagnostic, count: number,
+    countFirst: boolean = false, showLawLink: boolean = true): void {
     const severity = severityOf(item)
     const row = container.createEl("div", { cls: `sl-diag-item is-${severity}` })
     if (String(item.audience ?? "") == requestAudience_Developer) {
@@ -1178,6 +1181,16 @@ export class SemaLogicView extends ItemView {
     const body = row.createEl("span", { cls: "sl-diag-body" })
     const message = diagnosticMessage(item)
     body.createEl("span", { text: count > 1 && !countFirst ? `${message} (${count}x)` : message, cls: "sl-diag-message" })
+    const reference = item.reference?.trim() ?? ""
+    if (showLawLink && reference.length > 0) {
+      // The existing in-document law-link handler owns .lawlink > a[href^='#']
+      // and jumps to this exact server-provided AnnotatedHTML id.
+      const lawLink = body.createEl("span", { cls: "lawlink resolved sl-diagnostic-law-link" })
+      lawLink.createEl("a", {
+        text: "Zum Abschnitt",
+        attr: { href: `#${encodeURIComponent(reference)}` }
+      })
+    }
     // `subject`, `code` and `origin` are optional enrichment - never required.
     const symbol = item.subject?.symbol
     if (symbol != undefined && symbol != "") {

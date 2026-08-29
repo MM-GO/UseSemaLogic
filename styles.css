@@ -155,6 +155,11 @@ If your plugin does not need CSS, delete this file.
     text-align: right;
 }
 
+.sl-diagnostic-law-link {
+    align-self: flex-start;
+    font-size: 0.85em;
+}
+
 .sl-diag-group-items {
     margin: 4px 0 0 18px;
     padding-left: 8px;
