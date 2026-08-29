@@ -2839,12 +2839,18 @@ export default class SemaLogicPlugin extends Plugin {
 				return
 			}
 			let responseStatus: number | undefined
+			// This route opens a LawView directly, rather than going through the
+			// statute picker. Give it the same visible progress feedback: the
+			// current statute is named while its document arrives, and the byte
+			// counter becomes determinate where the server supplies Content-Length.
+			this.lawLoadProgress.start("LawView laden", `${title} wird vorbereitet ...`)
 			try {
-				const response = await requestUrl(this.createExternalLawRequest(resolvedCatalogUrl))
+				const response = await this.fetchLawBytes(resolvedCatalogUrl, "", `${title} (Gesetzestext)`)
 				responseStatus = response.status
 				if (response.status < 200 || response.status >= 300) {
 					throw new Error(`HTTP ${response.status}`)
 				}
+				this.lawLoadProgress.setMessage(`${title} wird fuer die LawView aufbereitet ...`)
 				const servedLawId = lawHeaderValue(response.headers, "X-SL-Law-Id") || lawId
 				// Two different strings on purpose (issues-private/01): tab captions
 				// are narrow, so the caption is the short designation and the full
@@ -2856,6 +2862,7 @@ export default class SemaLogicPlugin extends Plugin {
 				const servedTitles = readLawDocumentTitles(response.text ?? "")
 				const shortName = servedTitles.shortTitle || lawId || servedLawId || "Law"
 				const documentTitle = servedTitles.title || route.lawTitle || shortName
+				this.lawLoadProgress.setMessage(`${documentTitle} wird in der LawView geoeffnet ...`)
 				await this.openLawCatalogDocument(documentTitle, resolvedCatalogUrl, response.text ?? "", targetId, {
 					lawId: servedLawId,
 					version: lawHeaderValue(response.headers, "X-SL-Version"),
@@ -2872,6 +2879,8 @@ export default class SemaLogicPlugin extends Plugin {
 					`Catalog law document failed (url=${resolvedCatalogUrl}, status=${responseStatus ?? "transport error"}): ${e instanceof Error ? e.message : String(e)}`)
 				slconsolelog(DebugLevMap.DebugLevel_Error, undefined,
 					{ url: resolvedCatalogUrl, method: "GET", responseStatus })
+			} finally {
+				this.lawLoadProgress.stop()
 			}
 		}
 
