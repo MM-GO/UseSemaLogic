@@ -125,6 +125,35 @@ If your plugin does not need CSS, delete this file.
     color: var(--text-warning);
 }
 
+/* A repeated finding is a second, expandable level below its severity. */
+.sl-diag-group {
+    margin-top: 4px;
+}
+
+.sl-diag-group>summary {
+    cursor: pointer;
+}
+
+.sl-diag-group-summary>.sl-diag-item {
+    display: inline-flex;
+    margin: 0;
+}
+
+.sl-diag-group-count {
+    flex: none;
+    min-width: 2.5em;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-align: right;
+}
+
+.sl-diag-group-items {
+    margin: 4px 0 0 18px;
+    padding-left: 8px;
+    border-left: 1px solid var(--background-modifier-border);
+}
+
 /* Buttons showing/hiding a whole severity; state persists in the settings. */
 .sl-diag-toggle {
     padding: 2px 8px;

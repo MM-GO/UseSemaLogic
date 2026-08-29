@@ -108,6 +108,9 @@ export class SemaLogicView extends ItemView {
   currAudience: string = requestAudience_User
   // Open/closed state per severity section, kept while the view lives.
   sectionOpen: Record<string, boolean> = {}
+  // Repeated diagnostics form a second, independently expandable level below
+  // their severity section.
+  diagnosticGroupOpen: Record<string, boolean> = {}
   // Result display mode while no settings are reachable (view without plugin comm).
   resultAsSourceFallback: boolean = false
   // Set by a view that owns its display mode instead of following the global
@@ -545,6 +548,12 @@ export class SemaLogicView extends ItemView {
   }
   onunload(): void {
     this.hideServerProgress()
+
+    // LawCatalogView and LawRawMarkdownView reuse this base view, but closing
+    // either is unrelated to the SemaLogic main view being switched off.
+    // Without this guard every LawView lifecycle update overwrote the status
+    // bar with a false "SemaLogic is off" message.
+    if (this.getViewType() != SemaLogicViewType) { return }
 
     if (this.slComm.slPlugin != undefined) {
       this.slComm.slPlugin.activated = false
@@ -1003,7 +1012,7 @@ export class SemaLogicView extends ItemView {
     const blocking = entries.filter(entry => severityOf(entry.item) == "blocking")
     if (blocking.length > 0) {
       const listEl = this.diagnosticsEl.createEl("div", { cls: "sl-diag-list" })
-      blocking.forEach(entry => this.renderDiagnosticItem(listEl, entry.item, entry.count))
+      blocking.forEach(entry => this.renderDiagnosticEntry(listEl, entry))
     }
 
     this.renderDiagnosticSection("defect", entries)
@@ -1024,23 +1033,31 @@ export class SemaLogicView extends ItemView {
     details.addEventListener("toggle", () => { this.sectionOpen[severity] = details.open })
     details.createEl("summary", { text: `${count} ${severity}(s)` })
     const listEl = details.createEl("div", { cls: "sl-diag-list" })
-    section.forEach(entry => this.renderDiagnosticItem(listEl, entry.item, entry.count))
+    section.forEach(entry => this.renderDiagnosticEntry(listEl, entry))
   }
 
-  // Sorts by severity and collapses repeated findings into one entry carrying
-  // the repetition count.
+  // Sorts by severity and puts repeated findings into one expandable group.
+  // The group holds the original items, rather than merely a count, so each
+  // server finding remains inspectable in the second level of the UI.
   private collapseDiagnostics(diagnostics: Diagnostics): DiagnosticEntry[] {
     const groupsById = this.collectDiagnosticGroups(diagnostics)
-    const renderedGroups = new Set<string>()
     const entries: DiagnosticEntry[] = []
+    const entriesByGroup = new Map<string, DiagnosticEntry>()
     sortDiagnostics(diagnostics.items).forEach(item => {
       const group = item.id != undefined ? groupsById.get(item.id) : undefined
-      if (group != undefined) {
-        const key = String(group.code ?? "")
-        if (renderedGroups.has(key)) { return }
-        renderedGroups.add(key)
+      if (group == undefined) {
+        entries.push({ item, count: 1 })
+        return
       }
-      entries.push({ item, count: group?.count ?? 1 })
+
+      const existing = entriesByGroup.get(group.key)
+      if (existing != undefined) {
+        existing.items?.push(item)
+        return
+      }
+      const entry: DiagnosticEntry = { item, count: group.count, key: group.key, items: [item] }
+      entriesByGroup.set(group.key, entry)
+      entries.push(entry)
     })
     return entries
   }
@@ -1118,28 +1135,49 @@ export class SemaLogicView extends ItemView {
     this.renderDiagnostics()
   }
 
-  // Maps finding id -> group for repeated findings. `groups` only exists when
-  // findings carry a `code`, and a group of one needs no collapsing.
-  private collectDiagnosticGroups(diagnostics: Diagnostics): Map<string, { code?: string; count: number }> {
-    const byId = new Map<string, { code?: string; count: number }>()
-    diagnostics.groups?.forEach(group => {
+  // Maps finding id -> group for repeated findings. The group index is used as
+  // identity: two separate server groups may legitimately share one code.
+  private collectDiagnosticGroups(diagnostics: Diagnostics): Map<string, { count: number; key: string }> {
+    const byId = new Map<string, { count: number; key: string }>()
+    diagnostics.groups?.forEach((group, index) => {
       const count = group.count ?? 0
       if (count < 2 || !Array.isArray(group.ids)) { return }
-      group.ids.forEach(id => byId.set(id, { code: group.code, count }))
+      const key = `${group.code ?? "group"}:${index}`
+      group.ids.forEach(id => byId.set(id, { count, key }))
     })
     return byId
   }
 
-  private renderDiagnosticItem(container: HTMLElement, item: Diagnostic, count: number): void {
+  private renderDiagnosticEntry(container: HTMLElement, entry: DiagnosticEntry): void {
+    if (entry.items == undefined || entry.items.length < 2 || entry.key == undefined) {
+      this.renderDiagnosticItem(container, entry.item, entry.count)
+      return
+    }
+
+    const details = container.createEl("details", { cls: "sl-diag-group" })
+    details.open = this.diagnosticGroupOpen[entry.key] ?? false
+    details.addEventListener("toggle", () => { this.diagnosticGroupOpen[entry.key!] = details.open })
+    const summary = details.createEl("summary", { cls: "sl-diag-group-summary" })
+    // The group total leads the same diagnostic card used for individual
+    // findings, making the expandable row immediately distinguishable.
+    this.renderDiagnosticItem(summary, entry.item, entry.count, true)
+    const children = details.createEl("div", { cls: "sl-diag-group-items" })
+    entry.items.forEach(item => this.renderDiagnosticItem(children, item, 1))
+  }
+
+  private renderDiagnosticItem(container: HTMLElement, item: Diagnostic, count: number, countFirst: boolean = false): void {
     const severity = severityOf(item)
     const row = container.createEl("div", { cls: `sl-diag-item is-${severity}` })
     if (String(item.audience ?? "") == requestAudience_Developer) {
       row.addClass("is-developer")
     }
+    if (countFirst && count > 1) {
+      row.createEl("span", { text: `${count}×`, cls: "sl-diag-group-count" })
+    }
     row.createEl("span", { text: severity, cls: "sl-diag-severity" })
     const body = row.createEl("span", { cls: "sl-diag-body" })
     const message = diagnosticMessage(item)
-    body.createEl("span", { text: count > 1 ? `${message} (${count}x)` : message, cls: "sl-diag-message" })
+    body.createEl("span", { text: count > 1 && !countFirst ? `${message} (${count}x)` : message, cls: "sl-diag-message" })
     // `subject`, `code` and `origin` are optional enrichment - never required.
     const symbol = item.subject?.symbol
     if (symbol != undefined && symbol != "") {
@@ -1323,8 +1361,9 @@ export class SemaLogicView extends ItemView {
 
 type DiagnosticsSummaryLike = { blocking: number; defect: number; suspect: number; note: number }
 
-// One rendered row: the finding plus how often it occurred (via diagnostics.groups).
-type DiagnosticEntry = { item: Diagnostic; count: number }
+// One rendered row, optionally with the individual findings of a repeated
+// server diagnostic group.
+type DiagnosticEntry = { item: Diagnostic; count: number; key?: string; items?: Diagnostic[] }
 
 function severityOf(item: Diagnostic): string {
   return String(item.severity ?? "note")
