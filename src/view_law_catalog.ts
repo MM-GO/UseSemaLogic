@@ -161,6 +161,14 @@ export class LawCatalogView extends SemaLogicView {
     return this.currResult
   }
 
+  // Obsidian reads getDisplayText while the new leaf is still empty. Once the
+  // catalog response has supplied its short title, refresh that cached header
+  // so the tab says, for example, "BGB" instead of "SemaLogic law".
+  private refreshTabTitle(): void {
+    const leafWithHeader = this.leaf as WorkspaceLeaf & { updateHeader?: () => void }
+    leafWithHeader.updateHeader?.()
+  }
+
   public showLawDocument(title: string, catalogUrl: string, fragment: string, targetId: string,
     identity?: LawDocumentIdentity, rawDownloadUrl: string = ""): void {
     this.lawTitle = title
@@ -172,6 +180,8 @@ export class LawCatalogView extends SemaLogicView {
       this.lawVersion = identity.version
       this.lawAbbreviation = identity.abbreviation
     }
+
+    this.refreshTabTitle()
     this.currResult = fragment
     this.currKind = "html"
     this.currFragment = true
