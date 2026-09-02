@@ -11,6 +11,80 @@ If your plugin does not need CSS, delete this file.
     white-space: pre
 }
 
+/* The title, controls and finding toggles belong together. ItemView's content
+ * pane is the scrolling ancestor, so this works for SemaLogic and inherited Law
+ * views alike. */
+.sl-view-toolbar {
+    flex: none;
+    padding: 6px 0;
+    background: var(--background-primary);
+    border-bottom: 1px solid var(--background-modifier-border);
+}
+
+/* Keep the toolbar outside of the actual scroll region. A sticky element would
+ * otherwise overlay the first lines of a long rendered HTML document. */
+.sl-view-root {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.sl-view-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.sl-view-toolbar h4 {
+    margin: 0 0 6px;
+}
+
+.sl-view-controls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.sl-result-search {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 12em;
+}
+
+.sl-result-search input {
+    width: 100%;
+    min-width: 9em;
+}
+
+.sl-result-search-status {
+    min-width: 3.5em;
+    color: var(--text-muted);
+    font-size: 0.85em;
+    font-variant-numeric: tabular-nums;
+}
+
+.sl-result-search-match {
+    background: var(--text-highlight-bg);
+    color: inherit;
+    border-radius: 2px;
+}
+
+.sl-result-search-match.is-active {
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: 1px;
+}
+
+/* A reference list can remain collapsed while its contents are searched. Its
+ * visible summary signals that it contains one or more hidden matches. */
+.backlink-inline.sl-result-search-has-reference-match>.backlink-summary {
+    outline: 2px solid var(--text-highlight-bg);
+    outline-offset: 2px;
+}
+
 /* Diagnostics reported by the SemaLogic Service (API 00.03.00 `diagnostics`). */
 .sl-diagnostics {
     margin: 6px 0;

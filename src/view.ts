@@ -121,12 +121,21 @@ export class SemaLogicView extends ItemView {
   apiURL: string = ""
   dialectID: string = ""
   headerEl!: HTMLElement
+  toolbarEl!: HTMLElement
+  bodyEl: HTMLElement | undefined
   controlsEl!: HTMLElement
   scaleControlsEl!: HTMLElement
   diagToggleEl!: HTMLElement
   diagnosticsEl!: HTMLElement
   resultEl!: HTMLElement
   errorEl!: HTMLElement
+  resultSearchInput: HTMLInputElement | undefined
+  resultSearchIncludeReferences: boolean = false
+  resultSearchReferenceButton: ButtonComponent | undefined
+  resultSearchStatusEl: HTMLElement | undefined
+  resultSearchMatches: HTMLElement[] = []
+  resultSearchReferenceGroups: HTMLElement[] = []
+  resultSearchMatchIndex: number = -1
   progressToken: number
   progressTitle: string
   progressFallbackMessage: string
@@ -469,6 +478,165 @@ export class SemaLogicView extends ItemView {
     return container
   }
 
+  // The search is limited to the result area: neither diagnostics nor toolbar
+  // labels should be found. Text nodes are marked in place so links and other
+  // interactive elements of an annotated law remain functional.
+  private createResultSearch(container: HTMLElement): void {
+    const search = container.createEl("span", { cls: "sl-result-search" })
+    this.resultSearchInput = search.createEl("input", {
+      type: "search",
+      placeholder: "Ausgabe durchsuchen...",
+      attr: { "aria-label": "Ausgabetext durchsuchen", "data-sl-test": "result-search" }
+    })
+    this.resultSearchReferenceButton = new ButtonComponent(search)
+      .setButtonText("Verweise")
+      .onClick(() => {
+        this.resultSearchIncludeReferences = !this.resultSearchIncludeReferences
+        this.refreshResultSearchReferenceButton()
+        this.applyResultSearch(true)
+      })
+    this.resultSearchReferenceButton.buttonEl.addClasses(["sl-diag-toggle", "sl-result-search-reference-toggle"])
+    this.resultSearchReferenceButton.buttonEl.setAttr("data-sl-test", "result-search-references")
+    this.refreshResultSearchReferenceButton()
+    this.resultSearchStatusEl = search.createEl("span", { cls: "sl-result-search-status", attr: { "aria-live": "polite" } })
+    this.resultSearchInput.addEventListener("input", () => this.applyResultSearch(true))
+    this.resultSearchInput.addEventListener("keydown", (event) => {
+      if (event.key == "ArrowDown" || (event.key == "Enter" && !event.shiftKey)) {
+        event.preventDefault()
+        this.focusResultSearchMatch(1)
+      } else if (event.key == "ArrowUp" || (event.key == "Enter" && event.shiftKey)) {
+        event.preventDefault()
+        this.focusResultSearchMatch(-1)
+      } else if (event.key == "Escape") {
+        if (this.resultSearchInput != undefined) { this.resultSearchInput.value = "" }
+        this.applyResultSearch(false)
+      }
+    })
+  }
+
+  private refreshResultSearchReferenceButton(): void {
+    if (this.resultSearchReferenceButton == undefined) { return }
+    this.resultSearchReferenceButton.buttonEl.toggleClass("is-off", !this.resultSearchIncludeReferences)
+    this.resultSearchReferenceButton.buttonEl.setAttr("aria-pressed", String(this.resultSearchIncludeReferences))
+    this.resultSearchReferenceButton.setTooltip(this.resultSearchIncludeReferences
+      ? "Verweise werden durchsucht"
+      : "Verweise werden nicht durchsucht")
+  }
+
+  private applyResultSearch(scrollToFirst: boolean = false): void {
+    this.clearResultSearchHighlights()
+    const query = this.resultSearchInput?.value.trim() ?? ""
+    if (query.length == 0 || this.resultEl == undefined) {
+      this.updateResultSearchStatus()
+      return
+    }
+    const queryLower = query.toLocaleLowerCase()
+    const includeReferences = this.resultSearchIncludeReferences
+    const walker = document.createTreeWalker(this.resultEl, NodeFilter.SHOW_TEXT)
+    const textNodes: Text[] = []
+    let node: Node | null
+    while ((node = walker.nextNode()) != null) {
+      const parent = node.parentElement
+      if (parent != undefined && parent.closest("script, style, .sl-result-search-match") == undefined
+        && (includeReferences || parent.closest(".backlink-inline") == undefined)
+        && node.textContent?.toLocaleLowerCase().includes(queryLower)) {
+        textNodes.push(node as Text)
+      }
+    }
+    textNodes.forEach(textNode => this.highlightResultSearchText(textNode, queryLower))
+    this.resultSearchMatches.forEach(match => {
+      const referenceGroup = match.closest<HTMLElement>(".backlink-inline")
+      if (referenceGroup != undefined && !this.resultSearchReferenceGroups.includes(referenceGroup)) {
+        referenceGroup.addClass("sl-result-search-has-reference-match")
+        this.resultSearchReferenceGroups.push(referenceGroup)
+      }
+    })
+    this.resultSearchMatchIndex = this.resultSearchMatches.length > 0 ? 0 : -1
+    this.updateResultSearchStatus()
+    this.updateActiveResultSearchMatch(scrollToFirst)
+  }
+
+  private highlightResultSearchText(textNode: Text, queryLower: string): void {
+    const text = textNode.textContent ?? ""
+    const lowerText = text.toLocaleLowerCase()
+    const fragment = document.createDocumentFragment()
+    let cursor = 0
+    let matchAt = lowerText.indexOf(queryLower, cursor)
+    while (matchAt >= 0) {
+      if (matchAt > cursor) { fragment.appendChild(document.createTextNode(text.slice(cursor, matchAt))) }
+      const match = document.createElement("mark")
+      match.addClass("sl-result-search-match")
+      match.setText(text.slice(matchAt, matchAt + queryLower.length))
+      fragment.appendChild(match)
+      this.resultSearchMatches.push(match)
+      cursor = matchAt + queryLower.length
+      matchAt = lowerText.indexOf(queryLower, cursor)
+    }
+    if (cursor < text.length) { fragment.appendChild(document.createTextNode(text.slice(cursor))) }
+    textNode.replaceWith(fragment)
+  }
+
+  private clearResultSearchHighlights(): void {
+    this.resultSearchMatches.forEach(match => match.replaceWith(document.createTextNode(match.textContent ?? "")))
+    this.resultSearchReferenceGroups.forEach(group => group.removeClass("sl-result-search-has-reference-match"))
+    this.resultSearchMatches = []
+    this.resultSearchReferenceGroups = []
+    this.resultSearchMatchIndex = -1
+    this.resultEl?.normalize()
+  }
+
+  private focusResultSearchMatch(direction: number): void {
+    if (this.resultSearchMatches.length == 0) { return }
+    this.resultSearchMatchIndex = (this.resultSearchMatchIndex + direction + this.resultSearchMatches.length) % this.resultSearchMatches.length
+    this.updateResultSearchStatus()
+    this.updateActiveResultSearchMatch(true)
+  }
+
+  private updateActiveResultSearchMatch(scroll: boolean): void {
+    this.resultSearchMatches.forEach((match, index) => match.toggleClass("is-active", index == this.resultSearchMatchIndex))
+    const active = this.resultSearchMatches[this.resultSearchMatchIndex]
+    if (scroll && active != undefined) {
+      // In Obsidian's rendered HTML, scrollIntoView can select an outer
+      // workspace pane instead of the view's own scrolling element. Wait for
+      // the <mark> layout and then scroll the nearest real scroll container.
+      requestAnimationFrame(() => this.scrollResultSearchMatchIntoView(active))
+    }
+  }
+
+  private scrollResultSearchMatchIntoView(match: HTMLElement): void {
+    if (!match.isConnected) { return }
+    // A hit inside a collapsed reference list has no useful bounding rectangle.
+    // Bring its marked summary into view instead; opening it then reveals the
+    // highlighted occurrence without changing the reader's open/closed choice.
+    const closedReferenceGroup = match.closest<HTMLDetailsElement>("details.backlink-inline:not([open])")
+    const target = closedReferenceGroup?.querySelector<HTMLElement>("summary") ?? match
+    let container: HTMLElement | null = this.bodyEl ?? this.contentEl
+    while (container != null) {
+      const style = getComputedStyle(container)
+      if ((style.overflowY == "auto" || style.overflowY == "scroll") && container.scrollHeight > container.clientHeight) {
+        const matchRect = target.getBoundingClientRect()
+        const containerRect = container.getBoundingClientRect()
+        const toolbarHeight = this.toolbarEl?.getBoundingClientRect().height ?? 0
+        const visibleTop = containerRect.top + toolbarHeight + 12
+        const visibleBottom = containerRect.bottom - 12
+        if (matchRect.top < visibleTop || matchRect.bottom > visibleBottom) {
+          container.scrollTop += matchRect.top - visibleTop
+        }
+        return
+      }
+      container = container.parentElement
+    }
+    // Fallback for an unexpected host layout without a detectable overflow
+    // container (for example an embedded view supplied by another plugin).
+    match.scrollIntoView({ block: "center" })
+  }
+
+  private updateResultSearchStatus(): void {
+    if (this.resultSearchStatusEl == undefined) { return }
+    const count = this.resultSearchMatches.length
+    this.resultSearchStatusEl.setText(count > 0 ? `${this.resultSearchMatchIndex + 1}/${count}` : "")
+  }
+
   checkContainerContent(): boolean {
     if (this.containerEl.children != undefined) {
       if (this.containerEl.children[1].textContent?.substring(0, slTexts['HeaderSL'].length) == slTexts['HeaderSL']) {
@@ -497,7 +665,7 @@ export class SemaLogicView extends ItemView {
   updateScaleControls(outputFormat: string): void {
     if (this.scaleControlsEl == undefined) {
       this.scaleControlsEl = this.controlsEl.createEl("span")
-      this.errorEl = this.contentEl.createEl("div", { cls: "semalogic-error" })
+      this.errorEl = (this.bodyEl ?? this.contentEl).createEl("div", { cls: "semalogic-error" })
     }
     this.scaleControlsEl.empty()
     // Zoom scales the rendered SVG; in source view there is nothing to scale.
@@ -510,17 +678,21 @@ export class SemaLogicView extends ItemView {
     if (!this.checkContainerContent() || now || this.headerEl == undefined) {
       this.contentEl.empty()
       this.contentEl.setAttr("data-sl-test", "semalogic-view")
-      this.headerEl = this.contentEl.createEl("h4", { text: slTexts['HeaderSL'] })
-      this.controlsEl = this.contentEl.createEl("div")
+      this.contentEl.addClass("sl-view-root")
+      this.toolbarEl = this.contentEl.createEl("div", { cls: "sl-view-toolbar" })
+      this.headerEl = this.toolbarEl.createEl("h4", { text: slTexts['HeaderSL'] })
+      this.controlsEl = this.toolbarEl.createEl("div", { cls: "sl-view-controls" })
       this.scaleControlsEl = this.controlsEl.createEl("span")
-      this.errorEl = this.contentEl.createEl("div", { cls: "semalogic-error", attr: { "data-sl-test": "error" } })
-      this.diagnosticsEl = this.contentEl.createEl("div", { cls: "sl-diagnostics", attr: { "data-sl-test": "diagnostics" } })
-      this.resultEl = this.contentEl.createEl("div", { attr: { "data-sl-test": "result" } })
+      this.bodyEl = this.contentEl.createEl("div", { cls: "sl-view-body" })
+      this.errorEl = this.bodyEl.createEl("div", { cls: "semalogic-error", attr: { "data-sl-test": "error" } })
+      this.diagnosticsEl = this.bodyEl.createEl("div", { cls: "sl-diagnostics", attr: { "data-sl-test": "diagnostics" } })
+      this.resultEl = this.bodyEl.createEl("div", { attr: { "data-sl-test": "result" } })
 
       this.createDropDownButtonForOutPutFormat(this.controlsEl, dropDownValue)
       this.createCopyToClipboardButton(this.controlsEl)
       this.createViewModeButton(this.controlsEl)
       this.createDebugButton(this.controlsEl)
+      this.createResultSearch(this.controlsEl)
       // Diagnostics toggles sit in the control row, directly behind InlineDebug.
       this.diagToggleEl = this.controlsEl.createEl("span", { cls: "sl-diag-toggles" })
       this.renderDiagnosticToggles()
@@ -541,7 +713,7 @@ export class SemaLogicView extends ItemView {
 
   showError(fragment: DocumentFragment) {
     if (this.errorEl == undefined) {
-      this.errorEl = this.contentEl.createEl("div", { cls: "semalogic-error" })
+      this.errorEl = (this.bodyEl ?? this.contentEl).createEl("div", { cls: "semalogic-error" })
     }
     this.errorEl.empty()
     this.errorEl.appendChild(fragment)
@@ -870,7 +1042,7 @@ export class SemaLogicView extends ItemView {
 
   getCurrHTML(): void {
     if (this.resultEl == undefined) {
-      this.resultEl = this.contentEl.createEl("div")
+      this.resultEl = (this.bodyEl ?? this.contentEl).createEl("div")
     }
     let responseContent = this.resultEl.createEl('div');
 
@@ -977,6 +1149,7 @@ export class SemaLogicView extends ItemView {
     }
     this.renderDiagnostics()
     this.getCurrHTML()
+    this.applyResultSearch()
     // Only the entries this plugin can route are marked as links, so a
     // reference the server described without a target keeps its quiet
     // presentation instead of promising a jump that cannot happen.
@@ -987,7 +1160,7 @@ export class SemaLogicView extends ItemView {
   // unconditionally - a clean parse says "no findings" instead of showing nothing.
   private renderDiagnostics(): void {
     if (this.diagnosticsEl == undefined) {
-      this.diagnosticsEl = this.contentEl.createEl("div", { cls: "sl-diagnostics", attr: { "data-sl-test": "diagnostics" } })
+      this.diagnosticsEl = (this.bodyEl ?? this.contentEl).createEl("div", { cls: "sl-diagnostics", attr: { "data-sl-test": "diagnostics" } })
     }
     this.diagnosticsEl.empty()
     this.renderDiagnosticToggles()
