@@ -20,6 +20,19 @@ export function parseLawBackendCapabilities(body: string): LawBackendCapabilitie
   return { backends: unique.length > 0 ? unique : [defaultBackend], defaultBackend }
 }
 
+// The plugin's default: Law_New wherever the server offers it, whatever the
+// server's own default. A server without it keeps its own default.
+export const PreferredLawBackend: LawBackend = "new"
+
+export function defaultLawBackend(capabilities: LawBackendCapabilities): LawBackend {
+  return capabilities.backends.includes(PreferredLawBackend) ? PreferredLawBackend : capabilities.defaultBackend
+}
+
+// A saved choice wins while the server still offers it.
+export function selectLawBackend(capabilities: LawBackendCapabilities, saved: LawBackend | undefined): LawBackend {
+  return saved != undefined && capabilities.backends.includes(saved) ? saved : defaultLawBackend(capabilities)
+}
+
 export function lawRoutePrefix(backend: LawBackend): string {
   return backend == "new" ? "/lawnew" : "/law"
 }

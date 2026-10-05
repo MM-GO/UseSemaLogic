@@ -27,7 +27,10 @@ import {
 	formatLawByteSize, lawDocumentRoute, lawIdForAddress, makeLawIndexEntry,
 	readLawDocumentTitles, rememberLawRecent, utf8ByteLength
 } from "src/law_index";
-import { LawBackend, LawBackendCapabilities, lawDocumentRouteFor, lawIndexRouteFor, lawMarkdownRouteFor, parseLawBackendCapabilities } from "src/law_backend";
+import {
+	LawBackend, LawBackendCapabilities, defaultLawBackend, lawDocumentRouteFor, lawIndexRouteFor, lawMarkdownRouteFor,
+	parseLawBackendCapabilities, selectLawBackend
+} from "src/law_backend";
 
 // What one statute fetch produced. `unchanged` marks a 304 against the note
 // that is already in the vault: nothing was transferred and nothing is written.
@@ -696,8 +699,7 @@ class SemaLogicSettingTab extends PluginSettingTab {
 			lawBackendDropdown.selectEl.empty()
 			capabilities.backends.forEach((backend: LawBackend) =>
 				lawBackendDropdown.addOption(backend, backend == 'new' ? 'Law_New' : 'Law'))
-			const selected = capabilities.backends.includes(profile.lawBackend as LawBackend)
-				? profile.lawBackend as LawBackend : capabilities.defaultBackend
+			const selected = selectLawBackend(capabilities, profile.lawBackend)
 			profile.lawBackend = selected
 			lawBackendDropdown.setValue(selected)
 			lawBackendDropdown.selectEl.disabled = capabilities.backends.length == 1
@@ -705,7 +707,7 @@ class SemaLogicSettingTab extends PluginSettingTab {
 				? `Choose the statute pipeline (${capabilities.backends.join(', ')}).`
 				: `This server offers only ${capabilities.backends[0] == 'new' ? 'Law_New' : 'Law'}.`)
 			lawBackendDropdown.onChange(async (value: string) => {
-				profile.lawBackend = value == 'legacy' || value == 'new' ? value : capabilities.defaultBackend
+				profile.lawBackend = value == 'legacy' || value == 'new' ? value : defaultLawBackend(capabilities)
 				await this.plugin.saveSettings()
 			})
 		}).catch(() => {
@@ -2254,8 +2256,7 @@ export default class SemaLogicPlugin extends Plugin {
 	public async ensureLawBackendSelection(): Promise<LawBackend> {
 		const capabilities = await this.getLawBackendCapabilities()
 		const profile = this.settings.mySLSettings[this.settings.mySetting]
-		const selected = capabilities.backends.includes(profile.lawBackend as LawBackend)
-			? profile.lawBackend as LawBackend : capabilities.defaultBackend
+		const selected = selectLawBackend(capabilities, profile.lawBackend)
 		const changed = profile.lawBackend != selected
 		profile.lawBackend = selected
 		this.activeLawBackend = selected
