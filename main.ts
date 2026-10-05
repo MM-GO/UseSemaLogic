@@ -1539,7 +1539,7 @@ export default class SemaLogicPlugin extends Plugin {
 				void this.openLawTarget({
 					catalogUrl: href.split("#")[0], giiUrl: "", targetId: decodeURIComponent(lawNewDocument[2] ?? ""),
 					lawId: decodeURIComponent(lawNewDocument[1]), lawTitle: "", label: (link.textContent ?? "").trim(),
-					lawAddress: "", resolverUrl: ""
+					lawAddress: "", resolverUrl: "", lawBackend: "new"
 				})
 				return
 			}
@@ -2909,6 +2909,9 @@ export default class SemaLogicPlugin extends Plugin {
 		const giiUrl = route.giiUrl
 		const targetId = route.targetId
 		const lawId = route.lawId
+		// A link into /lawnew/ stays there even while Law is the configured
+		// backend: its lawIds and node ids are Law_New's.
+		const backend = route.lawBackend ?? this.activeLawBackend
 		// The server's own name first, its identity second, the entry's visible
 		// text last - a tab called "statute" tells the reader nothing.
 		const title = route.lawTitle || lawId || route.label || "statute"
@@ -2919,7 +2922,7 @@ export default class SemaLogicPlugin extends Plugin {
 		const catalogCandidates: string[] = []
 		if (catalogUrl.length > 0) { catalogCandidates.push(catalogUrl) }
 		if (lawId.length > 0) {
-			const byLawId = lawDocumentRoute(lawId, this.activeLawBackend)
+			const byLawId = lawDocumentRoute(lawId, backend)
 			if (!catalogCandidates.includes(byLawId)) { catalogCandidates.push(byLawId) }
 		}
 
@@ -2931,9 +2934,9 @@ export default class SemaLogicPlugin extends Plugin {
 		// page. The statute it names is still in the catalog, so the address is
 		// matched against the index and the catalog document asked for instead.
 		if (route.lawAddress.length > 0) {
-			const addressLawId = await this.lawIdForAddress(route.lawAddress)
+			const addressLawId = await this.lawIdForAddress(route.lawAddress, backend)
 			if (addressLawId.length > 0) {
-				const byAddress = lawDocumentRoute(addressLawId, this.activeLawBackend)
+				const byAddress = lawDocumentRoute(addressLawId, backend)
 				if (!catalogCandidates.includes(byAddress)) { catalogCandidates.push(byAddress) }
 			} else {
 				failures.push(`${route.lawAddress}: im Gesetzes-Index nicht gefunden`)
@@ -3016,8 +3019,11 @@ export default class SemaLogicPlugin extends Plugin {
 			const reason = failures.length > 0
 				? `der Katalog antwortete ${failures.join("; ")}`
 				: "der Verweis nennt keine Katalog-Adresse und kein Gesetzeskennzeichen"
+			// Law_New's resolver redirects to the service's own page, not to GII.
+			const destination = giiUrl.length == 0 && route.lawBackend == "new"
+				? "die Seite des SemaLogic-Dienstes" : "Gesetze im Internet"
 			new Notice(`UseSemaLogic: ${title} kommt nicht aus dem Katalog (${reason});`
-				+ " geoeffnet wird Gesetze im Internet.", 10000)
+				+ ` geoeffnet wird ${destination}.`, 10000)
 			slconsolelog(DebugLevMap.DebugLevel_Error, undefined,
 				`Falling back to the public page for ${title} (${reason}; url=${publicUrl})`)
 			window.open(publicUrl, "_blank", "noopener,noreferrer")
@@ -3085,9 +3091,9 @@ export default class SemaLogicPlugin extends Plugin {
 	// lawId ends and the node path begins, and the session already holds the
 	// index for the picker. A server without the index route leaves the address
 	// unresolvable - reported, not guessed around.
-	private async lawIdForAddress(address: string): Promise<string> {
+	private async lawIdForAddress(address: string, backend: LawBackend = this.activeLawBackend): Promise<string> {
 		try {
-			const entries = await this.getLawIndexStore().load()
+			const entries = await this.getLawIndexStore(backend).load()
 			const lawId = lawIdForAddress(address, entries.map((entry) => entry.lawId))
 			if (lawId.length == 0) {
 				slconsolelog(DebugLevMap.DebugLevel_Error, undefined,

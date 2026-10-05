@@ -1,3 +1,5 @@
+import { LawBackend, lawDocumentRouteFor } from "./law_backend"
+
 // Where a law link points, for both kinds the service emits: the reference list
 // ("Verweise") of an AnnotatedHTML-with-backlinks document (issues-private/02),
 // and the resolved citations in its running text.
@@ -34,6 +36,9 @@ export type LawLinkRoute = {
   // and must never be fetched as one.
   lawAddress: string
   resolverUrl: string
+  // The pipeline the link itself names (/law/ or /lawnew/). Undefined where
+  // the href does not say, so the configured backend applies.
+  lawBackend?: LawBackend
 }
 
 // Where reference entries live: the appendix a document carries with it, and
@@ -168,6 +173,17 @@ function mergeHref(route: LawLinkRoute, href: string): void {
   if (route.targetId.length == 0 && fragment.length > 0) {
     route.targetId = decodeFragment(fragment)
   }
+  // Law_New's resolver redirects to /lawnew/<lawId>.html#<node>, the page
+  // form of /lawnew/doc/<lawId>; it names a document, not a node.
+  const lawNewPage = LawNewPagePattern.exec(path.split("?")[0])
+  if (lawNewPage != undefined) {
+    const lawId = decodeFragment(lawNewPage[1])
+    route.lawBackend = "new"
+    if (route.lawId.length == 0) { route.lawId = lawId }
+    if (route.catalogUrl.length == 0) { route.catalogUrl = lawDocumentRouteFor("new", lawId) }
+    return
+  }
+  if (LawNewPathPattern.test(path)) { route.lawBackend = "new" }
   // Both link kinds spell their target as /law/<address> - the reference list
   // relative, a citation absolute against the service's public host. That route
   // is the *public* resolver: it answers 302 to gesetze-im-internet.de. It names
@@ -234,9 +250,12 @@ function decodeFragment(fragment: string): string {
   }
 }
 
-// The single segment of a /law/<address> path. Deliberately not matched for
-// /law/doc/<lawId> and friends: those name a document, not a node.
-const LawAddressPattern = /^(?:.*\/)?law\/([^/]+)\/?$/
+// The single segment of a /law/<address> or /lawnew/<address> path.
+// Deliberately not matched for /law/doc/<lawId> and friends: those name a
+// document, not a node.
+const LawAddressPattern = /^(?:.*\/)?law(?:new)?\/([^/]+)\/?$/
+const LawNewPagePattern = /^(?:.*\/)?lawnew\/([^/]+)\.html$/
+const LawNewPathPattern = /(?:^|\/)lawnew\//
 
 function lawAddressOf(path: string): string {
   const match = LawAddressPattern.exec(path.split("?")[0])

@@ -289,4 +289,38 @@ describe("routeFromLawHref", () => {
   test("an unresolved citation has no href and no route", () => {
     expect(routeFromLawHref("", "SS 11")).toBeUndefined()
   })
+
+  test("a Law link names its pipeline only where the href says so", () => {
+    expect(routeFromLawHref("/law/DE.GESETZ.BAFOEG.P2.A1", "SS 2")?.lawBackend).toBeUndefined()
+  })
+})
+
+// Law_New serves Law's route shapes under /lawnew/; its resolver answers 302
+// to /lawnew/<lawId>.html#<node>.
+describe("Law_New links", () => {
+  test("a /lawnew/<LawLink> is an address of the new pipeline", () => {
+    const route = routeFromLawHref("/lawnew/DE.GESETZ.BAFOEG.P2.A1", "SS 2 Abs. 1")
+    expect(route?.lawAddress).toBe("DE.GESETZ.BAFOEG.P2.A1")
+    expect(route?.targetId).toBe("DE.GESETZ.BAFOEG.P2.A1")
+    expect(route?.resolverUrl).toBe("/lawnew/DE.GESETZ.BAFOEG.P2.A1")
+    expect(route?.catalogUrl).toBe("")
+    expect(route?.lawBackend).toBe("new")
+  })
+
+  test("the redirect target page is read as the statute's document", () => {
+    const route = routeFromLawHref("https://semalogic.de/lawnew/DE.GESETZ.BAFOEG.html#DE.GESETZ.BAFOEG.P2.A1", "SS 2")
+    expect(route?.lawId).toBe("DE.GESETZ.BAFOEG")
+    expect(route?.catalogUrl).toBe("/lawnew/doc/DE.GESETZ.BAFOEG")
+    expect(route?.targetId).toBe("DE.GESETZ.BAFOEG.P2.A1")
+    expect(route?.lawAddress).toBe("")
+    expect(route?.lawBackend).toBe("new")
+  })
+
+  test("a /lawnew/doc route stays a document and keeps its pipeline", () => {
+    const route = routeFromLawHref("/lawnew/doc/DE.GESETZ.SGB_3#DE.GESETZ.SGB_3.P56.A1", "SS 56 SGB III")
+    expect(route?.catalogUrl).toBe("/lawnew/doc/DE.GESETZ.SGB_3")
+    expect(route?.targetId).toBe("DE.GESETZ.SGB_3.P56.A1")
+    expect(route?.lawAddress).toBe("")
+    expect(route?.lawBackend).toBe("new")
+  })
 })
