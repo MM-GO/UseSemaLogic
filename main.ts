@@ -2610,12 +2610,14 @@ export default class SemaLogicPlugin extends Plugin {
 	// row verbatim. Written to the console *and* shown as a notice, because the
 	// plugin's own logging is silent at the default debug level.
 	public async describeLawIndex(): Promise<void> {
-		const url = this.resolveExternalLawUrl(LawIndexRoute)
+		const backend = await this.ensureLawBackendSelection()
+		const indexRoute = lawIndexRouteFor(backend)
+		const url = this.resolveExternalLawUrl(indexRoute)
 		if (url == undefined) {
-			new Notice(`UseSemaLogic: /law/index laesst sich nicht gegen ${getHostPort(this.settings)} aufloesen.`)
+			new Notice(`UseSemaLogic: ${indexRoute} laesst sich nicht gegen ${getHostPort(this.settings)} aufloesen.`)
 			return
 		}
-		const lines: string[] = [`GET ${url}`]
+		const lines: string[] = [`Backend ${backend}`, `GET ${url}`]
 		try {
 			// Deliberately unconditional: a 304 would report nothing useful here.
 			const response = await requestUrl(this.createLawApiRequest(url))
@@ -2662,10 +2664,11 @@ export default class SemaLogicPlugin extends Plugin {
 	// Probes every route a statute load uses and reports each status, then loads.
 	// A bare "HTTP 400" does not say which of the three refused; this does.
 	public async describeLawLoad(): Promise<void> {
-		const lines: string[] = []
+		const backend = await this.ensureLawBackendSelection()
+		const lines: string[] = [`Backend ${backend}`]
 		let first: LawIndexEntry | undefined
 		try {
-			const entries = await this.getLawIndexStore().load()
+			const entries = await this.getLawIndexStore(backend).load()
 			first = this.settings.lawRecents?.length > 0
 				? entries.find((entry) => entry.lawId == this.settings.lawRecents[0] && entry.held)
 				: undefined
@@ -2676,7 +2679,16 @@ export default class SemaLogicPlugin extends Plugin {
 			}
 			lines.push(`Gesetz: ${first.abbreviation || first.lawId} (${first.lawId})`)
 
-			const rawUrl = this.resolveExternalLawUrl(`/law/download/${encodeURIComponent(first.lawId)}/raw.md`)
+			// Law_New serves the statute's Markdown directly; it has neither the raw
+			// stage nor the snapshot view probed below.
+			const markdownUrl = backend == "new" ? this.resolveExternalLawUrl(lawMarkdownRouteFor(backend, first.lawId)) : undefined
+			if (markdownUrl != undefined) {
+				const markdown = await requestUrl(this.createLawApiRequest(markdownUrl))
+				lines.push(`GET /lawnew/doc/<id>.md -> ${markdown.status}`
+					+ (markdown.status == 200 ? ` (${formatLawByteSize((markdown.text ?? "").length)})` : ""))
+			}
+
+			const rawUrl = backend == "new" ? undefined : this.resolveExternalLawUrl(`/law/download/${encodeURIComponent(first.lawId)}/raw.md`)
 			if (rawUrl != undefined) {
 				const raw = await requestUrl(this.createLawApiRequest(rawUrl))
 				lines.push(`GET /law/download/<id>/raw.md -> ${raw.status}`
@@ -2686,18 +2698,19 @@ export default class SemaLogicPlugin extends Plugin {
 				}
 			}
 
-			const docUrl = this.resolveExternalLawUrl(`/law/doc/${encodeURIComponent(first.lawId)}?view=snapshot`)
+			const docRoute = lawDocumentRouteFor(backend, first.lawId)
+			const docUrl = this.resolveExternalLawUrl(docRoute)
 			let html = ""
 			if (docUrl != undefined) {
 				const doc = await requestUrl(this.createLawApiRequest(docUrl))
 				html = doc.text ?? ""
-				lines.push(`GET /law/doc/<id>?view=snapshot -> ${doc.status}`
+				lines.push(`GET ${backend == "new" ? "/lawnew/doc/<id>" : "/law/doc/<id>?view=snapshot"} -> ${doc.status}`
 					+ (doc.status == 200 ? ` (${formatLawByteSize(html.length)})` : ""))
 			}
 
 			if (html.length > 0) {
 				try {
-					const deannotated = await deannotateLawHtml(this.settings, html)
+					const deannotated = await deannotateLawHtml(this.settings, html, backend)
 					lines.push(`POST /rules/parse -> mediaType ${deannotated.mediaType || "(keiner)"},`
 						+ ` ${formatLawByteSize(utf8ByteLength(deannotated.markdown))} Markdown`)
 				} catch (e) {
