@@ -266,6 +266,17 @@ export class LawCatalogView extends SemaLogicView {
     }
     this.setTransferRunning(true)
     try {
+      // Law_New serves the statute's Markdown directly - the same bytes the
+      // round trip yields, without posting the whole page back.
+      const direct = this.lawBackend == "new" && this.lawId.length > 0
+        ? await this.slComm?.slPlugin?.fetchLawNewMarkdown(this.lawId) : undefined
+      if (direct != undefined) {
+        await this.writeToClipboard(direct)
+        new Notice(`UseSemaLogic: ${name} als Markdown kopiert - ${formatLawByteSize(utf8ByteLength(direct))}`)
+        slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview,
+          `Law markdown transfer done from /lawnew/doc/<id>.md (lawId=${this.lawId}, markdownLength=${direct.length})`)
+        return
+      }
       const { markdown, mediaType, source } = await deannotateLawHtml(settings, annotatedHtml, this.lawBackend)
       // A text/html reply means the service took the *forward* direction: the
       // input was not recognised as annotated. Putting that on the clipboard

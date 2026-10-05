@@ -2550,6 +2550,26 @@ export default class SemaLogicPlugin extends Plugin {
 		return { status: buffered.status, text: buffered.text ?? "", headers: buffered.headers ?? {} }
 	}
 
+	// Law_New's Markdown of one statute (/lawnew/doc/<id>.md). It is byte-equal
+	// to what deannotating the served page returns, without posting that page
+	// back. undefined on any failure, so the caller can deannotate instead.
+	public async fetchLawNewMarkdown(lawId: string): Promise<string | undefined> {
+		const url = this.resolveExternalLawUrl(lawMarkdownRouteFor("new", lawId))
+		if (url == undefined) { return undefined }
+		try {
+			const response = await requestUrl(this.createLawApiRequest(url))
+			if (response.status >= 200 && response.status < 300 && (response.text ?? "").length > 0) {
+				return response.text
+			}
+			slconsolelog(DebugLevMap.DebugLevel_Error, undefined,
+				`Law_New Markdown request failed (url=${url}, status=${response.status}, body=${(response.text ?? "").slice(0, 200)})`)
+		} catch (e) {
+			slconsolelog(DebugLevMap.DebugLevel_Error, undefined,
+				`Law_New Markdown request failed (url=${url}): ${e instanceof Error ? e.message : String(e)}`)
+		}
+		return undefined
+	}
+
 	private async writeLawNote(path: string, content: string, existingFile: TFile | undefined): Promise<TFile> {
 		if (existingFile != undefined) {
 			await this.app.vault.modify(existingFile, content)
