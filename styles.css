@@ -1469,6 +1469,93 @@ body {
     text-indent: 0;
 }
 
+/* ------------------------------------------------------- table of contents
+ * The table of contents a statute prints (Law_New, view/contents.go). The
+ * page writes it collapsed in a details.toc-details whose summary names it
+ * and counts its entries. Inside nav.toc the source's lines are plain
+ * paragraphs and one table per division; the page marks what they are:
+ *
+ *   p.toc-caption    the source's own caption, the same word as the heading
+ *                    and the summary above it, so it is not shown again
+ *   p.toc-division   a division's label, "Erstes Kapitel", "Teil 1"
+ *   p.toc-title      the title of a division, or label and title in one line
+ *   .toc-entries     around a division's table of norms
+ *   .toc-level-N     the division's rank in this overview, 1 the outermost
+ *
+ * Levels indent in rem, so a smaller label and its title line up.
+ * All of it is overlay: nothing here reaches the Markdown.
+ */
+.toc-details {
+    margin: 0.5rem 0 1.5rem;
+}
+
+.toc-details>.toc-summary {
+    cursor: pointer;
+    color: var(--lw-muted);
+}
+
+nav.toc {
+    margin-top: 0.5rem;
+    font-size: 0.95em;
+}
+
+nav.toc p {
+    margin: 0;
+}
+
+nav.toc>p.toc-caption {
+    display: none;
+}
+
+nav.toc>p.toc-division {
+    margin-top: 0.9em;
+    color: var(--lw-muted);
+    font-size: 0.82em;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+nav.toc>p.toc-title {
+    font-weight: 600;
+}
+
+nav.toc>p.toc-title:not(.toc-division + .toc-title) {
+    margin-top: 0.9em;
+}
+
+nav.toc table {
+    margin: 0.3em 0 0.2em;
+    border-collapse: collapse;
+}
+
+nav.toc td {
+    padding: 0.05em 0.9em 0.05em 0;
+    border: 0;
+    vertical-align: top;
+}
+
+nav.toc td:first-child {
+    white-space: nowrap;
+}
+
+nav.toc .toc-level-2 {
+    margin-left: 1.25rem;
+}
+
+nav.toc .toc-level-3 {
+    margin-left: 2.5rem;
+}
+
+nav.toc .toc-level-4 {
+    margin-left: 3.75rem;
+}
+
+nav.toc .toc-level-5,
+nav.toc .toc-level-6,
+nav.toc .toc-level-7 {
+    margin-left: 5rem;
+}
+
 /* -------------------------------------------------------------------- print */
 @media print {
     .law {
