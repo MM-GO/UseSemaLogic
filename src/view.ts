@@ -5,6 +5,7 @@ import { slconsolelog } from './utils'
 import { ViewUtils } from "./view_utils";
 import { getHostPort } from "./utils";
 import { decorateBacklinkEntries } from "./law_backlinks";
+import { BacklinkBadgeClass, addBacklinkBadges, backlinkBadgeHost, findInDocumentCitations, nearestBacklinkList } from "./law_backlink_badge";
 import {
   Diagnostic, Diagnostics, Rulesout, RulesoutContent, RulesoutTextFormat,
   countFindings, diagnosticMessage, emptyDiagnostics, extractRulesout, markdownSource,
@@ -132,6 +133,9 @@ export class SemaLogicView extends ItemView {
   errorEl!: HTMLElement
   resultSearchInput: HTMLInputElement | undefined
   resultSearchIncludeReferences: boolean = false
+  // The open backlink badge popover, and what removes its document listeners.
+  private backlinkPopover: { element: HTMLElement; badge: HTMLElement; dispose: () => void } | undefined
+  private backlinkBadgeEventsBound: boolean = false
   resultSearchReferenceButton: ButtonComponent | undefined
   resultSearchStatusEl: HTMLElement | undefined
   resultSearchMatches: HTMLElement[] = []
@@ -710,6 +714,7 @@ export class SemaLogicView extends ItemView {
 
   async onClose() {
     this.hideServerProgress()
+    this.closeBacklinkPopover()
   }
 
   showError(fragment: DocumentFragment) {
@@ -1149,6 +1154,8 @@ export class SemaLogicView extends ItemView {
     }
     this.updateScaleControls(this.getOutPutFormat())
     this.refreshViewModeButton()
+    // The popover points into the DOM that is about to be rebuilt.
+    this.closeBacklinkPopover()
     if (this.errorEl != undefined) {
       this.errorEl.empty()
     }
@@ -1163,6 +1170,132 @@ export class SemaLogicView extends ItemView {
     // reference the server described without a target keeps its quiet
     // presentation instead of promising a jump that cannot happen.
     decorateBacklinkEntries(this.contentEl)
+    addBacklinkBadges(this.contentEl)
+    this.bindBacklinkBadgeEvents()
+  }
+
+  // One listener pair for the view's lifetime; the badges themselves are
+  // recreated with every render.
+  private bindBacklinkBadgeEvents(): void {
+    if (this.backlinkBadgeEventsBound) { return }
+    this.backlinkBadgeEventsBound = true
+    const badgeOf = (evt: Event): HTMLElement | null =>
+      (evt.target as HTMLElement | null)?.closest?.<HTMLElement>(`.${BacklinkBadgeClass}`) ?? null
+    this.registerDomEvent(this.contentEl, "click", (evt: MouseEvent) => {
+      const badge = badgeOf(evt)
+      if (badge == undefined) { return }
+      evt.preventDefault()
+      evt.stopPropagation()
+      this.toggleBacklinkPopover(badge)
+    })
+    this.registerDomEvent(this.contentEl, "keydown", (evt: KeyboardEvent) => {
+      if (evt.key != "Enter" && evt.key != " ") { return }
+      const badge = badgeOf(evt)
+      if (badge == undefined) { return }
+      evt.preventDefault()
+      this.toggleBacklinkPopover(badge)
+    })
+  }
+
+  // What a "↩n" badge counts: the citations in this document's running text,
+  // each a jump to the provision making it, and the enclosing section's
+  // reference list as the place to look further.
+  private toggleBacklinkPopover(badge: HTMLElement): void {
+    const reopened = this.backlinkPopover?.badge == badge
+    this.closeBacklinkPopover()
+    if (reopened) { return }
+    const host = backlinkBadgeHost(badge)
+    if (host == undefined) { return }
+    const count = Number.parseInt(host.getAttribute("data-sl-backlinks") ?? "", 10) || 0
+    const citations = findInDocumentCitations(this.contentEl, host.id)
+    const list = nearestBacklinkList(host)
+
+    const popover = document.body.createDiv({ cls: "sl-backlink-popover" })
+    popover.setAttr("role", "dialog")
+    popover.createDiv({
+      cls: "sl-backlink-popover-title",
+      text: `↩ ${count} ${count == 1 ? "Verweis" : "Verweise"} auf diese Stelle`
+    })
+    if (citations.length > 0) {
+      const items = popover.createEl("ul")
+      citations.forEach((citation) => {
+        const citing = this.contentEl.querySelector<HTMLElement>(`[id="${CSS.escape(citation.citingId)}"]`)
+        const excerpt = (citing?.textContent ?? "").replace(/\s+/g, " ").trim()
+        const item = items.createEl("li").createEl("a", { href: "#", cls: "sl-backlink-popover-item" })
+        item.createEl("strong", { text: `"${(citation.link.textContent ?? "").trim()}"` })
+        item.createSpan({ text: ` in: ${excerpt.length > 90 ? `${excerpt.slice(0, 90)} ...` : excerpt}` })
+        item.addEventListener("click", (evt) => {
+          evt.preventDefault()
+          this.closeBacklinkPopover()
+          this.navigateToLawLinkTarget(citation.citingId)
+        })
+      })
+    }
+    const missing = count - citations.length
+    if (missing > 0) {
+      // Citations from other statutes are counted but not part of this page.
+      popover.createDiv({
+        cls: "sl-backlink-popover-note",
+        text: citations.length == 0
+          ? "Im Text dieses Dokuments steht kein Verweis auf diese Stelle; er stammt aus einem anderen Gesetz."
+          : `${missing} ${missing == 1 ? "weiterer Verweis steht" : "weitere Verweise stehen"} nicht im Text dieses Dokuments.`
+      })
+    }
+    if (list != undefined) {
+      const summary = list.querySelector<HTMLElement>("summary")
+      const open = popover.createEl("a", { href: "#", cls: "sl-backlink-popover-item sl-backlink-popover-list" })
+      open.setText(`Verweisliste des Abschnitts oeffnen (${(summary?.textContent ?? "").trim()})`)
+      open.addEventListener("click", (evt) => {
+        evt.preventDefault()
+        this.closeBacklinkPopover()
+        list.open = true
+        if (summary != undefined) { requestAnimationFrame(() => this.scrollResultSearchMatchIntoView(summary)) }
+      })
+    }
+    this.placeBacklinkPopover(popover, badge)
+
+    const onPointerDown = (evt: MouseEvent) => {
+      const target = evt.target as Node | null
+      if (target != null && (popover.contains(target) || badge.contains(target))) { return }
+      this.closeBacklinkPopover()
+    }
+    const onKeyDown = (evt: KeyboardEvent) => { if (evt.key == "Escape") { this.closeBacklinkPopover() } }
+    const onScroll = (evt: Event) => {
+      if (evt.target instanceof Node && popover.contains(evt.target)) { return }
+      this.closeBacklinkPopover()
+    }
+    document.addEventListener("mousedown", onPointerDown, true)
+    document.addEventListener("keydown", onKeyDown, true)
+    document.addEventListener("scroll", onScroll, true)
+    this.backlinkPopover = {
+      element: popover, badge, dispose: () => {
+        document.removeEventListener("mousedown", onPointerDown, true)
+        document.removeEventListener("keydown", onKeyDown, true)
+        document.removeEventListener("scroll", onScroll, true)
+      }
+    }
+    slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview,
+      `Backlink badge opened (target=${host.id}, count=${count}, inDocument=${citations.length}, sectionList=${list != undefined})`)
+  }
+
+  // Below the badge, or above it where the window ends; never off screen.
+  private placeBacklinkPopover(popover: HTMLElement, badge: HTMLElement): void {
+    const rect = badge.getBoundingClientRect()
+    const margin = 8
+    const width = popover.offsetWidth
+    const height = popover.offsetHeight
+    const left = Math.max(margin, Math.min(rect.left, window.innerWidth - width - margin))
+    const below = rect.bottom + 4
+    const top = below + height + margin > window.innerHeight ? Math.max(margin, rect.top - height - 4) : below
+    popover.style.left = `${left}px`
+    popover.style.top = `${top}px`
+  }
+
+  private closeBacklinkPopover(): void {
+    if (this.backlinkPopover == undefined) { return }
+    this.backlinkPopover.dispose()
+    this.backlinkPopover.element.remove()
+    this.backlinkPopover = undefined
   }
 
   // Law_New's standalone page uses file-relative cross-statute links.  The

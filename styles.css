@@ -1024,6 +1024,68 @@ body {
     content: none;
 }
 
+/* A badge that has no list in its own node is moved onto a real child element
+ * (src/law_backlink_badge.ts) so it can be clicked; that child carries the
+ * count and draws it through the rule above. It still adds no text node. */
+[data-sl-backlinks].sl-backlink-badge-host::after {
+    content: none;
+}
+
+.sl-backlink-badge:focus-visible {
+    outline: 2px solid var(--interactive-accent);
+    outline-offset: 1px;
+    border-radius: 0.8em;
+}
+
+/* What a badge counts: the citing provisions of this document, and the
+ * section's reference list. Closes on outside click, ESC and scroll. */
+.sl-backlink-popover {
+    position: fixed;
+    z-index: var(--layer-popover, 30);
+    max-width: min(420px, calc(100vw - 16px));
+    max-height: 50vh;
+    overflow-y: auto;
+    padding: 0.5em 0.75em;
+    background: var(--background-primary);
+    color: var(--text-normal);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 6px;
+    box-shadow: var(--shadow-s);
+    font-size: 0.9em;
+}
+
+.sl-backlink-popover-title {
+    margin-bottom: 0.35em;
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.sl-backlink-popover ul {
+    margin: 0;
+    padding-left: 1.1em;
+}
+
+.sl-backlink-popover-item {
+    display: block;
+    padding: 0.15em 0;
+    color: var(--text-normal);
+    text-decoration: none;
+}
+
+.sl-backlink-popover-item:hover {
+    color: var(--text-accent);
+}
+
+.sl-backlink-popover-note {
+    margin-top: 0.35em;
+    color: var(--text-muted);
+}
+
+.sl-backlink-popover-list {
+    margin-top: 0.35em;
+    color: var(--text-accent);
+}
+
 /* The badge is an affordance, not content: it leaves the print. */
 @media print {
     [data-sl-backlinks]::after {
