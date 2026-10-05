@@ -3,6 +3,7 @@ import { SemaLogicPluginSettings } from "../main"
 import { API_Defaults } from "./const"
 import { getHostPort } from "./utils"
 import { parseRulesout } from "./rulesout"
+import { LawBackend } from "./law_backend"
 
 // WP23a T5 - turning an annotated law document back into Markdown.
 //
@@ -19,10 +20,14 @@ export type LawDeannotateResult = {
   // "text/markdown" means it took the *forward* direction: the input was not
   // recognised as annotated, and the result must not be passed off as Markdown.
   mediaType: string
+  source: string
+  lawBackend?: LawBackend
 }
 
-export async function deannotateLawHtml(settings: SemaLogicPluginSettings, annotatedHtml: string): Promise<LawDeannotateResult> {
+export async function deannotateLawHtml(settings: SemaLogicPluginSettings, annotatedHtml: string,
+  lawBackend?: LawBackend): Promise<LawDeannotateResult> {
   const profile = settings.mySLSettings[settings.mySetting]
+	const selectedBackend: LawBackend = lawBackend ?? (profile.lawBackend == "new" ? "new" : "legacy")
   const headers: Record<string, string> = { "content-type": "application/json" }
   if (profile.myUseHttpsSL && profile.myUserSL != "") {
     headers["Authorization"] = "Basic " + btoa(profile.myUserSL + ":" + profile.myPasswordSL)
@@ -35,7 +40,9 @@ export async function deannotateLawHtml(settings: SemaLogicPluginSettings, annot
     body: JSON.stringify({
       text: [{ textID: "LawView", rules: annotatedHtml }],
       rulesettype: "AnnotatedHTML",
-      persistency: false
+      persistency: false,
+      // A page received from a backend must return to that exact backend.
+      lawBackend: selectedBackend
     }),
     throw: false
   })
@@ -47,6 +54,8 @@ export async function deannotateLawHtml(settings: SemaLogicPluginSettings, annot
   const rules = parseRulesout(response.text)?.rules
   return {
     markdown: typeof rules?.html == "string" ? rules.html : "",
-    mediaType: typeof rules?.mediaType == "string" ? rules.mediaType : ""
+    mediaType: typeof rules?.mediaType == "string" ? rules.mediaType : "",
+    source: typeof rules?.source == "string" ? rules.source : "",
+    lawBackend: rules?.lawBackend == "legacy" || rules?.lawBackend == "new" ? rules.lawBackend : undefined
   }
 }

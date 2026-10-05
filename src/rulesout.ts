@@ -78,6 +78,8 @@ export type RulesoutContent = {
 	// AnnotatedHTML only: "echo" while the annotator is not wired up yet,
 	// "annotate" once it is.
 	source?: string
+	// AnnotatedHTML API 00.03.02: the pipeline that actually answered.
+	lawBackend?: "legacy" | "new"
 	// Declared media type of the payload (rulefmt_* `mediaType`/`contentType`).
 	mediaType?: string
 	// Set where the payload may be markdown; absent means "render as markup".
@@ -174,13 +176,16 @@ export function extractRulesout(rulesout: Rulesout | undefined, rawBody: string)
 			// The annotated text is markup or markdown - which one is decided per
 			// reply, since `mediaType` defaults to text/html either way.
 			const content = String(rules.html ?? "")
-			const fragment = rules.fragment !== false
+			// Law_New labels its complete HTML page as fragment:true.  Rendering
+			// that raw would retain a nested document; always take its body instead.
+			const fragment = rules.fragment !== false && !/<!DOCTYPE\s|<html\b|<body\b/i.test(content)
 			return {
 				kind: "html",
 				content,
 				fragment,
 				source: rules.source,
 				mediaType: rules.mediaType,
+				lawBackend: rules.lawBackend == "legacy" || rules.lawBackend == "new" ? rules.lawBackend : undefined,
 				format: detectTextFormat(content, fragment, rules.mediaType)
 			}
 		}

@@ -21,12 +21,13 @@ import {
 	findBacklinkSource, resolveBacklinkRoute, routeFromLawHref
 } from "src/law_backlinks";
 import { LawLoadProgress } from "src/law_progress";
-import { LawStreamResponse, fetchLawDocumentStreaming, lawHeaderValue, resetLawStreaming } from "src/law_fetch";
+import { LawStreamResponse, lawHeaderValue, resetLawStreaming } from "src/law_fetch";
 import {
 	LawIndexEntry, LawIndexRoute, LawIndexStore, LawIndexUnavailableError,
 	formatLawByteSize, lawDocumentRoute, lawIdForAddress, makeLawIndexEntry,
 	readLawDocumentTitles, rememberLawRecent, utf8ByteLength
 } from "src/law_index";
+import { LawBackend, LawBackendCapabilities, lawDocumentRouteFor, lawIndexRouteFor, lawMarkdownRouteFor, parseLawBackendCapabilities } from "src/law_backend";
 
 // What one statute fetch produced. `unchanged` marks a 304 against the note
 // that is already in the vault: nothing was transferred and nothing is written.
@@ -412,7 +413,9 @@ export interface SLSetting {
 	myAspEndpoint: string,
 	myUseHttpsSL: boolean,
 	myUserSL: string,
-	myPasswordSL: string
+	myPasswordSL: string,
+	// Optional API 00.03.02 preference. Empty preserves the server default.
+	lawBackend?: LawBackend
 }
 
 export interface SemaLogicPluginSettings {
@@ -674,6 +677,43 @@ class SemaLogicSettingTab extends PluginSettingTab {
 					this.plugin.settings.mySLSettings[this.plugin.settings.mySetting].myOutputFormat = value;
 					await this.plugin.saveSettings();
 				}));
+
+		// This setting is created synchronously so it is visible even while the
+		// API capability request is in flight.  It is populated from
+		// /api-version rather than assuming that both pipelines exist.
+		let lawBackendDropdown: any
+		const lawBackendSetting = new Setting(containerEl)
+			.setName('Law annotation backend')
+			.setDesc('Available law backends are being loaded from the SemaLogic service ...')
+			.addDropdown(dropDown => {
+				lawBackendDropdown = dropDown
+				dropDown.addOption('', 'Loading ...')
+				dropDown.setValue('')
+				dropDown.selectEl.disabled = true
+			})
+		void this.plugin.getLawBackendCapabilities().then((capabilities) => {
+			const profile = this.plugin.settings.mySLSettings[this.plugin.settings.mySetting]
+			lawBackendDropdown.selectEl.empty()
+			capabilities.backends.forEach((backend: LawBackend) =>
+				lawBackendDropdown.addOption(backend, backend == 'new' ? 'Law_New' : 'Law'))
+			const selected = capabilities.backends.includes(profile.lawBackend as LawBackend)
+				? profile.lawBackend as LawBackend : capabilities.defaultBackend
+			profile.lawBackend = selected
+			lawBackendDropdown.setValue(selected)
+			lawBackendDropdown.selectEl.disabled = capabilities.backends.length == 1
+			lawBackendSetting.setDesc(capabilities.backends.length > 1
+				? `Choose the statute pipeline (${capabilities.backends.join(', ')}).`
+				: `This server offers only ${capabilities.backends[0] == 'new' ? 'Law_New' : 'Law'}.`)
+			lawBackendDropdown.onChange(async (value: string) => {
+				profile.lawBackend = value == 'legacy' || value == 'new' ? value : capabilities.defaultBackend
+				await this.plugin.saveSettings()
+			})
+		}).catch(() => {
+			lawBackendDropdown.selectEl.empty()
+			lawBackendDropdown.addOption('legacy', 'Law')
+			lawBackendDropdown.setValue('legacy')
+			lawBackendSetting.setDesc('The service could not be reached; Law is used until its capabilities can be read.')
+		})
 
 		/* SID is not needed for on-the-fly-solving in obsidian
 				// SID-Information
@@ -1283,7 +1323,9 @@ export default class SemaLogicPlugin extends Plugin {
 	// WP23a T1: the session copy of /law/index. The fetched statutes themselves
 	// are not cached here - the note in the vault carries its own ETag, so
 	// re-opening one revalidates against the file the reader can see.
-	private lawIndexStore: LawIndexStore | undefined
+	private lawIndexStores: Map<LawBackend, LawIndexStore> = new Map()
+	private lawBackendCapabilities: LawBackendCapabilities | undefined
+	private activeLawBackend: LawBackend = "legacy"
 	// Set once /law/index answered 404: this server predates WP23a S1.
 	private lawIndexUnavailable: boolean = false
 	// Set once the raw-source route answered something other than 404: this
@@ -1485,6 +1527,20 @@ export default class SemaLogicPlugin extends Plugin {
 			const href = link.getAttribute("href") ?? ""
 			if (href.startsWith("#")) { return }
 			if (link.closest("a[data-sl-link-kind='external-law']") != undefined) { return }
+			// Law_New links were file-relative in their original standalone page.
+			// SemaLogicView rewrites them for the embedded DOM; keep navigation in
+			// Obsidian and retain the /lawnew document prefix here.
+			const lawNewDocument = /^\/lawnew\/doc\/([^#?]+)(?:#(.+))?$/.exec(href)
+			if (lawNewDocument != undefined) {
+				evt.preventDefault()
+				evt.stopPropagation()
+				void this.openLawTarget({
+					catalogUrl: href.split("#")[0], giiUrl: "", targetId: decodeURIComponent(lawNewDocument[2] ?? ""),
+					lawId: decodeURIComponent(lawNewDocument[1]), lawTitle: "", label: (link.textContent ?? "").trim(),
+					lawAddress: "", resolverUrl: ""
+				})
+				return
+			}
 			const route = routeFromLawHref(href, (link.textContent ?? "").trim())
 			if (route == undefined) { return }
 			evt.preventDefault()
@@ -2171,13 +2227,50 @@ export default class SemaLogicPlugin extends Plugin {
 
 	// WP23a T1 - the catalog index, fetched on first use rather than at plugin
 	// load, and revalidated with its ETag afterwards.
-	private getLawIndexStore(): LawIndexStore {
-		if (this.lawIndexStore == undefined) {
-			this.lawIndexStore = new LawIndexStore(async (etag) => {
+	public async getLawBackendCapabilities(): Promise<LawBackendCapabilities> {
+		if (this.lawBackendCapabilities != undefined) { return this.lawBackendCapabilities }
+		const url = this.resolveExternalLawUrl(API_Defaults.Version)
+		if (url == undefined) {
+			this.lawBackendCapabilities = { backends: ["legacy"], defaultBackend: "legacy" }
+			return this.lawBackendCapabilities
+		}
+		try {
+			const response = await requestUrl(this.createLawApiRequest(url))
+			if (response.status >= 200 && response.status < 300) {
+				this.lawBackendCapabilities = parseLawBackendCapabilities(response.text ?? "")
+				return this.lawBackendCapabilities
+			}
+		} catch (e) {
+			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview,
+				`Law backend discovery failed; using legacy: ${e instanceof Error ? e.message : String(e)}`)
+		}
+		this.lawBackendCapabilities = { backends: ["legacy"], defaultBackend: "legacy" }
+		return this.lawBackendCapabilities
+	}
+
+	// Resolves the persisted choice against the server's current offer.  This is
+	// called before every AnnotatedHTML request, so there is never a reliance on
+	// the server default after API 00.03.02 support has been discovered.
+	public async ensureLawBackendSelection(): Promise<LawBackend> {
+		const capabilities = await this.getLawBackendCapabilities()
+		const profile = this.settings.mySLSettings[this.settings.mySetting]
+		const selected = capabilities.backends.includes(profile.lawBackend as LawBackend)
+			? profile.lawBackend as LawBackend : capabilities.defaultBackend
+		const changed = profile.lawBackend != selected
+		profile.lawBackend = selected
+		this.activeLawBackend = selected
+		if (changed) { await this.saveData(this.settings) }
+		return selected
+	}
+
+	private getLawIndexStore(backend: LawBackend = this.activeLawBackend): LawIndexStore {
+		let store = this.lawIndexStores.get(backend)
+		if (store == undefined) {
+			store = new LawIndexStore(async (etag) => {
 				// A bare "/law/index" handed to Obsidian is read as a vault path;
 				// WP20a T3's rule is that every Law URL is resolved against the
 				// configured API base.
-				const url = this.resolveExternalLawUrl(LawIndexRoute)
+				const url = this.resolveExternalLawUrl(lawIndexRouteFor(backend))
 				if (url == undefined) {
 					throw new Error(`the law index URL could not be resolved against ${getHostPort(this.settings)}`)
 				}
@@ -2192,14 +2285,17 @@ export default class SemaLogicPlugin extends Plugin {
 					etag: lawHeaderValue(response.headers, "ETag")
 				}
 			})
+			this.lawIndexStores.set(backend, store)
 		}
-		return this.lawIndexStore
+		return store
 	}
 
 	// Dropped whenever the configured server may have changed - a different
 	// installation has a different catalog and different ETags.
 	public resetLawCaches(): void {
-		this.lawIndexStore?.reset()
+		this.lawIndexStores.forEach((store) => store.reset())
+		this.lawIndexStores.clear()
+		this.lawBackendCapabilities = undefined
 		this.lawIndexUnavailable = false
 		this.lawRawDownloadUnavailable = false
 		resetLawStreaming()
@@ -2207,6 +2303,7 @@ export default class SemaLogicPlugin extends Plugin {
 
 	// WP23a T2 - the statute picker. 6130 published statutes rule out a dropdown.
 	public async openLawPicker(): Promise<void> {
+		await this.ensureLawBackendSelection()
 		if (this.lawIndexUnavailable) {
 			new Notice("UseSemaLogic: Dieser Server kennt noch keinen Gesetzes-Index.")
 			return
@@ -2230,7 +2327,7 @@ export default class SemaLogicPlugin extends Plugin {
 			return
 		}
 		slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview,
-			`Law index available with ${entries.length} statute(s)`)
+			`Law index available with ${entries.length} statute(s) (backend=${this.activeLawBackend})`)
 		if (entries.length == 0) {
 			// An empty picker is indistinguishable from a broken one, so it is
 			// never opened: the catalog is empty, and that is what gets said.
@@ -2329,6 +2426,26 @@ export default class SemaLogicPlugin extends Plugin {
 	private async fetchLawMarkdown(entry: LawIndexEntry,
 		existingMeta: Partial<LawNoteMeta> | undefined): Promise<LawMarkdownResult | undefined> {
 		const name = entry.abbreviation || entry.title || entry.lawId
+		const backend = this.activeLawBackend
+		// Law_New serves the stored statute Markdown directly.  It deliberately
+		// has neither Law's raw-download stage nor its snapshot view.
+		if (backend == "new") {
+			const markdownUrl = this.resolveExternalLawUrl(lawMarkdownRouteFor(backend, entry.lawId))
+			if (markdownUrl == undefined) { throw new Error(`die Markdown-Adresse von ${name} konnte nicht aufgeloest werden`) }
+			const markdownEtag = lawNoteRevalidationEtag(existingMeta, "raw.md")
+			const markdown = await this.fetchLawBytes(markdownUrl, markdownEtag, `${name} (Markdown)`)
+			if (markdown.status == 304 && markdownEtag.length > 0) {
+				return { markdown: "", source: "raw.md", etag: markdownEtag, version: existingMeta?.version ?? "", lawId: entry.lawId, unchanged: true }
+			}
+			if (markdown.status < 200 || markdown.status >= 300) {
+				throw new Error(`HTTP ${markdown.status} von /lawnew/doc/<id>.md`)
+			}
+			return {
+				markdown: markdown.text, source: "raw.md", etag: lawHeaderValue(markdown.headers, "ETag"),
+				version: lawHeaderValue(markdown.headers, "X-SL-Version"),
+				lawId: lawHeaderValue(markdown.headers, "X-SL-Law-Id") || entry.lawId, unchanged: false
+			}
+		}
 
 		// 1. The imported source. WP23 SS3's route is fixed, so it is asked
 		// directly instead of first pulling an 11 MB document to read a header off
@@ -2375,7 +2492,7 @@ export default class SemaLogicPlugin extends Plugin {
 		}
 
 		// 2. The round trip of the served document.
-		const docUrl = this.resolveExternalLawUrl(lawDocumentRoute(entry.lawId))
+		const docUrl = this.resolveExternalLawUrl(lawDocumentRouteFor(backend, entry.lawId))
 		if (docUrl == undefined) {
 			throw new Error(`die Adresse von ${name} konnte nicht aufgeloest werden`)
 		}
@@ -2398,8 +2515,8 @@ export default class SemaLogicPlugin extends Plugin {
 		}
 		this.lawLoadProgress.setMessage(`${name} wird nach Markdown gewandelt ...`)
 		this.lawLoadProgress.update(0, 0)
-		const deannotated = await deannotateLawHtml(this.settings, doc.text)
-		if (deannotated.mediaType != "text/markdown") {
+		const deannotated = await deannotateLawHtml(this.settings, doc.text, backend)
+		if (deannotated.mediaType != "text/markdown" || deannotated.source != "annotate") {
 			throw new Error(`der Dienst lieferte ${deannotated.mediaType || "einen unbekannten Typ"} statt Markdown`
 				+ " - das Dokument wurde nicht als annotiertes HTML erkannt")
 		}
@@ -2424,10 +2541,10 @@ export default class SemaLogicPlugin extends Plugin {
 		const conditional: Record<string, string> = {}
 		if (etag.length > 0) { conditional["If-None-Match"] = etag }
 		const headers = this.lawRequestHeaders(conditional)
-		const streamed = await fetchLawDocumentStreaming(url, headers,
-			(loaded, total) => this.lawLoadProgress.update(loaded, total))
-		if (streamed != undefined) { return streamed }
-		this.lawLoadProgress.update(0, 0)
+		// Obsidian's renderer has the app:// origin, so a browser fetch to a
+		// local SemaLogic service produces a visible CORS rejection before the
+		// former fallback can run. requestUrl is Obsidian's native request path:
+		// it supports authenticated local services without requiring CORS headers.
 		const buffered = await requestUrl(this.createLawApiRequest(url, headers))
 		return { status: buffered.status, text: buffered.text ?? "", headers: buffered.headers ?? {} }
 	}
@@ -2801,7 +2918,7 @@ export default class SemaLogicPlugin extends Plugin {
 		const catalogCandidates: string[] = []
 		if (catalogUrl.length > 0) { catalogCandidates.push(catalogUrl) }
 		if (lawId.length > 0) {
-			const byLawId = lawDocumentRoute(lawId)
+			const byLawId = lawDocumentRoute(lawId, this.activeLawBackend)
 			if (!catalogCandidates.includes(byLawId)) { catalogCandidates.push(byLawId) }
 		}
 
@@ -2815,7 +2932,7 @@ export default class SemaLogicPlugin extends Plugin {
 		if (route.lawAddress.length > 0) {
 			const addressLawId = await this.lawIdForAddress(route.lawAddress)
 			if (addressLawId.length > 0) {
-				const byAddress = lawDocumentRoute(addressLawId)
+				const byAddress = lawDocumentRoute(addressLawId, this.activeLawBackend)
 				if (!catalogCandidates.includes(byAddress)) { catalogCandidates.push(byAddress) }
 			} else {
 				failures.push(`${route.lawAddress}: im Gesetzes-Index nicht gefunden`)
@@ -2866,7 +2983,8 @@ export default class SemaLogicPlugin extends Plugin {
 				await this.openLawCatalogDocument(documentTitle, resolvedCatalogUrl, response.text ?? "", targetId, {
 					lawId: servedLawId,
 					version: lawHeaderValue(response.headers, "X-SL-Version"),
-					abbreviation: shortName
+					abbreviation: shortName,
+					lawBackend: /\/lawnew(?:\/|$)/i.test(new URL(resolvedCatalogUrl).pathname) ? "new" : "legacy"
 				}, lawHeaderValue(response.headers, "X-SL-Raw-Download"))
 				return
 			} catch (e) {
@@ -5102,7 +5220,7 @@ export default class SemaLogicPlugin extends Plugin {
 	}
 
 	private async restoreLawCatalogView(view: LawCatalogView,
-		state: { lawTitle: string; catalogUrl: string; targetId: string; lawId: string; lawVersion: string; lawAbbreviation: string }): Promise<void> {
+		state: { lawTitle: string; catalogUrl: string; targetId: string; lawId: string; lawVersion: string; lawAbbreviation: string; lawBackend?: LawBackend }): Promise<void> {
 		let responseStatus: number | undefined
 		try {
 			const response = await requestUrl(this.createExternalLawRequest(state.catalogUrl))
@@ -5113,7 +5231,8 @@ export default class SemaLogicPlugin extends Plugin {
 			view.showLawDocument(state.lawTitle, state.catalogUrl, response.text ?? "", state.targetId, {
 				lawId: lawHeaderValue(response.headers, "X-SL-Law-Id") || state.lawId,
 				version: lawHeaderValue(response.headers, "X-SL-Version") || state.lawVersion,
-				abbreviation: state.lawAbbreviation
+				abbreviation: state.lawAbbreviation,
+				lawBackend: state.lawBackend ?? (/\/lawnew(?:\/|$)/i.test(new URL(state.catalogUrl).pathname) ? "new" : "legacy")
 			}, lawHeaderValue(response.headers, "X-SL-Raw-Download"))
 			slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm?.slview,
 				`Restored law catalog view (url=${state.catalogUrl}, target=${state.targetId})`)

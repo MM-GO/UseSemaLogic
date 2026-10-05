@@ -102,6 +102,7 @@ export class SemaLogicView extends ItemView {
   currKind: string = "raw"
   currFragment: boolean = true
   currSource: string | undefined
+  currLawBackend: "legacy" | "new" | undefined
   // "markdown" where the payload turned out to be markdown rather than markup.
   currFormat: RulesoutTextFormat | undefined
   currDiagnostics: Diagnostics = emptyDiagnostics()
@@ -758,6 +759,13 @@ export class SemaLogicView extends ItemView {
     if (backlinksRequested) {
       semaLogicJsonRequestBody["backlinks"] = true
     }
+    // API 00.03.02: AnnotatedHTML always names the persisted pipeline.  The
+    // asynchronous capability check in performParse establishes this value
+    // before the body is made; legacy is only the safe pre-00.03.02 fallback.
+    const lawBackend = this.slComm?.slPlugin?.settings.mySLSettings[this.slComm.slPlugin.settings.mySetting].lawBackend
+    if (rulesettype == "AnnotatedHTML") {
+      semaLogicJsonRequestBody["lawBackend"] = lawBackend == "new" ? "new" : "legacy"
+    }
     
     if (interpreteText != undefined) {
       semaLogicJsonRequestBody["interprete"] = [
@@ -1149,11 +1157,25 @@ export class SemaLogicView extends ItemView {
     }
     this.renderDiagnostics()
     this.getCurrHTML()
+    this.rewriteLawNewRelativeLinks()
     this.applyResultSearch()
     // Only the entries this plugin can route are marked as links, so a
     // reference the server described without a target keeps its quiet
     // presentation instead of promising a jump that cannot happen.
     decorateBacklinkEntries(this.contentEl)
+  }
+
+  // Law_New's standalone page uses file-relative cross-statute links.  The
+  // embedded result has no such base URL, so rewrite only the rendered DOM;
+  // currResult remains byte-identical for a possible deannotation round trip.
+  private rewriteLawNewRelativeLinks(): void {
+    if (this.currLawBackend != "new") { return }
+    this.contentEl.querySelectorAll<HTMLAnchorElement>("a[href]").forEach((link) => {
+      const href = link.getAttribute("href") ?? ""
+      const match = /^([^/?#]+)\.html#(.+)$/.exec(href)
+      if (match == undefined) { return }
+      link.setAttr("href", `/lawnew/doc/${encodeURIComponent(match[1])}#${match[2]}`)
+    })
   }
 
   // Diagnostics are part of every reply, so the finding count is rendered
@@ -1433,6 +1455,9 @@ export class SemaLogicView extends ItemView {
   // Performs the request and decodes the envelope. One decoder for 2xx and 4xx:
   // the reason for a rejected request is in `diagnostics`, not in the status.
   private async performParse(request: LastParseRequest, audience: string): Promise<SemaLogicParseResult> {
+	if (request.outPutFormat == "AnnotatedHTML" || request.outPutFormat == "AnnotatedHTML_backlinks") {
+		await this.slComm.slPlugin.ensureLawBackendSelection()
+	}
     const semaLogicJsonRequestBody = this.createSemaLogicRequestBody(request.dialectID, request.bodytext, request.outPutFormat, request.interpreteText)
     const semaLogicRequest = this.createSemaLogicRequest(request.settings, withAudience(request.vAPI_URL, audience), semaLogicJsonRequestBody, request.engine)
     const response = await requestUrl(semaLogicRequest)
@@ -1502,6 +1527,7 @@ export class SemaLogicView extends ItemView {
         this.currKind = result.payload.kind
         this.currFragment = result.payload.fragment
         this.currSource = result.payload.source
+		this.currLawBackend = result.payload.lawBackend
         this.currFormat = result.payload.format
         if (this.currFormat != undefined) {
           slconsolelog(DebugLevMap.DebugLevel_Informative, this.slComm.slview,

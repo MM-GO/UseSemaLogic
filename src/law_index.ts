@@ -170,8 +170,10 @@ export function parseLawIndex(body: string): LawIndexEntry[] {
 
 // The route a statute's annotated document is served from. One spelling, so a
 // reference, a citation and the picker all fetch the same bytes.
-export function lawDocumentRoute(lawId: string): string {
-  return `/law/doc/${encodeURIComponent(lawId)}?view=snapshot`
+export function lawDocumentRoute(lawId: string, backend: "legacy" | "new" = "legacy"): string {
+  return backend == "new"
+    ? `/lawnew/doc/${encodeURIComponent(lawId)}`
+    : `/law/doc/${encodeURIComponent(lawId)}?view=snapshot`
 }
 
 // A node address ("DE.GESETZ.SGB_8.P13") begins with the statute's own lawId and

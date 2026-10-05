@@ -4,6 +4,7 @@ import { DebugLevMap, RulesettypesCommands, Rstypes_AnnotatedHTML_WithBacklinks 
 import { slconsolelog } from "./utils"
 import { formatLawByteSize, utf8ByteLength } from "./law_index"
 import { deannotateLawHtml } from "./law_transfer"
+import { LawBackend } from "./law_backend"
 
 export const LawCatalogViewType = "semalogic-law-catalog"
 const LawCatalogOutputFormat = RulesettypesCommands[Rstypes_AnnotatedHTML_WithBacklinks][1]
@@ -14,6 +15,7 @@ export type LawDocumentIdentity = {
   lawId: string
   version: string
   abbreviation: string
+  lawBackend?: LawBackend
 }
 
 // A catalog fragment is a read-only AnnotatedHTML result. Extending the main
@@ -26,6 +28,9 @@ export class LawCatalogView extends SemaLogicView {
   private lawId: string = ""
   private lawVersion: string = ""
   private lawAbbreviation: string = ""
+  // The page must be deannotated by its producing pipeline.  Legacy remains
+  // undefined for restored workspaces written before API 00.03.02.
+  private lawBackend: LawBackend | undefined
   private transferButton: ButtonComponent | undefined
   private transferRunning: boolean = false
   // WP23 SS3's capability header. "" means this server does not hold the
@@ -50,29 +55,31 @@ export class LawCatalogView extends SemaLogicView {
     return this.lawAbbreviation || this.lawTitle
   }
 
-  getState(): { lawTitle: string; catalogUrl: string; targetId: string; lawId: string; lawVersion: string; lawAbbreviation: string } {
+  getState(): { lawTitle: string; catalogUrl: string; targetId: string; lawId: string; lawVersion: string; lawAbbreviation: string; lawBackend?: LawBackend } {
     return {
       lawTitle: this.lawTitle,
       catalogUrl: this.catalogUrl,
       targetId: this.targetId,
       lawId: this.lawId,
       lawVersion: this.lawVersion,
-      lawAbbreviation: this.lawAbbreviation
+      lawAbbreviation: this.lawAbbreviation,
+      lawBackend: this.lawBackend
     }
   }
 
   async setState(state: unknown, result: any): Promise<void> {
     await super.setState(state, result)
-    const saved = state as Partial<{ lawTitle: string; catalogUrl: string; targetId: string; lawId: string; lawVersion: string; lawAbbreviation: string }>
+    const saved = state as Partial<{ lawTitle: string; catalogUrl: string; targetId: string; lawId: string; lawVersion: string; lawAbbreviation: string; lawBackend: LawBackend }>
     this.lawTitle = saved.lawTitle || this.lawTitle
     this.catalogUrl = saved.catalogUrl || ""
     this.targetId = saved.targetId || ""
     this.lawId = saved.lawId || ""
     this.lawVersion = saved.lawVersion || ""
     this.lawAbbreviation = saved.lawAbbreviation || ""
+    this.lawBackend = saved.lawBackend == "legacy" || saved.lawBackend == "new" ? saved.lawBackend : undefined
   }
 
-  public getCatalogRestoreState(): { lawTitle: string; catalogUrl: string; targetId: string; lawId: string; lawVersion: string; lawAbbreviation: string } | undefined {
+  public getCatalogRestoreState(): { lawTitle: string; catalogUrl: string; targetId: string; lawId: string; lawVersion: string; lawAbbreviation: string; lawBackend?: LawBackend } | undefined {
     // A statute loaded from the picker has no provision target; a followed
     // citation always has one. Either is restorable as long as there is a URL.
     //
@@ -179,13 +186,17 @@ export class LawCatalogView extends SemaLogicView {
       this.lawId = identity.lawId
       this.lawVersion = identity.version
       this.lawAbbreviation = identity.abbreviation
+      this.lawBackend = identity.lawBackend
     }
 
     this.refreshTabTitle()
     this.currResult = fragment
     this.currKind = "html"
-    this.currFragment = true
+    // Law_New marks a complete HTML document as a fragment in its API.  The
+    // view renderer must nevertheless extract its body before inserting it.
+    this.currFragment = !/<!DOCTYPE\s|<html\b|<body\b/i.test(fragment)
     this.currSource = undefined
+	this.currLawBackend = this.lawBackend
     this.setNewInitial(LawCatalogOutputFormat, true)
     this.headerEl.setText(title)
     this.contentEl.addClass("sl-law-catalog")
@@ -255,14 +266,14 @@ export class LawCatalogView extends SemaLogicView {
     }
     this.setTransferRunning(true)
     try {
-      const { markdown, mediaType } = await deannotateLawHtml(settings, annotatedHtml)
+      const { markdown, mediaType, source } = await deannotateLawHtml(settings, annotatedHtml, this.lawBackend)
       // A text/html reply means the service took the *forward* direction: the
       // input was not recognised as annotated. Putting that on the clipboard
       // under a Markdown label is exactly the failure to avoid.
-      if (mediaType != "text/markdown") {
+      if (mediaType != "text/markdown" || source != "annotate") {
         new Notice(`UseSemaLogic: ${name} wurde nicht als annotiertes HTML erkannt (mediaType ${mediaType || "unbekannt"}); die Zwischenablage bleibt unveraendert.`)
         slconsolelog(DebugLevMap.DebugLevel_Error, this.slComm?.slview,
-          `Law markdown transfer returned the wrong direction (lawId=${this.lawId}, mediaType=${mediaType})`)
+          `Law markdown transfer returned the wrong direction (lawId=${this.lawId}, backend=${this.lawBackend ?? "server default"}, source=${source}, mediaType=${mediaType})`)
         return
       }
       if (markdown.length == 0) {
